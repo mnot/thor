@@ -21,7 +21,7 @@ arriving soon.
 
 ## API Reference
 
-* [Events](thor/tree/master/doc/events.md) - Emitting and listening for events
-* [The Loop](thor/tree/master/doc/loop.md) - The event loop itself
-* [TCP](thor/tree/master/doc/tcp.md) - Network connections
-* [HTTP](thor/tree/master/doc/http.md) - HyperText Transfer Protocol
+* [Events](doc/events.md) - Emitting and listening for events
+* [The Loop](doc/loop.md) - The event loop itself
+* [TCP](doc/tcp.md) - Network connections
+* [HTTP](doc/http.md) - HyperText Transfer Protocol
