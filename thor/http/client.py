@@ -94,7 +94,6 @@ class HttpClient(object):
         tcp_conn.removeListeners('data', 'pause', 'close')
         tcp_conn.pause(True)
         if tcp_conn.tcp_connected:
-            # TODO: time out idle conns, configurable
             def idle_close():
                 "Remove the connection from the pool when it closes."
                 try:
