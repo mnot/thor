@@ -43,9 +43,7 @@ Otherwise, download a tarball and install using:
 
 ## Using Thor
 
-See the docstrings for the various modules, as well as the tests, to give
-an idea of how to use Thor. Proper documentation will be forthcoming soon
-(you can help!).
+The [documentation](doc/) is a good starting point; see also the docstrings for the various modules, as well as the tests, to give an idea of how to use Thor. Examples will be forthcoming soon.
 
 
 ## Support and Contributions
