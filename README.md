@@ -3,27 +3,18 @@
 
 ## About Thor
 
-Thor is a Python library for evented IO, with a focus on enabling
-high-performance HTTP intermediaries.
+Thor is a Python library for evented IO, with a focus on enabling high-performance HTTP intermediaries.
 
-Thor's goals are to be as fast as possible, to implement the protocols
-correctly, and to be simple. You can help meet these goals by contributing
-issues, patches and tests.
+Thor's goals are to be as fast as possible, to implement the protocols correctly, and to be simple. You can help meet these goals by contributing issues, patches and tests.
 
-Thor's EventEmitter API is influenced by^H^H^H copied from NodeJS; if
-you're familiar with Node, it shouldn't be too hard to use Thor. However, Thor
-is nothing like Twisted; this is considered a feature.
+Thor's EventEmitter API is influenced by^H^H^H copied from NodeJS; if you're familiar with Node, it shouldn't be too hard to use Thor. However, Thor is nothing like Twisted; this is considered a feature.
 
-Currently, Thor has an event loop as well as TCP and HTTP APIs (client and
-server). New APIs (e.g., UDP, DNS) and capabilities (e.g., TLS) should be
-arriving soon.
+Currently, Thor has an event loop as well as TCP and HTTP APIs (client and server). New APIs (e.g., UDP, DNS) and capabilities (e.g., TLS) should be arriving soon.
 
 
 ## Requirements
 
-Thor just needs Python 2.6 or greater; see <http://python.org/>. Currently, it 
-will run on most Posix platforms; specifically, those that offer one of poll, 
-epoll or kqueue.
+Thor just needs Python 2.6 or greater; see <http://python.org/>. Currently, it  will run on most Posix platforms; specifically, those that offer one of poll,  epoll or kqueue.
 
 
 ## Installation
@@ -48,24 +39,18 @@ The [documentation](doc/) is a good starting point; see also the docstrings for 
 
 ## Support and Contributions
 
-See <http://github.com/mnot/thor/> to give feedback, report issues, and 
-contribute code.
+See <http://github.com/mnot/thor/> to give feedback, report issues, and  contribute code.
 
-We welcome all input, but especially code contributions via a Github pull
-request, and test cases are the cherry on top. 
+We welcome all input, but especially code contributions via a Github pull request, and test cases are the cherry on top. 
 
 
 ## Why Thor?
 
-Thor is not only "a hammer-wielding god associated with thunder, lightning, 
-storms, oak trees, strength, destruction, fertility, healing, and the 
-protection of mankind", he's also my Norwegian Forest Cat.
+Thor is not only "a hammer-wielding god associated with thunder, lightning,  storms, oak trees, strength, destruction, fertility, healing, and the  protection of mankind", he's also my Norwegian Forest Cat.
 
-Thor (the software program) grew out of nbhttp, which itself came from earlier
-work on evented Python in redbot and tarawa. 
+Thor (the software program) grew out of nbhttp, which itself came from earlier work on evented Python in redbot and tarawa. 
 
-Thor (the cat) now rules our house with a firm but benevolent paw. He gets
-sick if we give him any milk, though.
+Thor (the cat) now rules our house with a firm but benevolent paw. He gets sick if we give him any milk, though.
 
 
 # License
