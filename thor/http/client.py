@@ -134,8 +134,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.client = client
         self.method = None
         self.res_version = None
-        self._host = None
-        self._port = None
         self.tcp_conn = None
         self._conn_reusable = False
         self._retries = 0
@@ -148,26 +146,15 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         req_hdrs is a list of (field_name, field_value) for
         the request headers.
         """
-        req_hdrs = [i for i in req_hdrs if not i[0].lower() in req_rm_hdrs]
-        (scheme, authority, path, query, fragment) = urlsplit(uri)
-        if scheme.lower() != 'http':
-            self.input_error(UrlError("Only HTTP URLs are supported"))
-            return
-        if "@" in authority:
-            userinfo, authority = authority.split("@", 1)
-        if ":" in authority:
-            self._host, port = authority.rsplit(":", 1)
-            try:
-                self._port = int(port)
-            except ValueError:
-                self.input_error(UrlError("Non-integer port in URL"))
-                return
-        else:
-            self._host, self._port = authority, 80
-        if path == "":
-            path = "/"
-        req_target = urlunsplit(('', '', path, query, ''))
         self.method = method
+        self.uri = uri
+        try:
+            host, port, authority, req_target = self._parse_uri(self.uri)
+        except TypeError:
+            return 
+        req_hdrs = [
+            i for i in req_hdrs if not i[0].lower() in req_rm_hdrs
+        ]
         req_hdrs.append(("Host", authority))
         req_hdrs.append(("Connection", "keep-alive"))
         try:
@@ -180,11 +167,36 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.output_start("%s %s HTTP/1.1" % (self.method, req_target),
             req_hdrs, delimit
         )
-        self.client._attach_conn(self._host, self._port, self._handle_connect,
+        self.client._attach_conn(host, port, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
     # TODO: if we sent Expect: 100-continue, don't wait forever
     # (i.e., schedule something)
+
+    def _parse_uri(self, uri):
+        """
+        Given a URI, parse out the host, port, authority and request target. 
+        Returns None if there is an error.
+        """
+        (scheme, authority, path, query, fragment) = urlsplit(uri)
+        if scheme.lower() != 'http':
+            self.input_error(UrlError("Only HTTP URLs are supported"))
+            return
+        if "@" in authority:
+            userinfo, authority = authority.split("@", 1)
+        if ":" in authority:
+            host, port = authority.rsplit(":", 1)
+            try:
+                port = int(port)
+            except ValueError:
+                self.input_error(UrlError("Non-integer port in URL"))
+                return
+        else:
+            host, port = authority, 80
+        if path == "":
+            path = "/"
+        req_target = urlunsplit(('', '', path, query, ''))
+        return host, port, authority, req_target
 
     def request_body(self, chunk):
         "Send part of the request body. May be called zero to many times."
@@ -225,7 +237,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.handle_input("")
         if self._input_delimit == CLOSE:
             self.input_end()
-        elif self._input_state == WAITING:
+        elif self._input_state == WAITING: # TODO: needs to be tighter
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
                     self.client.loop.schedule(
@@ -250,7 +262,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "Retry the request."
         self._clear_read_timeout()
         self._retries += 1
-        self.client._attach_conn(self._host, self._port, self._handle_connect,
+        try:
+            host, port, authority, req_target = self._parse_uri(self.uri)
+        except TypeError:
+            return 
+        self.client._attach_conn(host, port, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
 
