@@ -271,7 +271,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         try:
             proto_version, status_txt = top_line.split(None, 1)
             proto, self.res_version = proto_version.rsplit('/', 1)
-            # TODO: check that the protocol is HTTP
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line))
             raise ValueError
