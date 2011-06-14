@@ -6,7 +6,7 @@ import thor
 setup(
   name = 'thor',
   version = thor.__version__,
-  description = '',
+  description = 'Simple Event-Driven IO for Python',
   author = 'Mark Nottingham',
   author_email = 'mnot@mnot.net',
   url = 'http://github.com/mnot/thor/',
