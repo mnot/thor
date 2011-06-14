@@ -221,8 +221,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _conn_closed(self):
         "The server closed the connection."
-        if self.client.read_timeout:
-            self._read_timeout_ev.delete()
+        self._clear_read_timeout()
         if self._input_buffer:
             self.handle_input("")
         if self._input_delimit == CLOSE:
@@ -250,8 +249,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _retry(self):
         "Retry the request."
-        if self._read_timeout_ev:
-            self._read_timeout_ev.delete()
+        self._clear_read_timeout()
         self._retries += 1
         self.client._attach_conn(self._host, self._port, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
@@ -269,8 +267,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
         """
-        if self.client.read_timeout:
-            self._read_timeout_ev.delete()
+        self._clear_read_timeout()
         try:
             proto_version, status_txt = top_line.split(None, 1)
             proto, self.res_version = proto_version.rsplit('/', 1)
@@ -303,15 +300,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def input_body(self, chunk):
         "Process a response body chunk from the wire."
-        if self.client.read_timeout:
-            self._read_timeout_ev.delete()
+        self._clear_read_timeout()
         self.emit('response_body', chunk)
         self._set_read_timeout('body')
 
     def input_end(self, trailers):
         "Indicate that the response body is complete."
-        if self.client.read_timeout:
-            self._read_timeout_ev.delete()
+        self._clear_read_timeout()
         if self.tcp_conn:
             if self.tcp_conn.tcp_connected and self._conn_reusable:
                 self.client._release_conn(self.tcp_conn)
@@ -325,8 +320,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         if self.inspecting: # we want to get the rest of the response.
             self._conn_reusable = False
         else:
-            if self.client.read_timeout:
-                self._read_timeout_ev.delete()
+            self._clear_read_timeout()
             if self.tcp_conn:
                 self.tcp_conn.close()
                 self.tcp_conn = None
@@ -347,6 +341,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                 self.client.read_timeout, self.input_error,
                 ReadTimeoutError(kind)
             )
+
+    def _clear_read_timeout(self):
+        "Clear the read timeout."
+        if self.client.read_timeout:
+            self._read_timeout_ev.delete()
 
 
 def test_client(request_uri, out, err):
