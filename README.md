@@ -39,7 +39,7 @@ The [documentation](thor/tree/master/doc/) is a good starting point; see also th
 
 ## Support and Contributions
 
-See <http://github.com/mnot/thor/> to give feedback, report issues, and  contribute code.
+See <http://github.com/mnot/thor/> to give feedback, view and report [issues](thor/issues), and  contribute code.
 
 We welcome all input, but especially code contributions via a Github pull request, and test cases are the cherry on top. 
 
