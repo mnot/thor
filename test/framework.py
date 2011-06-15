@@ -63,3 +63,33 @@ class ClientServerTestCase(unittest.TestCase):
     def create_client(self, host, port, client_side):
         raise NotImplementedError
         
+
+class DummyHttpParser(thor.http.common.HttpMessageHandler):
+    def __init__(self, *args, **kw):
+        thor.http.common.HttpMessageHandler.__init__(self, *args, **kw)
+        self.test_top_line = None
+        self.test_hdrs = None
+        self.test_body = ""
+        self.test_err = None
+        self.test_states = []
+    
+    def input_start(self, top_line, hdr_tuples, conn_tokens, 
+                     transfer_codes, content_length):
+        self.test_states.append("START")
+        self.test_top_line = top_line
+        self.test_hdrs = hdr_tuples
+        return bool
+        
+    def input_body(self, chunk):
+        self.test_states.append("BODY")
+        self.test_body += chunk
+
+    def input_end(self, trailers):
+        self.test_states.append("END")
+        self.test_trailers = trailers
+
+    def input_error(self, err):
+        self.test_states.append("ERROR")
+        self.test_err = err
+        return False # never recover.
+
