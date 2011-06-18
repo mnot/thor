@@ -111,7 +111,7 @@ class testEventSource(unittest.TestCase):
     def setUp(self):
         self.loop = thor.loop.make()
         self.es = thor.loop.EventSource(self.loop)
-        self.fd = tempfile.NamedTemporaryFile(bufsize=0)
+        self.fd = sys.stderr
         self.events_seen = []
 
     def tearDown(self):
