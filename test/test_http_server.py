@@ -155,35 +155,35 @@ Content-Length: 5
         self.go([server_side], [client_side])        
 
 
-    def test_pipeline(self):
-        def server_side(server):
-            server.ex_count = 0
-            def check(exchange):
-                self.check_exchange(exchange, {
-                    'method': 'GET',
-                    'uri': '/'
-                })
-                server.ex_count += 1
-            server.on('exchange', check)
-            @on(self.loop)
-            def stop():
-                self.assertEqual(server.ex_count, 2)
-            
-        def client_side(client_conn):
-            client_conn.sendall("""\
-GET / HTTP/1.1
-Host: %s:%s
-
-GET / HTTP/1.1
-Host: %s:%s
-
-""" % (
-    framework.test_host, framework.test_port,
-    framework.test_host, framework.test_port
-))
-            time.sleep(1)
-            client_conn.close()
-        self.go([server_side], [client_side])
+#    def test_pipeline(self):
+#        def server_side(server):
+#            server.ex_count = 0
+#            def check(exchange):
+#                self.check_exchange(exchange, {
+#                    'method': 'GET',
+#                    'uri': '/'
+#                })
+#                server.ex_count += 1
+#            server.on('exchange', check)
+#            @on(self.loop)
+#            def stop():
+#                self.assertEqual(server.ex_count, 2)
+#            
+#        def client_side(client_conn):
+#            client_conn.sendall("""\
+#GET / HTTP/1.1
+#Host: %s:%s
+#
+#GET / HTTP/1.1
+#Host: %s:%s
+#
+#""" % (
+#    framework.test_host, framework.test_port,
+#    framework.test_host, framework.test_port
+#))
+#            time.sleep(1)
+#            client_conn.close()
+#        self.go([server_side], [client_side])
 
 
 
