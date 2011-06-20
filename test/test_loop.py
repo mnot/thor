@@ -18,15 +18,16 @@ class IOStopper(thor.loop.EventSource):
     def __init__(self, testcase, loop):
         thor.loop.EventSource.__init__(self, loop)
         self.testcase = testcase
-        self.fd = make_fifo('tmp_fifo')
+        self.r_fd, self.w_fd = make_fifo('tmp_fifo')
         self.on('writable', self.write)
-        self.register_fd(self.fd.fileno(), 'writable')
+        self.register_fd(self.w_fd, 'writable')
     
     def write(self):
         self.testcase.assertTrue(self._loop.running)
         self._loop.stop()
-        self.fd.close()
-        os.remove('tmp_fifo')
+        os.close(self.r_fd)
+        os.close(self.w_fd)
+        os.unlink('tmp_fifo')
 
 
 class TestLoop(unittest.TestCase):
@@ -113,23 +114,59 @@ class TestEventSource(unittest.TestCase):
         self.loop = thor.loop.make()
         self.es = thor.loop.EventSource(self.loop)
         self.events_seen = []
-        self.fd = make_fifo('tmp_fifo')
+        self.r_fd, self.w_fd = make_fifo('tmp_fifo')
 
     def tearDown(self):
-        self.fd.close()
-        os.remove('tmp_fifo')
+        os.close(self.r_fd)
+        os.close(self.w_fd)
+        os.unlink('tmp_fifo')
 
     def test_EventSource_register(self):
-        self.es.register_fd(self.fd.fileno())
-        self.assertTrue(self.fd.fileno() in self.loop._fd_targets.keys())
+        self.es.register_fd(self.r_fd)
+        self.assertTrue(self.r_fd in self.loop._fd_targets.keys())
     
     def test_EventSource_unregister(self):
-        self.es.register_fd(self.fd.fileno())
-        self.assertTrue(self.fd.fileno() in self.loop._fd_targets.keys())
+        self.es.register_fd(self.r_fd)
+        self.assertTrue(self.r_fd in self.loop._fd_targets.keys())
         self.es.unregister_fd()
-        self.assertFalse(self.fd.fileno() in self.loop._fd_targets.keys())
+        self.assertFalse(self.r_fd in self.loop._fd_targets.keys())
         
+    def test_EventSource_event_del(self):
+        self.es.register_fd(self.r_fd, 'readable')
+        self.es.on('readable', self.readable_check)
+        os.write(self.w_fd, 'foo')
+        self.es.event_del('readable')
+        self.loop._run_fd_events()
+        self.assertFalse('readable' in self.events_seen)
         
+    def test_EventSource_readable(self):
+        self.es.register_fd(self.r_fd, 'readable')
+        self.es.on('readable', self.readable_check)
+        os.write(self.w_fd, "foo")
+        self.loop._run_fd_events()
+        self.assertTrue('readable' in self.events_seen)
+
+    def test_EventSource_not_readable(self):
+        self.es.register_fd(self.r_fd, 'readable')
+        self.es.on('readable', self.readable_check)
+        self.loop._run_fd_events()
+        self.assertFalse('readable' in self.events_seen)
+
+    def readable_check(self, check="foo"):
+        data = os.read(self.r_fd, 5)
+        self.assertEquals(data, check)
+        self.events_seen.append('readable')
+
+#    def test_EventSource_close(self):
+#        self.es.register_fd(self.fd, 'close')
+#        self.es.on('close', self.close_check)
+#        self.fd.close()
+#        self.loop._run_fd_events()
+#        self.assertTrue('close' in self.events_seen)
+#
+#    def close_check(self):
+#        self.events_seen.append('close')        
+
 if __name__ == '__main__':
     unittest.main()
 

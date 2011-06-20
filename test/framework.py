@@ -97,9 +97,14 @@ class DummyHttpParser(thor.http.common.HttpMessageHandler):
 
 def make_fifo(filename):
     try:
+        os.unlink(filename)
+    except OSError:
+        pass # wasn't there
+    try:
         os.mkfifo(filename)
     except OSError, e:
         print "Failed to create FIFO: %s" % e
     else:
-        fifo = open(filename, 'w+')
-        return fifo
+        r = os.open(filename, os.O_RDONLY|os.O_NONBLOCK)
+        w = os.open(filename, os.O_WRONLY|os.O_NONBLOCK)
+        return r, w
