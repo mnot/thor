@@ -138,8 +138,8 @@ class TestEventSource(unittest.TestCase):
     def test_EventSource_event_del(self):
         self.es.register_fd(self.r_fd, 'readable')
         self.es.on('readable', self.readable_check)
-        os.write(self.w_fd, 'foo')
         self.es.event_del('readable')
+        os.write(self.w_fd, 'foo')
         self.loop._run_fd_events()
         self.assertFalse('readable' in self.events_seen)
         
