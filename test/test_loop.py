@@ -17,7 +17,7 @@ class IOStopper(thor.loop.EventSource):
         thor.loop.EventSource.__init__(self, loop)
         self.testcase = testcase
         self.on('writable', self.write)
-        self.register_fd(sys.stdout.fileno(), 'writable')
+        self.register_fd(sys.stdin.fileno(), 'writable')
     
     def write(self):
         self.testcase.assertTrue(self._loop.running)
