@@ -330,8 +330,11 @@ class TcpClient(EventSource):
         # TODO: use socket.getaddrinfo(); needs to be non-blocking.
         try:
             err = self.sock.connect_ex((host, port))
-        except (socket.error, socket.gaierror), why:
-            self.handle_conn_error()
+        except socket.gaierror, why:
+            self.handle_conn_error(socket.gaierror, why[0])
+            return
+        except socket.error, why:
+            self.handle_conn_error(socket.error, why[0])
             return
         if err != errno.EINPROGRESS:
             self.handle_conn_error(socket.error, err)
@@ -364,8 +367,8 @@ class TcpClient(EventSource):
         if self._error_sent:
             return
         if err_type is None or err is None:
-            err_type, ex_value = sys.exc_info()[:2]
-            err = ex_value[0]
+            err_type = socket.error
+            err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         self._error_sent = True
         self.unregister_fd()
         self.emit('connect_error', err_type, err)
