@@ -100,6 +100,7 @@ class LoopBase(EventEmitter):
         self._eventlookup = dict(
             [(v,k) for (k,v) in self._event_types.items()]
         )
+        self.__event_cache = {}
 
     def run(self):
         "Start the loop."
@@ -197,6 +198,16 @@ class LoopBase(EventEmitter):
         for event in events:
             eventmask |= self._eventlookup.get(event, 0)
         return eventmask
+
+    def _filter2events(self, evfilter):
+        "Calculate the events implied by a given filter."
+        if not self.__event_cache.has_key(evfilter):
+            events = set()
+            for et in self._event_types:
+                if et & evfilter:
+                    events.add(self._event_types[et])
+            self.__event_cache[evfilter] = events
+        return self.__event_cache[evfilter]
 
 
 class PollLoop(LoopBase):
@@ -306,7 +317,6 @@ class KqueueLoop(LoopBase):
         LoopBase.__init__(self, *args)
         self.max_ev = 50 # maximum number of events to pull from the queue
         self._kq = select.kqueue()
-        self.__event_cache = {}
 
     # TODO: override schedule() to use kqueue event scheduling.
 
@@ -354,16 +364,6 @@ class KqueueLoop(LoopBase):
     		#	EOF to be returned (indicating the connection is gone)
     		#	while there is still data pending in the socket
     		#	buffer.
-
-    def _filter2events(self, evfilter):
-        "Calculate the events implied by a given filter."
-        if not self.__event_cache.has_key(evfilter):
-            events = set()
-            for et in self._event_types:
-                if et & evfilter:
-                    events.add(self._event_types.get(et, 'unknown'))
-            self.__event_cache[evfilter] = events
-        return self.__event_cache[evfilter]
 
 
 def make(precision=None):
