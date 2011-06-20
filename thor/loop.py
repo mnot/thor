@@ -232,10 +232,15 @@ class PollLoop(LoopBase):
         self._poll.register(fd, eventmask)
 
     def _run_fd_events(self):
-        events = self._poll.poll(self.precision)
-        for fileno, event in events:
-            self._fd_event(self._event_types.get(event, 'unknown'), fileno)
-
+        event_list = self._poll.poll(self.precision)
+        for fileno, eventmask in event_list:
+            events = self._filter2events(eventmask)
+            for event in event_types:
+                try:
+                    event_type = self._event_types[event]
+                except KeyError:
+                    continue
+                self._fd_event(event_type, fileno)
 
 class EpollLoop(LoopBase):
     """
@@ -278,9 +283,15 @@ class EpollLoop(LoopBase):
         self._epoll.modify(fd, eventmask)
 
     def _run_fd_events(self):
-        events = self._epoll.poll(self.precision)
-        for fileno, event in events:
-            self._fd_event(self._event_types.get(event, 'unknown'), fileno)
+        event_list = self._epoll.poll(self.precision)
+        for fileno, eventmask in event_list:
+            events = self._filter2events(eventmask)
+            for event in event_types:
+                try:
+                    event_type = self._event_types[event]
+                except KeyError:
+                    continue
+                self._fd_event(event_type, fileno)
 
 
 class KqueueLoop(LoopBase):
