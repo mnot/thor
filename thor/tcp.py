@@ -314,7 +314,9 @@ class TcpClient(EventSource):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setblocking(False)
         self.on('writable', self.handle_connect)
+        self.on('error', self.handle_conn_error)
         self.register_fd(self.sock.fileno(), 'writable')
+        self.event_add('error')
 
 
     def connect(self, host, port, connect_timeout=None):
