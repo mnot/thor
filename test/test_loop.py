@@ -81,10 +81,8 @@ class TestLoop(unittest.TestCase):
     def test_schedule(self):
         run_time = 3 # how long to run for
         def check_time(start_time):
-            self.assertAlmostEqual(
-                systime.time() - run_time,
-                start_time,
-                places=1
+            self.assertTrue(
+                systime.time() - run_time - start_time <= self.loop.precision
             )
             self.loop.stop()
         self.loop.schedule(run_time, check_time, systime.time())
@@ -101,10 +99,8 @@ class TestLoop(unittest.TestCase):
     def test_time(self):
         run_time = 2
         def check_time():
-            self.assertAlmostEqual(
-                systime.time(), 
-                self.loop.time(),
-                places=1
+            self.assertTrue(
+                abs(systime.time() - self.loop.time()) <= self.loop.precision
             )
             self.loop.stop()
         self.loop.schedule(run_time, check_time)
