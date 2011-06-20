@@ -94,7 +94,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_timeout(self):
-        self.client.connect('127.0.0.2', test_port, 1)
+        self.client.connect('128.66.0.1', test_port, 1)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
