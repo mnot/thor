@@ -8,6 +8,8 @@ import tempfile
 import time as systime
 import unittest
 
+from framework import make_fifo
+
 sys.path.insert(0, "../")
 import thor.loop
 
@@ -16,12 +18,15 @@ class IOStopper(thor.loop.EventSource):
     def __init__(self, testcase, loop):
         thor.loop.EventSource.__init__(self, loop)
         self.testcase = testcase
+        self.fd = make_fifo('tmp_fifo')
         self.on('writable', self.write)
-        self.register_fd(sys.stdin.fileno(), 'writable')
+        self.register_fd(self.fd.fileno(), 'writable')
     
     def write(self):
         self.testcase.assertTrue(self._loop.running)
         self._loop.stop()
+        self.fd.close()
+        os.remove('tmp_fifo')
 
 
 class TestLoop(unittest.TestCase):
@@ -111,8 +116,12 @@ class TestEventSource(unittest.TestCase):
     def setUp(self):
         self.loop = thor.loop.make()
         self.es = thor.loop.EventSource(self.loop)
-        self.fd = sys.stdin
         self.events_seen = []
+        self.fd = make_fifo('tmp_fifo')
+
+    def tearDown(self):
+        self.fd.close()
+        os.remove('tmp_fifo')
 
     def test_EventSource_register(self):
         self.es.register_fd(self.fd.fileno())

@@ -5,6 +5,7 @@ Framework for testing clients and servers, moving one of them into
 a separate thread.
 """
 
+import os
 import sys
 import threading
 import unittest
@@ -93,3 +94,12 @@ class DummyHttpParser(thor.http.common.HttpMessageHandler):
         self.test_err = err
         return False # never recover.
 
+
+def make_fifo(filename):
+    try:
+        os.mkfifo(filename)
+    except OSError, e:
+        print "Failed to create FIFO: %s" % e
+    else:
+        fifo = open(filename, 'w+')
+        return fifo
