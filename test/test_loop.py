@@ -82,8 +82,12 @@ class TestLoop(unittest.TestCase):
     def test_schedule(self):
         run_time = 3 # how long to run for
         def check_time(start_time):
+            now = systime.time()
             self.assertTrue(
-                systime.time() - run_time - start_time <= self.loop.precision
+                now - run_time - start_time <= self.loop.precision,
+                "now: %s run_time: %s start_time: %s precision: %s" % (
+                    now, run_time, start_time, self.loop.precision
+                )
             )
             self.loop.stop()
         self.loop.schedule(run_time, check_time, systime.time())
