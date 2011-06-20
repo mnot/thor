@@ -41,10 +41,10 @@ from thor.events import EventEmitter, on
 from thor.tcp import TcpClient
 
 from common import HttpMessageHandler, \
-    CLOSE, COUNTED, NOBODY, \
+    CLOSE, COUNTED, CHUNKED, NOBODY, \
     WAITING, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
-    get_header
+    header_names
 from error import UrlError, ConnectError, \
     ReadTimeoutError, HttpVersionError
 
@@ -133,9 +133,15 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         EventEmitter.__init__(self)
         self.client = client
         self.method = None
+        self.uri = None
+        self.req_hdrs = None
+        self.req_target = None
+        self.authority = None
         self.res_version = None
         self.tcp_conn = None
         self._conn_reusable = False
+        self._req_body = False
+        self._req_started = False
         self._retries = 0
         self._read_timeout_ev = None
         self._output_buffer = []
@@ -148,25 +154,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         self.method = method
         self.uri = uri
+        self.req_hdrs = req_hdrs
         try:
-            host, port, authority, req_target = self._parse_uri(self.uri)
+            host, port = self._parse_uri(self.uri)
         except TypeError:
             return 
-        req_hdrs = [
-            i for i in req_hdrs if not i[0].lower() in req_rm_hdrs
-        ]
-        req_hdrs.append(("Host", authority))
-        req_hdrs.append(("Connection", "keep-alive"))
-        try:
-            body_len = int(get_header(req_hdrs, "content-length").pop(0))
-            delimit = COUNTED
-        except (IndexError, ValueError):
-            body_len = None
-            delimit = NOBODY
-        # FIXME: chunked encoding
-        self.output_start("%s %s HTTP/1.1" % (self.method, req_target),
-            req_hdrs, delimit
-        )
         self.client._attach_conn(host, port, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
@@ -195,11 +187,37 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             host, port = authority, 80
         if path == "":
             path = "/"
-        req_target = urlunsplit(('', '', path, query, ''))
-        return host, port, authority, req_target
+        self.authority = authority
+        self.req_target = urlunsplit(('', '', path, query, ''))
+        return host, port
+
+    def _req_start(self):
+        """
+        Actually queue the request headers for sending.
+        """
+        self._req_started = True
+        req_hdrs = [
+            i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs
+        ]
+        req_hdrs.append(("Host", self.authority))
+        req_hdrs.append(("Connection", "keep-alive"))
+        if "content-length" in header_names(req_hdrs):
+            delimit = COUNTED
+        elif self._req_body:
+            req_hdrs.append(("Transfer-Encoding", "chunked"))
+            delimit = CHUNKED
+        else:
+            delimit = NOBODY
+        self.output_start("%s %s HTTP/1.1" % (self.method, self.req_target),
+            req_hdrs, delimit
+        )
+
 
     def request_body(self, chunk):
         "Send part of the request body. May be called zero to many times."
+        if not self._req_started:
+            self._req_body = True
+            self._req_start()
         self.output_body(chunk)
 
     def request_done(self, trailers):
@@ -207,6 +225,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
         """
+        if not self._req_started:
+            self._req_start()
         self.output_end(trailers)
 
     def res_body_pause(self, paused):
@@ -223,8 +243,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         tcp_conn.on('data', self.handle_input)
         tcp_conn.on('close', self._conn_closed)
         tcp_conn.on('pause', self._req_body_pause)
+        # FIXME: should this be done AFTER _req_start?
         self.output("") # kick the output buffer
-        tcp_conn.pause(False)
+        self.tcp_conn.pause(False)
 
     def _handle_connect_error(self, err_type, err):
         "The connection has failed."
@@ -263,7 +284,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._clear_read_timeout()
         self._retries += 1
         try:
-            host, port, authority, req_target = self._parse_uri(self.uri)
+            host, port = self._parse_uri(self.uri)
         except TypeError:
             return 
         self.client._attach_conn(host, port, self._handle_connect,

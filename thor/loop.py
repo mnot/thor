@@ -80,8 +80,8 @@ class EventSource(EventEmitter):
     def event_del(self, event):
         "Stop emitting the given event."
         if event in self._interesting_events:
-            self._loop.event_del(self._fd, event)
             self._interesting_events.remove(event)
+            self._loop.event_del(self._fd, event)
 
 
 class LoopBase(EventEmitter):
