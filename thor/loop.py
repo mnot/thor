@@ -269,7 +269,12 @@ class EpollLoop(LoopBase):
         self._epoll.modify(fd, eventmask)
 
     def event_del(self, fd, event):
-        eventmask = self._eventmask(self._fd_targets[fd]._interesting_events)
+        try:
+            eventmask = self._eventmask(
+                self._fd_targets[fd]._interesting_events
+            )
+        except KeyError:
+            return # no longer interested
         self._epoll.modify(fd, eventmask)
 
     def _run_fd_events(self):
