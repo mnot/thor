@@ -106,16 +106,13 @@ class TestLoop(unittest.TestCase):
         self.loop.run()
 
 
-class testEventSource(unittest.TestCase):
+class TestEventSource(unittest.TestCase):
 
     def setUp(self):
         self.loop = thor.loop.make()
         self.es = thor.loop.EventSource(self.loop)
-        self.fd = sys.stderr
+        self.fd = sys.stdin
         self.events_seen = []
-
-    def tearDown(self):
-        self.fd.close()
 
     def test_EventSource_register(self):
         self.es.register_fd(self.fd.fileno())
@@ -126,47 +123,6 @@ class testEventSource(unittest.TestCase):
         self.assertTrue(self.fd.fileno() in self.loop._fd_targets.keys())
         self.es.unregister_fd()
         self.assertFalse(self.fd.fileno() in self.loop._fd_targets.keys())
-        
-    def test_EventSource_event_del(self):
-        self.es.register_fd(self.fd.fileno(), 'readable')
-        self.es.on('readable', self.readable_check)
-        fd2 = open(self.fd.name, 'w')
-        fd2.write("foo")
-        fd2.close()
-        self.es.event_del('readable')
-        self.loop._run_fd_events()
-        self.assertFalse('readable' in self.events_seen)
-        
-    def test_EventSource_readable(self):
-        self.es.register_fd(self.fd.fileno(), 'readable')
-        self.es.on('readable', self.readable_check)
-        fd2 = open(self.fd.name, 'w')
-        fd2.write("foo")
-        fd2.close()
-        self.loop._run_fd_events()
-        self.assertTrue('readable' in self.events_seen)
-
-    def test_EventSource_not_readable(self):
-        self.es.register_fd(self.fd.fileno(), 'readable')
-        self.es.on('readable', self.readable_check)
-        self.loop._run_fd_events()
-        self.assertFalse('readable' in self.events_seen)
-
-    def readable_check(self):
-        data = self.fd.read()
-        self.assertEquals(data, "foo")
-        self.events_seen.append('readable')
-
-#    def test_EventSource_close(self):
-#        self.es.register_fd(self.fd.fileno(), 'close')
-#        self.es.on('close', self.close_check)
-#        self.fd.close()
-#        self.loop._run_fd_events()
-#        self.assertTrue('close' in self.events_seen)
-
-    def close_check(self):
-        self.events_seen.append('close')
-
         
         
 if __name__ == '__main__':
