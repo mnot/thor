@@ -246,7 +246,7 @@ class PollLoop(LoopBase):
         event_list = self._poll.poll(self.precision)
         for fileno, eventmask in event_list:
             events = self._filter2events(eventmask)
-            for event in event_types:
+            for event in events:
                 try:
                     event_type = self._event_types[event]
                 except KeyError:
@@ -297,7 +297,7 @@ class EpollLoop(LoopBase):
         event_list = self._epoll.poll(self.precision)
         for fileno, eventmask in event_list:
             events = self._filter2events(eventmask)
-            for event in event_types:
+            for event in events:
                 try:
                     event_type = self._event_types[event]
                 except KeyError:
