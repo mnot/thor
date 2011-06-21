@@ -41,6 +41,7 @@ class TestTcpServer(framework.ClientServerTestCase):
                 self.assertEqual(chunk, "foo!")
                 self.server_recv += 1
             server_conn.on('data', check_data)
+            server_conn.pause(False)
             server_conn.write("bar!")
             
         def client_side(client_conn):
