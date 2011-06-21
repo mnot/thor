@@ -68,8 +68,9 @@ class EventSource(EventEmitter):
 
     def unregister_fd(self):
         "Unregister myself from the loop."
-        self._loop.unregister_fd(self._fd)
-        self._fd = None
+        if self._fd:
+            self._loop.unregister_fd(self._fd)
+            self._fd = None
 
     def event_add(self, event):
         "Start emitting the given event."
