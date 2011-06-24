@@ -1,11 +1,13 @@
 
-# Thor - Simple Event-Driven IO for Python
+# Thor - Easy Evented Intermediation
 
 ## About Thor
 
-Thor is a Python library for evented IO, with a focus on enabling high-performance HTTP intermediaries.
+Thor is a Python library for evented IO.
 
-Thor's goals are to be as fast as possible, to implement the protocols correctly, and to be simple. You can help meet these goals by contributing issues, patches and tests.
+There are many such libraries for Python already available. Thor focuses on making it easy to build high-performance HTTP intermediaries like proxies, load balancers, content transformation engines and service aggregators.
+
+It aims to be as fast as possible, to implement the protocols correctly, and to be simple. You can help meet these goals by contributing issues, patches and tests.
 
 Thor's EventEmitter API is influenced by^H^H^H copied from NodeJS; if you're familiar with Node, it shouldn't be too hard to use Thor. However, Thor is nothing like Twisted; this is considered a feature.
 
@@ -41,7 +43,7 @@ The [documentation](thor/tree/master/doc/) is a good starting point; see also th
 
 See <http://github.com/mnot/thor/> to give feedback, view and report [issues](thor/issues), and  contribute code.
 
-We welcome all input, but especially code contributions via a Github pull request, and test cases are the cherry on top. 
+All input is welcome, particularly code contributions via a Github pull request, and test cases are the cherry on top. 
 
 
 ## Why Thor?
