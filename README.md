@@ -54,6 +54,7 @@ Thor (the software program) grew out of nbhttp, which itself came from earlier w
 
 Thor (the cat) now rules our house with a firm but benevolent paw. He gets sick if we give him any milk, though.
 
+![Thor, the cat](http://www.mnot.net/lib/thor.jpg)
 
 # License
 
