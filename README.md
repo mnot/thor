@@ -5,7 +5,7 @@
 
 Thor is a Python library for evented IO.
 
-There are many such libraries for Python already available. Thor focuses on making it easy to build high-performance HTTP intermediaries like proxies, load balancers, content transformation engines and service aggregators.
+There are many such libraries for Python already available. Thor focuses on making it easy to build high-performance HTTP intermediaries like proxies, load balancers, content transformation engines and service aggregators. Of course, you can use it just as a client or server too.
 
 It aims to be as fast as possible, to implement the protocols correctly, and to be simple. You can help meet these goals by contributing issues, patches and tests.
 
