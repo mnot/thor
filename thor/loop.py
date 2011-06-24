@@ -115,7 +115,7 @@ class LoopBase(EventEmitter):
             # find scheduled events
             if not self.running:
                 break
-            if (self.__now - last_event_check) >= self.precision * 0.95:
+            if (self.__now - last_event_check) >= self.precision * 0.90:
                 last_event_check = self.__now
                 for event in self.__sched_events:
                     when, what = event
