@@ -71,6 +71,7 @@ class DummyHttpParser(thor.http.common.HttpMessageHandler):
         self.test_top_line = None
         self.test_hdrs = None
         self.test_body = ""
+        self.test_trailers = None
         self.test_err = None
         self.test_states = []
     
@@ -93,6 +94,19 @@ class DummyHttpParser(thor.http.common.HttpMessageHandler):
         self.test_states.append("ERROR")
         self.test_err = err
         return False # never recover.
+        
+    def check(self, asserter, expected):
+        """
+        Check the parsed message against expected attributes and 
+        assert using asserter as necessary.
+        """
+        aE = asserter.assertEqual
+        aE(expected.get('top_line', self.test_top_line), self.test_top_line)
+        aE(expected.get('hdrs', self.test_hdrs), self.test_hdrs)
+        aE(expected.get('body', self.test_body), self.test_body)
+        aE(expected.get('trailers', self.test_trailers), self.test_trailers)
+        aE(expected.get('error', self.test_err), self.test_err)
+        aE(expected.get('states', self.test_states), self.test_states)
 
 
 def make_fifo(filename):

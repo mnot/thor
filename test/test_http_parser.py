@@ -49,7 +49,7 @@ class TestHttpParser(unittest.TestCase):
                 'body_len': len(body)
             })
         states = self.parser.test_states
-        self.assertEqual(states, ['START', 'BODY', 'END'] * count)
+        self.parser.check(self, {'states': ['START', 'BODY', 'END'] * count})
 
     def test_hdrs(self):
         body = "12345678901234567890"
@@ -61,18 +61,14 @@ Content-Length: %(body_len)s
 Foo: baz, bam
 
 %(body)s"""], body)
-        self.assertEqual(self.parser.test_hdrs[0], 
-            ('Content-Type', " text/plain")
-        )
-        self.assertEqual(self.parser.test_hdrs[1], 
-            ('Foo', " bar")
-        )
-        self.assertEqual(self.parser.test_hdrs[2], 
-            ('Content-Length', " %s" % len(body))
-        )
-        self.assertEqual(self.parser.test_hdrs[3],
-            ('Foo', " baz, bam")
-        )
+        self.parser.check(self, {
+            'hdrs': [
+                ('Content-Type', " text/plain"),
+                ('Foo', " bar"),
+                ('Content-Length', " %s" % len(body)),
+                ('Foo', " baz, bam"),
+            ]
+        })
 
     def test_hdrs_nocolon(self):
         body = "12345678901234567890"
