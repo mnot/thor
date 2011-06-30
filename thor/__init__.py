@@ -10,5 +10,6 @@ __version__ = "0.0"
 
 from loop import run, stop, time, schedule, running
 from tcp import TcpClient, TcpServer
+from udp import UdpEndpoint
 from http.client import HttpClient
 from http.server import HttpServer
