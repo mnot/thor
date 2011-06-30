@@ -61,7 +61,7 @@ class UdpEndpoint(EventSource):
         self.sock.setblocking(False)
         self.max_dgram = min((2**16 - 40), self.sock.getsockopt(
             socket.SOL_SOCKET, socket.SO_SNDBUF
-        )
+        ))
         self.on('readable', self.handle_datagram)
         self.register_fd(self.sock.fileno())
 
