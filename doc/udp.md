@@ -36,6 +36,6 @@ Stop the endpoint from emitting *datagram* events if _paused_ is True; resume em
 Stop the endpoint.
 
 
-### event 'datagram' ( _data_ )
+### event 'datagram' ( _datagram_, _host_, _port_ )
 
-Emitted when the socket receives a datagram _data_ from _port_ on _host_.
+Emitted when the socket receives _datagram_ from _port_ on _host_.
