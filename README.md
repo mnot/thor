@@ -50,7 +50,7 @@ All input is welcome, particularly code contributions via a Github pull request,
 
 Thor is not only "a hammer-wielding god associated with thunder, lightning,  storms, oak trees, strength, destruction, fertility, healing, and the  protection of mankind", he's also my Norwegian Forest Cat.
 
-Thor (the software program) grew out of nbhttp, which itself came from earlier work on evented Python in redbot and tarawa. 
+Thor (the software program) grew out of [nbhttp](nbhttp), which itself came from earlier work on evented Python in [redbot](http://redbot.org/) and [tarawa](tarawa). 
 
 Thor (the cat) now rules our house with a firm but benevolent paw. He gets sick if we give him any milk, though.
 
