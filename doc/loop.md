@@ -51,3 +51,13 @@ logfiles).
 ### thor.loop.running 
 
 Boolean that is True when the loop is running.
+
+
+### event 'start'
+
+Emitted right before loop starts.
+
+
+### event 'stop'
+
+Emitted right after the loop stops.
