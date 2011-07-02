@@ -20,7 +20,7 @@ There are several settings available as class variables:
 * HttpClient.read_timeout - timeout between reads on an active connection, in seconds. Default _None_.
 * HttpClient.idle_timeout - how long idle persistent connections are left open, in seconds. Default 60; None to disable.
 * HttpClient.retry_limit - How many additional times to try a request that fails (e.g., dropped connection). Default _2_.
-* HttpClient.retry_delay - how long to wait between retries, in ms. Default _500_.
+* HttpClient.retry_delay - how long to wait between retries, in seconds (or fractions thereof). Default _0.5_.
 
 
 ### thor.HttpClient.exchange ()
