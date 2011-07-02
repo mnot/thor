@@ -61,7 +61,7 @@ class HttpClient(object):
     connect_timeout = None
     read_timeout = None
     retry_limit = 2
-    retry_delay = 500 # in ms
+    retry_delay = 0.5 # in sec
 
     def __init__(self, loop=None):
         self.loop = loop or thor.loop._loop
@@ -262,7 +262,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
                     self.client.loop.schedule(
-                        (self.client.retry_delay / 1000), self._retry
+                        self.client.retry_delay, self._retry
                     )
                 else:
                     self.input_error(
