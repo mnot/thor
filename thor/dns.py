@@ -39,14 +39,16 @@ class DnsStubResolver(DnsPacker, DnsUnpacker):
     Very simple, non-recursing DNS resolver.
     """
     def __init__(self, resolver=None, loop=None):
-        self.resolver = resolver
+        self.resolver = resolver # TODO: multiple resolvers
+        # TODO: suck in resolv.conf
         self.__pool = DnsEndpointPool(loop)
         self.__requests = {}
     
     def lookup(self, query, callback):
         txid = # TODO
-        request = self.pack_msg(query, txid)
+        request = self.pack_msg(query, txid) # FIXME
         endp = self._pool.get()
+        # FIXME: get local port
         self.__requests[txid] = [local_port, query, callback]
         endp.on('datagram', self.handle_response)
         endp.send(request, self.resolver, 53)
@@ -63,7 +65,7 @@ class DnsStubResolver(DnsPacker, DnsUnpacker):
         except KeyError:
             # unsolicited response
             return
-        if local_port != ...:
+        if local_port != ...: # FIXME: get local port
             # spoofing
             return
         callback(answer)
@@ -111,6 +113,7 @@ class DnsEndpointPool(object):
             # we're the last one.
             endp.shutdown()
             del self.__pool[endp]
+        # TODO: deal with naughty folks who don't release; timeout?
             
     def shutdown(self):
         """
