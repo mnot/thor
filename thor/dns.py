@@ -44,8 +44,10 @@ class DnsStubResolver(DnsPacker, DnsUnpacker):
         self.__pool = DnsEndpointPool(loop)
         self.__requests = {}
     
+    # TODO: probably move to separate emitter, rather than an explicit cb
     def lookup(self, query, callback):
         txid = # TODO
+        # TODO: flesh out what a query is
         request = self.pack_msg(query, txid) # FIXME
         endp = self._pool.get()
         # FIXME: get local port
