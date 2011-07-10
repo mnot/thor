@@ -2,6 +2,10 @@
 
 """
 Asyncronous DNS. Currently just a stub resolver.
+
+See:
+  - RFC1035
+  - http://www.merit.edu/events/mjts/pdf/20081007/Blunk_DNSCachePoisoning.pdf
 """
 
 __author__ = "Mark Nottingham <mnot@mnot.net>"
@@ -30,12 +34,40 @@ THE SOFTWARE.
 import random
 import thor
 
-class DnsStubResolver(object):
-    def __init__(self, resolvers=None):
-        self.resolvers = resolvers
+class DnsStubResolver(DnsPacker, DnsUnpacker):
+    """
+    Very simple, non-recursing DNS resolver.
+    """
+    def __init__(self, resolver=None, loop=None):
+        self.resolver = resolver
+        self.__pool = DnsEndpointPool(loop)
+        self.__requests = {}
     
-    def lookup(self, domain, family=None):
-        pass
+    def lookup(self, query, callback):
+        txid = # TODO
+        request = self.pack_msg(query, txid)
+        endp = self._pool.get()
+        self.__requests[txid] = [local_port, query, callback]
+        endp.on('datagram', self.handle_response)
+        endp.send(request, self.resolver, 53)
+        # TODO: timeout
+
+    def handle_response(self, datagram, host, port):
+        try:
+            answer = self.unpack_msg(datagram)
+        except:
+            # bad formatting
+            return
+        try:
+            local_port, query, callback = self.__requests[answer.txid]
+        except KeyError:
+            # unsolicited response
+            return
+        if local_port != ...:
+            # spoofing
+            return
+        callback(answer)
+   
         
 
 class DnsEndpointPool(object):
@@ -102,12 +134,15 @@ class DnsEndpointPool(object):
             # no one is using it, it's safe to just kick it.
             endp.shutdown()
             del self.__pool[endp]
-        
-    
+
         
 class DnsPacker(object):
-    pass
+    
+    def pack_msg(self, msg):
+        pass
     
 class DnsUnpacker(object):
-    pass
+    
+    def unpack_msg(self, data):
+        pass
     
