@@ -34,7 +34,7 @@ THE SOFTWARE.
 import random
 import thor
 
-class DnsStubResolver(DnsPacker, DnsUnpacker):
+class DnsStubResolver(object):
     """
     Very simple, non-recursing DNS resolver.
     """
@@ -42,37 +42,83 @@ class DnsStubResolver(DnsPacker, DnsUnpacker):
         self.resolver = resolver # TODO: multiple resolvers
         # TODO: suck in resolv.conf
         self.__pool = DnsEndpointPool(loop)
-        self.__requests = {}
     
     # TODO: probably move to separate emitter, rather than an explicit cb
-    def lookup(self, query, callback):
-        txid = # TODO
-        # TODO: flesh out what a query is
-        request = self.pack_msg(query, txid) # FIXME
-        endp = self._pool.get()
-        # FIXME: get local port
-        self.__requests[txid] = [local_port, query, callback]
-        endp.on('datagram', self.handle_response)
-        endp.send(request, self.resolver, 53)
-        # TODO: timeout
+    def resolve(self, name, rrtype, callback):
+        """
+        Resolve rrtype for name.
+        """
+        endp = self.__pool.get()
+        endp.query(name, rrtype, self.resolver, callback)
 
-    def handle_response(self, datagram, host, port):
+        
+class DnsEndpoint(DnsPacker, DnsUnpacker):
+    """
+    A DNS endpoint, which can be handling 0 to many queries simultaneously."""
+    def __init__(self, pool, loop):
+        DnsPacker.__init__(self)
+        DnsUnpacker.__init__(self)
+        self.__pool = pool
+        self.__loop = loop
+        self.__queries = {}
+        self.__evicting = False
+        self.__endp = thor.UdpEndpoint()
+        self.__endp.on('datagram', self.handle_answer)
+        self.__loop.schedule(pool.ep_ttl, self.evict)
+
+    def query(self, name, rrtype, resolver, callback):
+        """
+        Make a query.
+        """
+        txid = 0 # FIXME
+        # TODO: flesh out what a query is
+        query = self.pack_msg(query, txid) # FIXME
+        toev = self.__loop.schedule(
+            self.__pool.q_ttl, self.handle_timeout, txid
+        )
+        self.__queries[txid] = [name, rrtype, callback, toev]
+        self.__endp.send(query, resolver, 53)
+
+    def handle_answer(self, datagram, host, port):
+        """
+        Handle an off-the-wire answer.
+        """
         try:
             answer = self.unpack_msg(datagram)
         except:
-            # bad formatting
-            return
+            return # bad formatting
         try:
-            local_port, query, callback = self.__requests[answer.txid]
+            name, rrtype, callback, toev = self.__queries[answer.txid]
         except KeyError:
-            # unsolicited response
-            return
-        if local_port != ...: # FIXME: get local port
-            # spoofing
-            return
-        callback(answer)
-   
-        
+            return # unsolicited response
+        toev.delete()
+        del self.__queries[answer.txid]
+        if self.__evicting:
+            self.evict()
+        callback(answer)  ## FIXME - emit something, somewhere
+
+    def handle_timeout(self, txid):
+        """
+        A query has timed out.
+        """
+        name, rrtype, callback = self.__queries[answer.txid]
+        del self.__queries[answer.txid]
+        if self.__evicting:
+            self.evict()
+        callback(error) # FIXME: error type
+    
+    def evict(self, force=False):
+        """
+        An endpoint's time has come.
+        """
+        if force or len(self.__queries) == 0:
+            self.__endp.shutdown()
+            for name, rrtype, callback, toev in self.__queries.values():
+                toev.delete()
+            self.__pool.evict(self)
+        else:
+            self.__evicting = True
+
 
 class DnsEndpointPool(object):
     """
@@ -81,12 +127,13 @@ class DnsEndpointPool(object):
     
     .get() returns an endpoint; when done with it, .release() it.
     """
-    size = 512 # a decent amount of randomisation.
+    size = 256 # source port randomisation.
     ep_ttl = 300 # seconds that an endpoint is "alive".
+    q_ttl = 5 # seconds before queries time out.
     
     def __init__(self, loop=None):
         self.__loop = loop or thor.loop._loop
-        self.__pool = {} #   endp: [refcount, evicting, evict_ev]
+        self.__pool = [] 
         self.__rand = random.SystemRandom()
     
     def get(self):
@@ -96,49 +143,27 @@ class DnsEndpointPool(object):
         if len(self.__pool) < self.size:
             # We haven't yet populated the pool, so mint a new endpoint.
             # We trust the OS to randomise the ports.
-            endp = thor.UdpEndpoint(self.__loop)
-            evev = self.__loop.schedule(self.ep_ttl, self.__evict, endp)
-            self.__pool[endp] = [1, False, evev]
+            endp = DnsEndpoint(self, self.__loop)
+            self.__pool.append(endp)
             return endp
         else:
             # pool is full; chose a random pool member.
-            endp = self.__rand.choice(self.__pool.keys())
-            self.__pool[endp][0] += 1
-            return endp
+            return self.__rand.choice(self.__pool)
 
-    def release(self, endp):
+    def evict(self, endp):
         """
-        The transaction with the endpoint has finished.
+        Remove an endpoint from the pool.
         """
-        self.__pool[endp][0] -= 1
-        if self.__pool[endp][:2] == [0, True]:
-            # we're the last one.
-            endp.shutdown()
-            del self.__pool[endp]
-        # TODO: deal with naughty folks who don't release; timeout?
+        self.__pool.remove(endp)
             
     def shutdown(self):
         """
         We're done.
         """
         # get rid of eviction events
-        for endp, [refcount, evicting, evev] in self.__pool.items():
-            evev.delete()
-            endp.shutdown()
+        for endp in self.__pool:
+            endp.shutdown(True)
         self.__pool = []
-
-
-    def __evict(self, endp):
-        """
-        An endpoint's time has come.
-        """
-        if self.__pool[endp][0] > 0:
-            # still outstanding users
-            self.__pool[endp][1] = True
-        else:
-            # no one is using it, it's safe to just kick it.
-            endp.shutdown()
-            del self.__pool[endp]
 
         
 class DnsPacker(object):
@@ -150,4 +175,6 @@ class DnsUnpacker(object):
     
     def unpack_msg(self, data):
         pass
+    
+    
     
