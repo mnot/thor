@@ -11,7 +11,7 @@ It aims to be as fast as possible, to implement the protocols correctly, and to 
 
 Thor's EventEmitter API is influenced by^H^H^H copied from NodeJS; if you're familiar with Node, it shouldn't be too hard to use Thor. However, Thor is nothing like Twisted; this is considered a feature.
 
-Currently, Thor has an event loop as well as TCP, UDP and HTTP APIs (client and server). New APIs (e.g., DNS) and capabilities (e.g., TLS) should be arriving soon.
+Currently, Thor has an event loop as well as TCP, UDP and HTTP APIs (client and server). New APIs (e.g., DNS) and capabilities (e.g., TLS) should be arriving soon, along with a framework for intermediation.
 
 
 ## Requirements
