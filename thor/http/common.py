@@ -453,9 +453,9 @@ class HttpMessageHandler:
         if self._output_delimit == NOBODY:
             pass # didn't have a body at all.
         elif self._output_delimit == CHUNKED:
-            self.output("0\r\n%s\r\n" % [
+            self.output("0\r\n%s\r\n" % "\r\n".join([
                 "%s: %s" % (k.strip(), v) for k, v in trailers
-            ])
+            ]))
         elif self._output_delimit == COUNTED:
             pass # TODO: double-check the length
         elif self._output_delimit == CLOSE:
