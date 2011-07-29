@@ -36,7 +36,22 @@ Otherwise, download a tarball and install using:
 
 ## Using Thor
 
-The [documentation](thor/tree/master/doc) is a good starting point; see also the docstrings for the various modules, as well as the tests, to give an idea of how to use Thor. Examples will be forthcoming soon.
+The [documentation](thor/tree/master/doc) is a good starting point; see also the docstrings for the various modules, as well as the tests, to give an idea of how to use Thor.
+
+For example, a very simple HTTP server looks like this:
+
+	import thor
+	def test_handler(exch):
+	    @thor.events.on(exch)
+	    def request_start(*args):
+	        exch.response_start(200, "OK", [('Content-Type', 'text/plain')])
+	        exch.response_body('Hello, world!')
+	        exch.response_done([])
+
+	if __name__ == "__main__":
+	    demo_server = thor.HttpServer('127.0.0.1', 8000)
+	    demo_server.on('exchange', test_handler)
+	    thor.run()
 
 
 ## Support and Contributions
