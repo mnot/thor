@@ -379,7 +379,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _clear_read_timeout(self):
         "Clear the read timeout."
-        if self.client.read_timeout:
+        if self._read_timeout_ev:
             self._read_timeout_ev.delete()
 
 
