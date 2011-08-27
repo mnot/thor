@@ -82,7 +82,7 @@ class LengthRequiredError(HttpError):
     server_status = ("411", "Length Required")
 
 class ConnectError(HttpError):
-    desc = "Connection closed"
+    desc = "Connection error"
     server_status = ("504", "Gateway Timeout")
 
 # server-specific errors
