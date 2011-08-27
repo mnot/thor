@@ -257,7 +257,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         if self._input_buffer:
             self.handle_input("")
         if self._input_delimit == CLOSE:
-            self.input_end()
+            self.input_end([])
         elif self._input_state == WAITING: # TODO: needs to be tighter
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
