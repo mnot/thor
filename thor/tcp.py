@@ -132,8 +132,7 @@ class TcpConnection(EventSource):
 
     def __repr__(self):
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        if self.tcp_connected:
-            status.append('connected')
+        status.append(self.tcp_connected and 'connected' or 'disconnected')
         status.append('%s:%s' % (self.host, self.port))
         if self._input_paused:
             status.append('input paused')
