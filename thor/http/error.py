@@ -42,11 +42,11 @@ class ChunkError(HttpError):
     desc = "Chunked encoding error"
 
 class DuplicateCLError(HttpError):
-    desc = "Duplicate Content-Length header."
+    desc = "Duplicate Content-Length header"
     server_status = ("400", "Bad Request")
 
 class MalformedCLError(HttpError):
-    desc = "Malformed Content-Length header."
+    desc = "Malformed Content-Length header"
     server_status = ("400", "Bad Request")
 
 class BodyForbiddenError(HttpError):
