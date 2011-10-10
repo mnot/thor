@@ -378,7 +378,7 @@ Content-Type: text/plain
 Content-Length: 2
 Content-Length: %(body_len)s
 
-%(body)s"""], body, error.ContentLengthError)
+%(body)s"""], body, error.DuplicateCLError)
 
     def test_cl_bad_syntax(self):
         body = "abc123def456ghi789"
@@ -387,7 +387,7 @@ HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 2abc
 
-%(body)s"""], body, error.ContentLengthError)
+%(body)s"""], body, error.MalformedCLError)
 
     def test_chunk_ext(self):
         body = "abc123def456ghi789"

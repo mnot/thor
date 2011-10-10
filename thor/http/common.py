@@ -342,14 +342,14 @@ class HttpMessageHandler:
                                 continue
                         except ValueError:
                             pass
-                        self.input_error(error.ContentLengthError('dup'))
+                        self.input_error(error.DuplicateCLError())
                         if not self.inspecting:
                           self._input_state = ERROR
                           return
                     try:
                         content_length = int(f_val)
                     except ValueError:
-                        self.input_error(error.ContentLengthError(f_val))
+                        self.input_error(error.MalformedCLError(f_val))
                         if not self.inspecting:
                           self._input_state = ERROR
                           return
