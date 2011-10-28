@@ -174,10 +174,11 @@ class HttpMessageHandler:
                 self._input_buffer = instr
         elif self._input_state == HEADERS_DONE:
             try:
-                getattr(self, '_handle_%s' % self._input_delimit)(instr)
+                handler = getattr(self, '_handle_%s' % self._input_delimit)
             except AttributeError:
                 raise Exception, "Unknown input delimiter %s" % \
                                  self._input_delimit
+            handler(instr)
         elif self._input_state == ERROR:
             pass # I'm silently ignoring input that I don't understand.
         else:
