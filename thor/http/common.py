@@ -233,22 +233,24 @@ class HttpMessageHandler:
         return rest
 
     def _handle_chunk_body(self, instr):
-        if self._input_body_left < len(instr): # got more than the chunk
+        got = len(instr)
+        if self._input_body_left + 2 < got: # got more than the chunk
             this_chunk = self._input_body_left
             self.input_body(instr[:this_chunk])
-            self.input_transfer_length += this_chunk
+            self.input_transfer_length += this_chunk + 2
             self._input_body_left = -1
-            return instr[this_chunk + 2:] # +2 consumes the CRLF
-        elif self._input_body_left == len(instr):
-            # got the whole chunk exactly
-            self.input_body(instr)
-            self.input_transfer_length += self._input_body_left
+            return instr[this_chunk + 2:] # +2 consumes the trailing CRLF
+        elif self._input_body_left + 2 == got:
+            # got the whole chunk exactly (including CRLF)
+            self.input_body(instr[:-2])
+            self.input_transfer_length += self._input_body_left + 2
             self._input_body_left = -1
-        else:
-            # got partial chunk
+        elif self._input_body_left == got: # corner case
+            self._input_buffer += instr  
+        else: # got partial chunk
             self.input_body(instr)
-            self.input_transfer_length += len(instr)
-            self._input_body_left -= len(instr)
+            self.input_transfer_length += got
+            self._input_body_left -= got
 
     def _handle_chunk_done(self, instr):
         if len(instr) >= 2 and instr[:2] == linesep:

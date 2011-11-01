@@ -240,11 +240,25 @@ Transfer-Encoding: chunked
 
 """, """\
 %(body_len)x\r
-%(body)s\r""", """
+%(body)s\r
+""", """\
 0\r
 \r
 """], body)
 
+    def test_chunk_exact_offset(self):
+        body = "aaabbbcccdddeeefffggghhhiii"
+        self.checkSingleMsg(["""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+""", """\
+%(body_len)x\r
+%(body)s""", """\r
+0\r
+\r
+"""], body)
     def test_chunk_more(self):
         body = "1234567890"
         self.checkSingleMsg(["""\
