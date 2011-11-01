@@ -10,17 +10,26 @@ Note that new connections will not emit *data* events until they are unpaused;  
 
 For example:
 
+    import sys
+    import thor
+
+    test_host, test_port = sys.argv[1:2]
+    
     def handle_connect(conn):
         conn.on('data', sys.stdout.write)
-        conn.on('close', stop)
-        conn.on('pause', pause)
-        conn.write("foo")
+        conn.on('close', thor.stop)
+        conn.write("GET /\n\n")
         conn.pause(False)
+        
+    def handle_err(err_type, err):
+        sys.stderr.write(str(err_type))
+        thor.stop()
 
-    c = TcpClient()
-    c.on('connect', handle_conn)
+    c = thor.TcpClient()
+    c.on('connect', handle_connect)
     c.on('connect_error', handle_err)
     c.connect(test_host, test_port)
+    thor.run()
 
 
 <span id="client_connect"/>
