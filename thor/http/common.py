@@ -272,9 +272,6 @@ class HttpMessageHandler:
 
     def _handle_counted(self, instr):
         "Handle input where the body is delimited by the Content-Length."
-        assert self._input_body_left >= 0, \
-            "message counting problem (%s)" % self._input_body_left
-        # process body
         if self._input_body_left <= len(instr): # got it all (and more?)
             self.input_transfer_length += self._input_body_left
             self.input_body(instr[:self._input_body_left])
@@ -351,7 +348,8 @@ class HttpMessageHandler:
                           return
                     try:
                         content_length = int(f_val)
-                    except ValueError:
+                        assert content_length >= 0
+                    except (ValueError, AssertionError):
                         self.input_error(error.MalformedCLError(f_val))
                         if not self.inspecting:
                           self._input_state = ERROR
