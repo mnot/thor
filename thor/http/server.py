@@ -206,6 +206,11 @@ class HttpServerExchange(EventEmitter):
         self.req_version = req_version
         self.started = False
 
+    def __repr__(self):
+        status = [self.__class__.__module__ + "." + self.__class__.__name__]
+        status.append('%s {%s}' % (self.method or "-", self.uri or "-"))
+        return "<%s at %#x>" % (", ".join(status), id(self))
+
     def request_start(self):
         self.started = True
         self.emit('request_start', self.method, self.uri, self.req_hdrs)

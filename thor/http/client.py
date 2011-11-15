@@ -146,6 +146,14 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._read_timeout_ev = None
         self._output_buffer = []
 
+    def __repr__(self):
+        status = [self.__class__.__module__ + "." + self.__class__.__name__]
+        status.append('%s {%s}' % (self.method or "-", self.uri or "-"))
+        if self.tcp_conn:
+            status.append(
+              self.tcp_conn.tcp_connected and 'connected' or 'disconnected')
+        return "<%s at %#x>" % (", ".join(status), id(self))
+
     def request_start(self, method, uri, req_hdrs):
         """
         Start a request to uri using method, where
