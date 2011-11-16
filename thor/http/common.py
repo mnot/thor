@@ -168,7 +168,6 @@ class HttpMessageHandler:
                     self.handle_input(rest)
                 except RuntimeError:
                     self.input_error(error.TooManyMsgsError)
-                    self._input_state = ERROR
                     # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
                 self._input_buffer = instr
@@ -216,7 +215,6 @@ class HttpMessageHandler:
                 # OK, this is absurd...
                 self.input_error(error.ChunkError(instr))
                 # TODO: need testing around this; catching the right thing?
-                self._input_state = ERROR
             else:
                 self._input_buffer += instr
             return
@@ -227,7 +225,6 @@ class HttpMessageHandler:
             self._input_body_left = int(chunk_size, 16)
         except ValueError:
             self.input_error(error.ChunkError(chunk_size))
-            self._input_state = ERROR
             return
         self.input_transfer_length += len(instr) - len(rest)
         return rest
@@ -262,7 +259,7 @@ class HttpMessageHandler:
             trailer_block, rest = hdr_end.split(instr, 1)
             trailers = self._parse_fields(trailer_block.splitlines())
             if trailers == None: # found a problem
-                self._input_state = ERROR
+                self._input_state = ERROR # TODO: need an explicit error 
                 return
             else:
                 self.input_end(trailers)
@@ -306,7 +303,6 @@ class HttpMessageHandler:
                 else: # top header starts with whitespace
                     self.input_error(error.TopLineSpaceError(line))
                     if not self.inspecting:
-                      self._input_state = ERROR
                       return
             try:
                 fn, fv = line.split(":", 1)
@@ -318,7 +314,6 @@ class HttpMessageHandler:
             if fn[-1] in [" ", "\t"]:
                 self.input_error(error.HeaderSpaceError(fn))
                 if not self.inspecting:
-                  self._input_state = ERROR
                   return
             hdr_tuples.append((fn, fv))
 
@@ -344,16 +339,14 @@ class HttpMessageHandler:
                             pass
                         self.input_error(error.DuplicateCLError())
                         if not self.inspecting:
-                          self._input_state = ERROR
-                          return
+                            return
                     try:
                         content_length = int(f_val)
                         assert content_length >= 0
                     except (ValueError, AssertionError):
                         self.input_error(error.MalformedCLError(f_val))
                         if not self.inspecting:
-                          self._input_state = ERROR
-                          return
+                            return
             
         # yes, this is a horrible hack.     
         if gather_conn_info:
@@ -384,8 +377,8 @@ class HttpMessageHandler:
             hdr_tuples, conn_tokens, transfer_codes, content_length \
             = self._parse_fields(header_lines, True)
         except TypeError: # returned None because there was an error
-            self._input_state = ERROR
-            return
+            if not self.inspecting:
+                return "" # throw away the rest
             
         # ignore content-length if transfer-encoding is present
         if transfer_codes != [] and content_length != None:
@@ -396,8 +389,8 @@ class HttpMessageHandler:
                         conn_tokens, transfer_codes, content_length)
         except ValueError: # parsing error of some kind; abort.
             if not self.inspecting:
-              self._input_state = ERROR
-              return
+                return "" # throw away the rest
+            allows_body = True
 
         self._input_state = HEADERS_DONE
         if not allows_body:

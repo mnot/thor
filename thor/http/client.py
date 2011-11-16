@@ -42,7 +42,7 @@ from thor.tcp import TcpClient
 
 from common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
-    WAITING, \
+    WAITING, ERROR, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from error import UrlError, ConnectError, \
@@ -363,11 +363,17 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         if self.inspecting: # we want to get the rest of the response.
             self._conn_reusable = False
         else:
+            self._input_state = ERROR
             self._clear_read_timeout()
-            if self.tcp_conn:
-                self.tcp_conn.close()
-                self.tcp_conn = None
+            if err.client_recoverable and \
+              self.tcp_conn and self.tcp_conn.tcp_connected:
+                self.client._release_conn(self.tcp_conn)
+            else:
+                if self.tcp_conn:
+                    self.tcp_conn.close()
+            self.tcp_conn = None
         self.emit('error', err)
+        
 
     def output(self, chunk):
         self._output_buffer.append(chunk)

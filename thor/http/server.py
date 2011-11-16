@@ -157,6 +157,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Indicate a parsing problem with the request body (which
         hasn't been queued as an exchange yet).
         """
+        self._input_state = ERROR
         status_code, status_phrase = err.server_status or \
             (500, 'Internal Server Error')
         hdrs = [
