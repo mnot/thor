@@ -126,7 +126,7 @@ def monkey_patch_ssl(sock):
         def _real_connect(addr, return_errno):
             if sock._connected or sock._sslobj:
                 raise ValueError("attempt to connect already-connected SSLSocket!")
-            sock._sslobj = _ssl.sslwrap(sock._sock, False, sock.keyfile,
+            sock._sslobj = sys_ssl.sslwrap(sock._sock, False, sock.keyfile,
                 sock.certfile, sock.cert_reqs, sock.ssl_version,
                 sock.ca_certs, sock.ciphers)
             try:
