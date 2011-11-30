@@ -39,6 +39,7 @@ from urlparse import urlsplit, urlunsplit
 import thor
 from thor.events import EventEmitter, on
 from thor.tcp import TcpClient
+from thor.tls import TlsClient
 
 from common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
@@ -57,6 +58,7 @@ class HttpClient(object):
     "An asynchronous HTTP client."
 
     tcp_client_class = TcpClient
+    tls_client_class = TlsClient
     idle_timeout = 60 # in seconds
     connect_timeout = None
     read_timeout = None
@@ -71,14 +73,20 @@ class HttpClient(object):
     def exchange(self):
         return HttpClientExchange(self)
 
-    def _attach_conn(self, host, port, handle_connect,
+    def _attach_conn(self, origin, handle_connect,
                handle_connect_error, connect_timeout):
-        "Find an idle connection for (host, port), or create a new one."
+        "Find an idle connection for origin, or create a new one."
+        scheme, host, port = origin
         while True:
             try:
-                tcp_conn = self._conns[(host, port)].pop()
+                tcp_conn = self._conns[origin].pop()
             except (IndexError, KeyError):
-                tcp_client = self.tcp_client_class(self.loop)
+                if scheme == 'http':
+                    tcp_client = self.tcp_client_class(self.loop)
+                elif scheme == 'https':
+                    tcp_client = self.tls_client_class(self.loop)
+                else:
+                    raise ValueError, 'unknown scheme %s' % scheme
                 tcp_client.on('connect', handle_connect)
                 tcp_client.on('connect_error', handle_connect_error)
                 tcp_client.connect(host, port, connect_timeout)
@@ -89,19 +97,18 @@ class HttpClient(object):
                 handle_connect(tcp_conn)
                 break
 
-    def _release_conn(self, tcp_conn):
+    def _release_conn(self, tcp_conn, scheme):
         "Add an idle connection back to the pool."
         tcp_conn.removeListeners('data', 'pause', 'close')
         tcp_conn.pause(True)
+        origin = (scheme, tcp_conn.host, tcp_conn.port)
         if tcp_conn.tcp_connected:
             def idle_close():
                 "Remove the connection from the pool when it closes."
                 try:
                     if hasattr(tcp_conn, "_idler"):
                         tcp_conn._idler.delete()                    
-                    self._conns[
-                        (tcp_conn.host, tcp_conn.port)
-                    ].remove(tcp_conn)
+                    self._conns[origin].remove(tcp_conn)
                 except (KeyError, ValueError):
                     pass
             tcp_conn.on('close', idle_close)
@@ -109,10 +116,10 @@ class HttpClient(object):
                 tcp_conn._idler = self.loop.schedule(
                     self.idle_timeout, tcp_conn.close
                 )
-            if not self._conns.has_key((tcp_conn.host, tcp_conn.port)):
-                self._conns[(tcp_conn.host, tcp_conn.port)] = [tcp_conn]
+            if not self._conns.has_key(origin):
+                self._conns[origin] = [tcp_conn]
             else:
-                self._conns[(tcp_conn.host, tcp_conn.port)].append(tcp_conn)
+                self._conns[origin].append(tcp_conn)
 
     def _close_conns(self):
         "Close all idle HTTP connections."
@@ -136,6 +143,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.uri = None
         self.req_hdrs = None
         self.req_target = None
+        self.scheme = None
         self.authority = None
         self.res_version = None
         self.tcp_conn = None
@@ -164,10 +172,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.uri = uri
         self.req_hdrs = req_hdrs
         try:
-            host, port = self._parse_uri(self.uri)
-        except TypeError:
+            origin = self._parse_uri(self.uri)
+        except (TypeError, ValueError):
             return 
-        self.client._attach_conn(host, port, self._handle_connect,
+        self.client._attach_conn(origin, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
     # TODO: if we sent Expect: 100-continue, don't wait forever
@@ -176,12 +184,17 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def _parse_uri(self, uri):
         """
         Given a URI, parse out the host, port, authority and request target. 
-        Returns None if there is an error.
+        Returns None if there is an error, otherwise the origin.
         """
         (scheme, authority, path, query, fragment) = urlsplit(uri)
-        if scheme.lower() != 'http':
-            self.input_error(UrlError("Only HTTP URLs are supported"))
-            return
+        scheme = scheme.lower()
+        if scheme == 'http':
+            default_port = 80
+        elif scheme == 'https':
+            default_port = 443
+        else:
+            self.input_error(UrlError("Unsupported URL scheme '%s'" % scheme))
+            raise ValueError
         if "@" in authority:
             userinfo, authority = authority.split("@", 1)
         if ":" in authority:
@@ -190,14 +203,15 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                 port = int(port)
             except ValueError:
                 self.input_error(UrlError("Non-integer port in URL"))
-                return
+                raise
         else:
-            host, port = authority, 80
+            host, port = authority, default_port
         if path == "":
             path = "/"
+        self.scheme = scheme
         self.authority = authority
         self.req_target = urlunsplit(('', '', path, query, ''))
-        return host, port
+        return scheme, host, port
 
     def _req_start(self):
         """
@@ -292,10 +306,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._clear_read_timeout()
         self._retries += 1
         try:
-            host, port = self._parse_uri(self.uri)
-        except TypeError:
+            origin = self._parse_uri(self.uri)
+        except (TypeError, ValueError):
             return 
-        self.client._attach_conn(host, port, self._handle_connect,
+        self.client._attach_conn(origin, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
 
@@ -352,7 +366,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._clear_read_timeout()
         if self.tcp_conn:
             if self.tcp_conn.tcp_connected and self._conn_reusable:
-                self.client._release_conn(self.tcp_conn)
+                self.client._release_conn(self.tcp_conn, self.scheme)
             else:
                 self.tcp_conn.close()
             self.tcp_conn = None
@@ -367,7 +381,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._clear_read_timeout()
             if err.client_recoverable and \
               self.tcp_conn and self.tcp_conn.tcp_connected:
-                self.client._release_conn(self.tcp_conn)
+                self.client._release_conn(self.tcp_conn, self.scheme)
             else:
                 if self.tcp_conn:
                     self.tcp_conn.close()
