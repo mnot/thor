@@ -80,6 +80,7 @@ class TlsClient(TcpClient):
         except sys_ssl.SSLError, why:
             if why[0] == sys_ssl.SSL_ERROR_WANT_READ:
                 self.once('readable', self.handshake)
+                self.once('writable', self.handshake) # Oh, Linux...
             elif why[0] == sys_ssl.SSL_ERROR_WANT_WRITE:
                 self.once('writable', self.handshake)
             else:
@@ -122,9 +123,8 @@ def monkey_patch_ssl():
     """
     if not hasattr(sys_ssl.SSLSocket, '_real_connect'):
         import _ssl
-        sys_ssl.SSLSocket._connected = False
         def _real_connect(self, addr, return_errno):
-            if self._connected or self._sslobj:
+            if self._sslobj:
                 raise ValueError("attempt to connect already-connected SSLSocket!")
             self._sslobj = _ssl.sslwrap(self._sock, False, self.keyfile,
                 self.certfile, self.cert_reqs, self.ssl_version,
@@ -139,7 +139,6 @@ def monkey_patch_ssl():
                 else:
                     self._sslobj = None
                     raise e
-            self._connected = True
             return 0
         def connect(self, addr):
             self._real_connect(addr, False)
