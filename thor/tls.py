@@ -72,7 +72,6 @@ class TlsClient(TcpClient):
             cert_reqs=sys_ssl.CERT_NONE,
             do_handshake_on_connect=False
         )
-        monkey_patch_ssl(self.sock)
 
     def handshake(self):
         try:
@@ -115,40 +114,42 @@ class TlsClient(TcpClient):
                 socket.error, errno.ETIMEDOUT, True
             )
 
-def monkey_patch_ssl(sock):
+def monkey_patch_ssl():
     """
     Oh, god, I feel dirty.
     
     See Python bug 11326.
     """
-    if not hasattr(sock, '_connected'):
+    if not hasattr(sys_ssl.SSLSocket, '_real_connect'):
         import _ssl
-        sock._connected = False
-        def _real_connect(addr, return_errno):
-            if sock._connected or sock._sslobj:
+        sys_ssl.SSLSocket._connected = False
+        def _real_connect(self, addr, return_errno):
+            if self._connected or self._sslobj:
                 raise ValueError("attempt to connect already-connected SSLSocket!")
-            sock._sslobj = _ssl.sslwrap(sock._sock, False, sock.keyfile,
-                sock.certfile, sock.cert_reqs, sock.ssl_version,
-                sock.ca_certs, sock.ciphers)
+            self._sslobj = _ssl.sslwrap(self._sock, False, self.keyfile,
+                self.certfile, self.cert_reqs, self.ssl_version,
+                self.ca_certs, self.ciphers)
             try:
-                socket.socket.connect(sock, addr)
-                if sock.do_handshake_on_connect:
-                    sock.do_handshake()
+                socket.socket.connect(self, addr)
+                if self.do_handshake_on_connect:
+                    self.do_handshake()
             except socket.error as e:
                 if return_errno:
                     return e.errno
                 else:
-                    sock._sslobj = None
+                    self._sslobj = None
                     raise e
-            sock._connected = True
+            self._connected = True
             return 0
-        def connect(addr):
-            sock._real_connect(addr, False)
-        def connect_ex(addr):
-            return sock._real_connect(addr, True)
-        sock._real_connect = _real_connect
-        sock.connect = connect
-        sock.connect_ex = connect_ex
+        def connect(self, addr):
+            self._real_connect(addr, False)
+        def connect_ex(self, addr):
+            return self._real_connect(addr, True)
+        sys_ssl.SSLSocket._real_connect = _real_connect
+        sys_ssl.SSLSocket.connect = connect
+        sys_ssl.SSLSocket.connect_ex = connect_ex
+monkey_patch_ssl()
+
 
 if __name__ == "__main__":
     import sys
