@@ -41,7 +41,6 @@ from tcp import TcpServer, TcpClient, TcpConnection, server_listen
 TcpConnection._block_errs.add(sys_ssl.SSL_ERROR_WANT_READ)
 TcpConnection._block_errs.add(sys_ssl.SSL_ERROR_WANT_WRITE)
 
-
 # TODO: TlsServer
 # TODO: expose cipher info, peer info
 
@@ -73,6 +72,7 @@ class TlsClient(TcpClient):
             cert_reqs=sys_ssl.CERT_NONE,
             do_handshake_on_connect=False
         )
+        monkey_patch_ssl(self.sock)
 
     def handshake(self):
         try:
@@ -115,6 +115,40 @@ class TlsClient(TcpClient):
                 socket.error, errno.ETIMEDOUT, True
             )
 
+def monkey_patch_ssl(sock):
+    """
+    Oh, god, I feel dirty.
+    
+    See Python bug 11326.
+    """
+    if not hasattr(sock, '_connected'):
+        sock._connected = False
+        def _real_connect (self, addr, return_errno):
+            if self._connected or self._sslobj:
+                raise ValueError("attempt to connect already-connected SSLSocket!")
+            self._sslobj = _ssl.sslwrap(self._sock, False, self.keyfile,
+                self.certfile, self.cert_reqs, self.ssl_version,
+                self.ca_certs, self.ciphers)
+            try:
+                socket.connect(self, addr)
+                if self.do_handshake_on_connect:
+                    self.do_handshake()
+            except socket_error as e:
+                if return_errno:
+                    return e.errno
+                else:
+                    self._sslobj = None
+                    raise e
+            self._connected = True
+            return 0
+        def connect(self, addr):
+            self._real_connect(addr, False)
+        def connect_ex(self, addr):
+            return self._real_connect(addr, True)
+        sock._real_connect = _real_connect
+        sock.connect = connect
+        sock.connect_ex = connect_ex
+
 if __name__ == "__main__":
     import sys
     from thor import run
@@ -129,4 +163,4 @@ if __name__ == "__main__":
     c = TlsClient()
     c.on('connect', go)
     c.connect(host, 443)
-    thor.run()
+    run()
