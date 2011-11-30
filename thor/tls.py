@@ -123,28 +123,28 @@ def monkey_patch_ssl(sock):
     """
     if not hasattr(sock, '_connected'):
         sock._connected = False
-        def _real_connect (self, addr, return_errno):
-            if self._connected or self._sslobj:
+        def _real_connect(addr, return_errno):
+            if sock._connected or sock._sslobj:
                 raise ValueError("attempt to connect already-connected SSLSocket!")
-            self._sslobj = _ssl.sslwrap(self._sock, False, self.keyfile,
-                self.certfile, self.cert_reqs, self.ssl_version,
-                self.ca_certs, self.ciphers)
+            sock._sslobj = _ssl.sslwrap(sock._sock, False, sock.keyfile,
+                sock.certfile, sock.cert_reqs, sock.ssl_version,
+                sock.ca_certs, sock.ciphers)
             try:
-                socket.connect(self, addr)
-                if self.do_handshake_on_connect:
-                    self.do_handshake()
-            except socket_error as e:
+                socket.connect(sock, addr)
+                if sock.do_handshake_on_connect:
+                    sock.do_handshake()
+            except socket.error as e:
                 if return_errno:
                     return e.errno
                 else:
-                    self._sslobj = None
+                    sock._sslobj = None
                     raise e
-            self._connected = True
+            sock._connected = True
             return 0
-        def connect(self, addr):
-            self._real_connect(addr, False)
-        def connect_ex(self, addr):
-            return self._real_connect(addr, True)
+        def connect(addr):
+            sock._real_connect(addr, False)
+        def connect_ex(addr):
+            return sock._real_connect(addr, True)
         sock._real_connect = _real_connect
         sock.connect = connect
         sock.connect_ex = connect_ex
