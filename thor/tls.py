@@ -131,7 +131,7 @@ def monkey_patch_ssl(sock):
                 sock.certfile, sock.cert_reqs, sock.ssl_version,
                 sock.ca_certs, sock.ciphers)
             try:
-                socket.connect(sock, addr)
+                socket.socket.connect(sock, addr)
                 if sock.do_handshake_on_connect:
                     sock.do_handshake()
             except socket.error as e:
