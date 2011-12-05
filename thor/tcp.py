@@ -149,7 +149,7 @@ class TcpConnection(EventSource):
         try:
             # TODO: look into recv_into (but see python issue7827)
             data = self.socket.recv(self.read_bufsize)
-        except socket.error, why:
+        except Exception, why:
             if why[0] in self._block_errs:
                 return
             elif why[0] in self._close_errs:
@@ -312,7 +312,6 @@ class TcpClient(EventSource):
         # TODO: IPV6
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setblocking(False)
-        self.on('writable', self.handle_connect)
         self.on('error', self.handle_conn_error)
         self.register_fd(self.sock.fileno(), 'writable')
         self.event_add('error')
@@ -326,6 +325,7 @@ class TcpClient(EventSource):
         """
         self.host = host
         self.port = port
+        self.on('writable', self.handle_connect)
         # TODO: use socket.getaddrinfo(); needs to be non-blocking.
         try:
             err = self.sock.connect_ex((host, port))
