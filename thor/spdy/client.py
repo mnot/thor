@@ -29,11 +29,13 @@ THE SOFTWARE.
 
 from urlparse import urlsplit
 
-import push_tcp
+import thor
+from thor.events import EventEmitter, on
+from thor.tcp import TcpClient
+
 from error import ERR_CONNECT, ERR_URL
-from http_common import WAITING, \
-    hop_by_hop_hdrs, dummy, get_hdr
-from spdy_common import SpdyMessageHandler, CTL_SYN_STREAM, FLAG_NONE, FLAG_FIN
+from http_common import WAITING, hop_by_hop_hdrs, dummy, get_hdr
+from common import SpdyMessageHandler, CTL_SYN_STREAM, FLAG_NONE, FLAG_FIN
 
 req_remove_hdrs = hop_by_hop_hdrs + ['host']
 
@@ -43,6 +45,69 @@ class SpdyClient(SpdyMessageHandler):
     "An asynchronous SPDY client."
     proxy = None
     connect_timeout = None
+    tcp_client_class = TcpClient
+
+    def __init__(self, loop=None):
+        self.loop = loop or thor.loop._loop
+        self._conns = {}
+        self.loop.on('stop', self._close_conns)
+
+    def exchange(self):
+        return SpdyClientExchange(self)
+
+    def _attach_conn(self, host, port, handle_connect,
+               handle_connect_error, connect_timeout):
+        "Find an idle connection for (host, port), or create a new one."
+        while True:
+            try:
+                tcp_conn = self._conns[(host, port)].pop()
+            except (IndexError, KeyError):
+                tcp_client = self.tcp_client_class(self.loop)
+                tcp_client.on('connect', handle_connect)
+                tcp_client.on('connect_error', handle_connect_error)
+                tcp_client.connect(host, port, connect_timeout)
+                break
+            if tcp_conn.tcp_connected:
+                if hasattr(tcp_conn, "_idler"):
+                    tcp_conn._idler.delete()
+                handle_connect(tcp_conn)
+                break
+
+    def _release_conn(self, tcp_conn):
+        "Add an idle connection back to the pool."
+        tcp_conn.removeListeners('data', 'pause', 'close')
+        tcp_conn.pause(True)
+        if tcp_conn.tcp_connected:
+            def idle_close():
+                "Remove the connection from the pool when it closes."
+                try:
+                    if hasattr(tcp_conn, "_idler"):
+                        tcp_conn._idler.delete()                    
+                    self._conns[
+                        (tcp_conn.host, tcp_conn.port)
+                    ].remove(tcp_conn)
+                except (KeyError, ValueError):
+                    pass
+            tcp_conn.on('close', idle_close)
+            if self.idle_timeout:
+                tcp_conn._idler = self.loop.schedule(
+                    self.idle_timeout, tcp_conn.close
+                )
+            if not self._conns.has_key((tcp_conn.host, tcp_conn.port)):
+                self._conns[(tcp_conn.host, tcp_conn.port)] = [tcp_conn]
+            else:
+                self._conns[(tcp_conn.host, tcp_conn.port)].append(tcp_conn)
+
+    def _close_conns(self):
+        "Close all idle HTTP connections."
+        for conn_list in self._conns.values():
+            for conn in conn_list:
+                try:
+                    conn.close()
+                except:
+                    pass
+        self._conns = {}
+        # TODO: probably need to close in-progress conns too.
 
     def req_start(self, method, uri, req_hdrs, res_start_cb, req_body_pause):
         """

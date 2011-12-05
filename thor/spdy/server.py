@@ -31,9 +31,9 @@ import os
 import sys
 import logging
 
-import push_tcp
-from spdy_common import SpdyMessageHandler, CTL_SYN_REPLY, FLAG_NONE, FLAG_FIN
-from http_common import get_hdr, dummy
+from common import SpdyMessageHandler, CTL_SYN_REPLY, FLAG_NONE, FLAG_FIN
+import thor.loop
+from thor.http.common import get_hdr, dummy
 
 # FIXME: assure that the connection isn't closed before reading the entire req body
 
