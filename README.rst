@@ -120,8 +120,8 @@ Thor is not only “a hammer-wielding god associated with thunder,
 lightning, storms, oak trees, strength, destruction, fertility, healing,
 and the protection of mankind”, he’s also my Norwegian Forest Cat.
 
-Thor (the software program) grew out of `nbhttp`_, which itself came
-from earlier work on evented Python in `redbot`_ and `tarawa`_.
+Thor (the software program) grew out of nbhttp, which itself came
+from earlier work on evented Python in `redbot`_ and tarawa.
 
 Thor (the cat) now rules our house with a firm but benevolent paw. He
 gets sick if we give him any milk, though.
@@ -156,7 +156,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 .. _`http://python.org/`: http://python.org/
-.. _documentation: thor/tree/master/doc
+.. _documentation: doc
 .. _`http://github.com/mnot/thor/`: http://github.com/mnot/thor/
-.. _issues: thor/issues
+.. _issues: https://github.com/mnot/thor/issues
 .. _redbot: http://redbot.org/
