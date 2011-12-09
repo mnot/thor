@@ -156,7 +156,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 .. _`http://python.org/`: http://python.org/
-.. _documentation: doc
+.. _documentation: https://github.com/mnot/thor/tree/master/doc
 .. _`http://github.com/mnot/thor/`: http://github.com/mnot/thor/
 .. _issues: https://github.com/mnot/thor/issues
 .. _redbot: http://redbot.org/
