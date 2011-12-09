@@ -13,11 +13,14 @@ setup(
   download_url = \
     'http://github.com/mnot/thor/tarball/thor-%s' % thor.__version__,
   packages = ['thor', 'thor.http'],
+  provides = ['thor'],
+  long_description=open("README.rst").read(),
   classifiers = [
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
     'License :: OSI Approved :: MIT License',
     'Programming Language :: Python',
+    'Operating System :: POSIX',
     'Topic :: Internet :: WWW/HTTP',
     'Topic :: Internet :: Proxy Servers',
     'Topic :: Internet :: WWW/HTTP :: HTTP Servers',
