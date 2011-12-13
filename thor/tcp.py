@@ -38,7 +38,7 @@ import errno
 import sys
 import socket
 
-from loop import EventSource
+from thor.loop import EventSource
 
 
 class TcpConnection(EventSource):
@@ -377,7 +377,7 @@ class TcpClient(EventSource):
 
 if __name__ == "__main__":
     # quick demo server
-    from loop import run, stop
+    from thor.loop import run, stop
     server = TcpServer('localhost', int(sys.argv[-1]))
     def handle_conn(conn):
         conn.pause(False)

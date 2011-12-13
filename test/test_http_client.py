@@ -8,7 +8,6 @@ import unittest
 import framework
 from framework import test_host, test_port
 
-sys.path.insert(0, "..")
 import thor
 from thor.events import on
 

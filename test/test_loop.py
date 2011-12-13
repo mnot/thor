@@ -10,7 +10,6 @@ import unittest
 
 from framework import make_fifo
 
-sys.path.insert(0, "../")
 import thor.loop
 
 

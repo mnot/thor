@@ -35,7 +35,7 @@ import select
 import sys
 import time as systime
 
-from events import EventEmitter
+from thor.events import EventEmitter
 
 assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
     "Please use Python 2.6 or greater"
@@ -217,6 +217,7 @@ class PollLoop(LoopBase):
     """
 
     def __init__(self, *args):
+        # pylint: disable=E1101
         self._event_types = {
             select.POLLIN: 'readable',
             select.POLLOUT: 'writable',
@@ -226,6 +227,7 @@ class PollLoop(LoopBase):
         }
         LoopBase.__init__(self, *args)
         self._poll = select.poll()
+        # pylint: enable=E1101
 
     def register_fd(self, fd, events, target):
         self._fd_targets[fd] = target
@@ -256,6 +258,7 @@ class EpollLoop(LoopBase):
     """
 
     def __init__(self, *args):
+        # pylint: disable=E1101
         self._event_types = {
             select.EPOLLIN: 'readable',
             select.EPOLLOUT: 'writable',
@@ -264,6 +267,7 @@ class EpollLoop(LoopBase):
         }
         LoopBase.__init__(self, *args)
         self._epoll = select.epoll()
+        # pylint: enable=E1101
 
     def register_fd(self, fd, events, target):
         eventmask = self._eventmask(events)

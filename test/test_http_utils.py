@@ -3,7 +3,6 @@
 import sys
 import unittest
 
-sys.path.insert(0, "..")
 from thor.http.common import header_names, header_dict, get_header
 
 hdrs = [
