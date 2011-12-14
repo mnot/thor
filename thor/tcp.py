@@ -108,11 +108,11 @@ class TcpConnection(EventSource):
     _block_errs = set([
         errno.EAGAIN, errno.EWOULDBLOCK
     ])
-    _close_errs = [
+    _close_errs = set([
         errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,
         errno.ECONNABORTED, errno.ECONNREFUSED,
         errno.ENOTCONN, errno.EPIPE
-    ]
+    ])
 
     def __init__(self, sock, host, port, loop=None):
         EventSource.__init__(self, loop)
