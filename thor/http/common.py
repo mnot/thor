@@ -271,7 +271,10 @@ class HttpMessageHandler:
         "Handle input where the body is delimited by the Content-Length."
         if self._input_body_left <= len(instr): # got it all (and more?)
             self.input_transfer_length += self._input_body_left
-            self.input_body(instr[:self._input_body_left])
+            if not self.inspecting:
+                self.input_body(instr[:self._input_body_left])
+            else:
+                self.input_body(instr)
             self.input_end([])
             self._input_state = WAITING
             if instr[self._input_body_left:]:
