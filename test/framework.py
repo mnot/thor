@@ -10,7 +10,6 @@ import sys
 import threading
 import unittest
 
-sys.path.insert(0, "..")
 import thor
 
 test_host = "127.0.0.1"

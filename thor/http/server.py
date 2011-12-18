@@ -40,12 +40,13 @@ import sys
 from thor.events import EventEmitter, on
 from thor.tcp import TcpServer
 
-from common import HttpMessageHandler, \
+from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, \
-    WAITING, \
+    ERROR, \
     hop_by_hop_hdrs, \
     get_header, header_names
-from error import HttpVersionError, HostRequiredError, TransferCodeError
+from thor.http.error import HttpVersionError, HostRequiredError, \
+    TransferCodeError
 
 
 class HttpServer(EventEmitter):

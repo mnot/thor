@@ -7,7 +7,6 @@ import unittest
 
 import framework
 
-sys.path.insert(0, "..")
 import thor
 from thor.events import on
 

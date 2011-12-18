@@ -32,14 +32,14 @@ THE SOFTWARE.
 """
 
 import errno
-import sys
 import socket
 import ssl as sys_ssl
 
-from tcp import TcpServer, TcpClient, TcpConnection, server_listen
+from thor.tcp import TcpServer, TcpClient, TcpConnection, server_listen
 
 TcpConnection._block_errs.add(sys_ssl.SSL_ERROR_WANT_READ)
 TcpConnection._block_errs.add(sys_ssl.SSL_ERROR_WANT_WRITE)
+TcpConnection._close_errs.add(sys_ssl.SSL_ERROR_EOF)
 
 # TODO: TlsServer
 # TODO: expose cipher info, peer info
@@ -125,7 +125,9 @@ def monkey_patch_ssl():
         import _ssl
         def _real_connect(self, addr, return_errno):
             if self._sslobj:
-                raise ValueError("attempt to connect already-connected SSLSocket!")
+                raise ValueError(
+                    "attempt to connect already-connected SSLSocket!"
+                )
             self._sslobj = _ssl.sslwrap(self._sock, False, self.keyfile,
                 self.certfile, self.cert_reqs, self.ssl_version,
                 self.ca_certs, self.ciphers)
@@ -153,15 +155,15 @@ monkey_patch_ssl()
 if __name__ == "__main__":
     import sys
     from thor import run
-    host = sys.argv[1]
+    test_host = sys.argv[1]
 
     def go(conn):
-    	conn.on('data', sys.stdout.write)
-    	conn.write("GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % host)
-    	conn.pause(False)
+        conn.on('data', sys.stdout.write)
+        conn.write("GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
+        conn.pause(False)
         print conn.socket.cipher()
 
     c = TlsClient()
     c.on('connect', go)
-    c.connect(host, 443)
+    c.connect(test_host, 443)
     run()

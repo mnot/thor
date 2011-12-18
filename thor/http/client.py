@@ -41,12 +41,12 @@ from thor.events import EventEmitter, on
 from thor.tcp import TcpClient
 from thor.tls import TlsClient
 
-from common import HttpMessageHandler, \
+from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
     WAITING, HEADERS_DONE, ERROR, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
-from error import UrlError, ConnectError, \
+from thor.http.error import UrlError, ConnectError, \
     ReadTimeoutError, HttpVersionError
 
 req_rm_hdrs = hop_by_hop_hdrs + ['host']

@@ -3,7 +3,6 @@
 import sys
 import unittest
 
-sys.path.insert(0, "..")
 from thor.events import EventEmitter, on
 
 class TestEventEmitter(unittest.TestCase):

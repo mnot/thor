@@ -6,7 +6,6 @@ import unittest
 
 from framework import DummyHttpParser
 
-sys.path.insert(0, "..")
 import thor.http.error as error
 
 

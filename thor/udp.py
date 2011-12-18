@@ -33,7 +33,7 @@ THE SOFTWARE.
 import errno
 import socket
 
-from loop import EventSource
+from thor.loop import EventSource
 
 
 

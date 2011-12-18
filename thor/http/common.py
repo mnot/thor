@@ -33,7 +33,7 @@ THE SOFTWARE.
 from collections import defaultdict
 import re
 
-import error
+from thor.http import error
 
 lws = re.compile("\r?\n[ \t]+", re.M)
 hdr_end = re.compile(r"\r?\n\r?\n", re.M)
@@ -303,18 +303,18 @@ class HttpMessageHandler:
                 else: # top header starts with whitespace
                     self.input_error(error.TopLineSpaceError(line))
                     if not self.inspecting:
-                      return
+                        return
             try:
                 fn, fv = line.split(":", 1)
             except ValueError:
                 if self.inspecting:
-                  hdr_tuples.append(line)
+                    hdr_tuples.append(line)
                 else:
-                  continue # TODO: error on unparseable field?
+                    continue # TODO: error on unparseable field?
             if fn[-1] in [" ", "\t"]:
                 self.input_error(error.HeaderSpaceError(fn))
                 if not self.inspecting:
-                  return
+                    return
             hdr_tuples.append((fn, fv))
 
             if gather_conn_info:
@@ -453,7 +453,8 @@ class HttpMessageHandler:
         elif self._output_delimit == COUNTED:
             pass # TODO: double-check the length
         elif self._output_delimit == CLOSE:
-            self.tcp_conn.close() # TODO: abstract out?
+            # FIXME: abstract out
+            self.tcp_conn.close() # pylint: disable=E1101 
         elif self._output_delimit == None:
             pass # encountered an error before we found a delmiter
         else:

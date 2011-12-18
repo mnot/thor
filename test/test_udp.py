@@ -6,7 +6,6 @@ import sys
 import threading
 import unittest
 
-sys.path.insert(0, "..")
 
 from thor import loop
 from thor.udp import UdpEndpoint
