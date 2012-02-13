@@ -79,7 +79,7 @@ class TlsClient(TcpClient):
             self.once('writable', self.handle_connect)
         except sys_ssl.SSLError, why:
             if why[0] == sys_ssl.SSL_ERROR_WANT_READ:
-                self.once('readable', self.handshake)
+#                self.once('readable', self.handshake)
                 self.once('writable', self.handshake) # Oh, Linux...
             elif why[0] == sys_ssl.SSL_ERROR_WANT_WRITE:
                 self.once('writable', self.handshake)
