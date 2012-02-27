@@ -1,9 +1,9 @@
 Thor - Easy Evented Intermediation
 ==================================
 
-.. figure:: https://secure.travis-ci.org/mnot/thor.png?branch=master
-   :align: right
+.. image:: https://secure.travis-ci.org/mnot/thor.png?branch=master
    :alt: build status
+   :target: http://travis-ci.org/mnot/thor
 
 About Thor
 ----------
