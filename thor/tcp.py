@@ -251,6 +251,7 @@ class TcpServer(EventSource):
         self.sock = sock or server_listen(host, port)
         self.on('readable', self.handle_accept)
         self.register_fd(self.sock.fileno(), 'readable')
+        self.emit('start')
 
     def handle_accept(self):
         try:
@@ -269,6 +270,7 @@ class TcpServer(EventSource):
         "Stop accepting requests and close the listening socket."
         self.removeListeners('readable')
         self.sock.close()
+        self.emit('stop')
         # TODO: emit close?
 
 

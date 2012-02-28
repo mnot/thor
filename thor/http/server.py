@@ -59,6 +59,7 @@ class HttpServer(EventEmitter):
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
         self.tcp_server.on('connect', self.handle_conn)
+        self.emit('start')
 
     def handle_conn(self, tcp_conn):
         http_conn = HttpServerConnection(tcp_conn, self)
@@ -71,6 +72,7 @@ class HttpServer(EventEmitter):
         "Stop the server"
         # TODO: Finish outstanding requests w/ timeout?
         self.tcp_server.shutdown()
+        self.emit('stop')
 
 
 class HttpServerConnection(HttpMessageHandler, EventEmitter):

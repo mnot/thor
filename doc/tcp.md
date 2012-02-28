@@ -64,6 +64,10 @@ For example:
     s = TcpServer("localhost", 8000)
     s.on('connect', handle_conn)
 
+<span id="server_start_event"/>
+### event 'start'
+
+Emitted when the server starts.
 
 <span id="server_connect_event"/>
 ### event 'connect' ( _connection_ ) 
@@ -73,6 +77,11 @@ Emitted when a new connection is accepted by the server. _connection_ is a [TcpC
 ### thor.TcpServer.close () <span id="server_close"/>
 
 Stops the server from accepting new connections.
+
+<span id="server_stop_event"/>
+### event 'stop'
+
+Emitted when the server stops.
 
 
 <span id="TcpConnection"/>

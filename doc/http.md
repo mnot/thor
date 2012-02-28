@@ -79,11 +79,18 @@ The following settings are available as class variables:
 * HttpServer.tcp_server_class - what to use as a TCP server; must implement *thor.TcpServer*.
 * HttpServer.idle_timeout - how long idle persistent connections are left open, in seconds. Default 60; None to disable.
 
+### event 'start'
+
+Emitted when the server starts.
+
+### event 'stop'
+
+Emitted when the server stops.
+
 
 ### Event 'exchange' ( _exchange_ )
 
 Emitted when the server starts a new request/response _exchange_.
-
 
 #### event 'request\_start' ( _method_, _uri_, _headers_ )
 
