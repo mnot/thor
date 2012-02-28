@@ -38,7 +38,7 @@ import errno
 import sys
 import socket
 
-from thor.loop import EventSource
+from thor.loop import EventSource, schedule
 
 
 class TcpConnection(EventSource):
@@ -251,7 +251,7 @@ class TcpServer(EventSource):
         self.sock = sock or server_listen(host, port)
         self.on('readable', self.handle_accept)
         self.register_fd(self.sock.fileno(), 'readable')
-        self.emit('start')
+        schedule(0, self.emit, 'start')
 
     def handle_accept(self):
         try:

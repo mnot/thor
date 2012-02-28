@@ -37,6 +37,7 @@ THE SOFTWARE.
 import os
 import sys
 
+from thor import schedule
 from thor.events import EventEmitter, on
 from thor.tcp import TcpServer
 
@@ -59,7 +60,7 @@ class HttpServer(EventEmitter):
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
         self.tcp_server.on('connect', self.handle_conn)
-        self.emit('start')
+        schedule(0, self.emit, 'start')
 
     def handle_conn(self, tcp_conn):
         http_conn = HttpServerConnection(tcp_conn, self)
