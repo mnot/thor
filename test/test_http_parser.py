@@ -113,6 +113,19 @@ Content-Length: %(body_len)s
         headers = [k for k,v in self.parser.test_hdrs]
         self.assertEqual(headers, ['Content-Type', 'Foo', 'Content-Length'])
 
+    def test_hdrs_noname(self):
+        body = "lorum ipsum whatever goes after that."
+        self.checkSingleMsg(["""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+: bar
+Content-Length: %(body_len)s
+
+%(body)s"""], body)
+        headers = [k for k,v in self.parser.test_hdrs]
+        self.assertEqual(headers, ['Content-Type', '', 'Content-Length'])
+        
+
     def test_hdrs_utf8(self):
         body = "lorum ipsum whatever goes after that."
         self.checkSingleMsg([u"""\

@@ -311,7 +311,8 @@ class HttpMessageHandler:
                     hdr_tuples.append(line)
                 else:
                     continue # TODO: error on unparseable field?
-            if fn[-1] in [" ", "\t"]:
+            # TODO: a zero-length name isn't valid
+            if fn[-1:] in [" ", "\t"]:
                 self.input_error(error.HeaderSpaceError(fn))
                 if not self.inspecting:
                     return
