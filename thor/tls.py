@@ -84,9 +84,9 @@ class TlsClient(TcpClient):
             elif why[0] == sys_ssl.SSL_ERROR_WANT_WRITE:
                 self.once('writable', self.handshake)
             else:
-                self.handle_conn_error(sys_ssl.SSLError, why[0])
+                self.handle_conn_error(sys_ssl.SSLError, why)
         except socket.error, why:
-            self.handle_conn_error(socket.error, why[0])
+            self.handle_conn_error(socket.error, why)
 
     # TODO: refactor into tcp.py
     def connect(self, host, port, connect_timeout=None):
@@ -102,19 +102,21 @@ class TlsClient(TcpClient):
         try:
             err = self.sock.connect_ex((host, port))
         except socket.gaierror, why:
-            self.handle_conn_error(socket.gaierror, why[0])
+            self.handle_conn_error(socket.gaierror, why)
             return
         except socket.error, why:
-            self.handle_conn_error(socket.error, why[0])
+            self.handle_conn_error(socket.error, why)
             return
         if err != errno.EINPROGRESS:
-            self.handle_conn_error(socket.error, err)
+            self.handle_conn_error(socket.error, [err, os.strerror(err)])
             return
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
                 self.handle_conn_error,
-                socket.error, errno.ETIMEDOUT, True
+                socket.error,
+                [errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)],
+                True
             )
 
 def monkey_patch_ssl():

@@ -40,10 +40,10 @@ class TestTcpClientConnect(unittest.TestCase):
             conn.write("test")
             conn.close()
             self.loop.schedule(1, self.loop.stop)
-        def check_error(err_type, err):
+        def check_error(err_type, err_id, err_str):
             self.error_count += 1
             self.last_error_type = err_type
-            self.last_error = err
+            self.last_error = err_id
             self.loop.schedule(1, self.loop.stop)
         def timeout():
             self.loop.stop()

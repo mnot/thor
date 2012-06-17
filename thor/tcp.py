@@ -35,6 +35,7 @@ THE SOFTWARE.
 """
 
 import errno
+import os
 import sys
 import socket
 
@@ -291,9 +292,10 @@ class TcpClient(EventSource):
 
     Emits:
       - connect (tcp_conn): upon connection
-      - connect_error (err_type, err): if there's a problem before getting
-        a connection. err_type is socket.error or socket.gaierror; err
-        is the specific error encountered.
+      - connect_error (err_type, err_id, err_str): if there's a problem
+        before getting a connection. err_type is socket.error or
+        socket.gaierror; err_id is the specific error encountered, and
+        err_str is its textual description.
 
     To connect to a server:
 
@@ -332,19 +334,21 @@ class TcpClient(EventSource):
         try:
             err = self.sock.connect_ex((host, port))
         except socket.gaierror, why:
-            self.handle_conn_error(socket.gaierror, why[0])
+            self.handle_conn_error(socket.gaierror, why)
             return
         except socket.error, why:
-            self.handle_conn_error(socket.error, why[0])
+            self.handle_conn_error(socket.error, why)
             return
         if err != errno.EINPROGRESS:
-            self.handle_conn_error(socket.error, err)
+            self.handle_conn_error(socket.error, [err, os.strerror(err)])
             return
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
                 self.handle_conn_error,
-                socket.error, errno.ETIMEDOUT, True
+                socket.error,
+                [errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)],
+                True
             )
 
     def handle_connect(self):
@@ -355,24 +359,35 @@ class TcpClient(EventSource):
             return
         err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err:
-            self.handle_conn_error(socket.error, err)
+            self.handle_conn_error(socket.error, [err, os.strerror(err)])
         else:
             tcp_conn = TcpConnection(
                 self.sock, self.host, self.port, self._loop
             )
             self.emit('connect', tcp_conn)
 
-    def handle_conn_error(self, err_type=None, err=None, close=False):
+    def handle_conn_error(self, err_type=None, why=None, close=False):
+        """
+        Handle a connect error.
+
+        @err_type - e.g., socket.error; defaults to socket.error
+        @why - tuple of [err_id, err_str]
+        @close - whether the error means the socket should be closed
+        """
         if self._timeout_ev:
             self._timeout_ev.delete()
         if self._error_sent:
             return
-        if err_type is None or err is None:
+        if err_type is None:
             err_type = socket.error
-            err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+            err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+            err_str = os.strerror(err_id)
+        else:
+            err_id = why[0]
+            err_str = why[1]
         self._error_sent = True
         self.unregister_fd()
-        self.emit('connect_error', err_type, err)
+        self.emit('connect_error', err_type, err_id, err_str)
         if close:
             self.sock.close()
 

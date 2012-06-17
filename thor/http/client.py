@@ -270,9 +270,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.output("") # kick the output buffer
         self.tcp_conn.pause(False)
 
-    def _handle_connect_error(self, err_type, err):
+    def _handle_connect_error(self, err_type, err_id, err_str):
         "The connection has failed."
-        self.input_error(ConnectError(err))
+        self.input_error(ConnectError(err_str))
 
     def _conn_closed(self):
         "The server closed the connection."
