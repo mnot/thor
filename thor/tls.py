@@ -85,6 +85,8 @@ class TlsClient(TcpClient):
                 self.once('writable', self.handshake)
             else:
                 self.handle_conn_error(sys_ssl.SSLError, why[0])
+        except socket.error, why:
+            self.handle_conn_error(socket.error, why[0])
 
     # TODO: refactor into tcp.py
     def connect(self, host, port, connect_timeout=None):
