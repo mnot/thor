@@ -32,6 +32,7 @@ THE SOFTWARE.
 """
 
 import errno
+import os
 import socket
 import ssl as sys_ssl
 
