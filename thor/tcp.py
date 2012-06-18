@@ -106,14 +106,14 @@ class TcpConnection(EventSource):
     write_bufsize = 16
     read_bufsize = 1024 * 16
 
-    _block_errs = set([
+    _block_errs = set([(socket.error, e) for e in [
         errno.EAGAIN, errno.EWOULDBLOCK
-    ])
-    _close_errs = set([
+    ]])
+    _close_errs = set([(socket.error, e) for e in [
         errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,
         errno.ECONNABORTED, errno.ECONNREFUSED,
         errno.ENOTCONN, errno.EPIPE
-    ])
+    ]])
 
     def __init__(self, sock, host, port, loop=None):
         EventSource.__init__(self, loop)
@@ -151,9 +151,10 @@ class TcpConnection(EventSource):
             # TODO: look into recv_into (but see python issue7827)
             data = self.socket.recv(self.read_bufsize)
         except Exception, why:
-            if why[0] in self._block_errs:
+            err = (type(why), why[0])
+            if err in self._block_errs:
                 return
-            elif why[0] in self._close_errs:
+            elif err in self._close_errs:
                 self.emit('close')
                 return
             else:
@@ -171,10 +172,11 @@ class TcpConnection(EventSource):
             data = "".join(self._write_buffer)
             try:
                 sent = self.socket.send(data)
-            except socket.error, why:
-                if why[0] in self._block_errs:
+            except Exception, why:
+                err = (type(why), why[0])
+                if err in self._block_errs:
                     return
-                elif why[0] in self._close_errs:
+                elif err in self._close_errs:
                     self.emit('close')
                     return
                 else:

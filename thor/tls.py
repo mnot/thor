@@ -37,9 +37,12 @@ import ssl as sys_ssl
 
 from thor.tcp import TcpServer, TcpClient, TcpConnection, server_listen
 
-TcpConnection._block_errs.add(sys_ssl.SSL_ERROR_WANT_READ)
-TcpConnection._block_errs.add(sys_ssl.SSL_ERROR_WANT_WRITE)
-TcpConnection._close_errs.add(sys_ssl.SSL_ERROR_EOF)
+TcpConnection._block_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_READ))
+TcpConnection._block_errs.add(
+                        (sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_WRITE)
+)
+TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_EOF))
+TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_SSL))
 
 # TODO: TlsServer
 # TODO: expose cipher info, peer info
