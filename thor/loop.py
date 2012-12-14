@@ -40,7 +40,7 @@ from thor.events import EventEmitter
 assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
     "Please use Python 2.6 or greater"
 
-__all__ = ['run', 'stop', 'schedule', 'time', 'running']
+__all__ = ['run', 'stop', 'schedule', 'time', 'running', 'debug']
 
 
 class EventSource(EventEmitter):
@@ -110,12 +110,30 @@ class LoopBase(EventEmitter):
         self.__now = systime.time()
         self.emit('start')
         while self.running:
+            if debug:
+                fd_start = systime.time()
             self._run_fd_events()
             self.__now = systime.time()
+            if debug:
+                delay = self.__now - fd_start
+                if delay >= self.precision * 1:
+                    sys.stderr.write(
+                     "WARNING: long fd delay (%.2f)\n" % delay
+                    )
             # find scheduled events
             if not self.running:
                 break
-            if (self.__now - last_event_check) >= self.precision * 0.90:
+            delay = self.__now - last_event_check
+            if delay >= self.precision * 0.90:
+                if debug:
+                    if last_event_check and (delay >= self.precision * 4):
+                        sys.stderr.write(
+                          "WARNING: long loop delay (%.2f)\n" % delay
+                        )
+                    if len(self.__sched_events) > 5000:
+                        sys.stderr.write(
+                          "WARNING: %i events scheduled\n" % \
+                            len(self.__sched_events))
                 last_event_check = self.__now
                 for event in self.__sched_events:
                     when, what = event
@@ -125,7 +143,16 @@ class LoopBase(EventEmitter):
                         except ValueError:
                             # a previous event may have removed this one.
                             continue
+                        if debug:
+                            ev_start = systime.time()
                         what()
+                        if debug:
+                            delay = systime.time() - ev_start
+                            if delay > self.precision * 2:
+                                sys.stderr.write(
+                        "WARNING: long event delay (%.2f): %s\n" % \
+                                (delay, repr(what)) 
+                                )
                     else:
                         break
 
@@ -178,6 +205,7 @@ class LoopBase(EventEmitter):
         def cb():
             if callback:
                 callback(*args)
+        cb.__name__ = callback.__name__
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
         bisect.insort(events, new_event)
@@ -388,3 +416,4 @@ stop = _loop.stop
 schedule = _loop.schedule
 time = _loop.time
 running = _loop.running
+debug = False

@@ -58,17 +58,17 @@ class HttpClient(object):
 
     tcp_client_class = TcpClient
     tls_client_class = TlsClient
-    idle_timeout = 60 # in seconds
-    connect_timeout = None
-    read_timeout = None
-    retry_limit = 2
-    retry_delay = 0.5 # in sec
-    proxy_tls = False
-    proxy_host = None
-    proxy_port = None
 
     def __init__(self, loop=None):
         self.loop = loop or thor.loop._loop
+        self.idle_timeout = 60 # in seconds
+        self.connect_timeout = None
+        self.read_timeout = None
+        self.retry_limit = 2
+        self.retry_delay = 0.5 # in sec
+        self.proxy_tls = False
+        self.proxy_host = None
+        self.proxy_port = None
         self._conns = {}
         self.loop.on('stop', self._close_conns)
 

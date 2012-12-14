@@ -50,7 +50,13 @@ logfiles).
 
 ### thor.loop.running 
 
-Boolean that is True when the loop is running.
+Read-only boolean that is True when the loop is running.
+
+
+### thor.loop.debug
+
+Boolean that, when True, prints warnings to STDERR when the loop is
+behaving oddly; e.g., a scheduled event is blocking. Default is False.
 
 
 ### event 'start'
