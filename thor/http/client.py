@@ -51,7 +51,6 @@ from thor.http.error import UrlError, ConnectError, \
 
 req_rm_hdrs = hop_by_hop_hdrs + ['host']
 
-# TODO: proxy support
 # TODO: next-hop version cache for Expect/Continue, etc.
 
 class HttpClient(object):
@@ -64,6 +63,9 @@ class HttpClient(object):
     read_timeout = None
     retry_limit = 2
     retry_delay = 0.5 # in sec
+    proxy_tls = False
+    proxy_host = None
+    proxy_port = None
 
     def __init__(self, loop=None):
         self.loop = loop or thor.loop._loop
@@ -76,7 +78,17 @@ class HttpClient(object):
     def _attach_conn(self, origin, handle_connect,
                handle_connect_error, connect_timeout):
         "Find an idle connection for origin, or create a new one."
-        scheme, host, port = origin
+        if self.proxy_host and self.proxy_port:
+            # TODO: full form of request-target
+            import sys
+            host, port = self.proxy_host, self.proxy_port
+            if self.proxy_tls:
+                scheme = 'https'
+            else:
+                scheme = 'http'
+            origin = (scheme, host, port)
+        else:
+            scheme, host, port = origin
         while True:
             try:
                 tcp_conn = self._conns[origin].pop()
