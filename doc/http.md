@@ -23,12 +23,12 @@ There are several settings available as class variables:
 * HttpClient.retry_delay - how long to wait between retries, in seconds (or fractions thereof). Default _0.5_.
 
 
-### thor.HttpClient.exchange ()
+### thor.http.HttpClient.exchange ()
 
 Create a request/response exchange.
 
 
-#### thor.HttpClient.exchange.request\_start ( _method_, _uri_, _headers_ )
+#### thor.http.HttpClient.exchange.request\_start ( _method_, _uri_, _headers_ )
 
 Start the request to _uri_ using _method_ and a list of tuples _headers_ (see [working with HTTP headers](#headers)).
 
@@ -36,12 +36,12 @@ Note that hop-by-hop headers will be stripped from _headers_; Thor manages its o
 
 After calling *request_start*, *request_body* may be called zero or more times, and then *request_done* must be called.
 
-#### thor.HttpClient.exchange.request\_body ( _chunk_ ) 
+#### thor.http.HttpClient.exchange.request\_body ( _chunk_ ) 
 
 Send a _chunk_ of request body content.
 
 
-#### thor.HttpClient.exchange.request\_done ( _trailers_ )
+#### thor.http.HttpClient.exchange.request\_done ( _trailers_ )
 
 Signal that the request body is finished. This must be called for every request. _trailers_ is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
