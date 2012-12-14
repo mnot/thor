@@ -11,6 +11,7 @@ import threading
 import unittest
 
 import thor
+from thor.http.common import HttpMessageHandler
 
 test_host = "127.0.0.1"
 test_port = 8001
@@ -64,9 +65,9 @@ class ClientServerTestCase(unittest.TestCase):
         raise NotImplementedError
         
 
-class DummyHttpParser(thor.http.common.HttpMessageHandler):
+class DummyHttpParser(HttpMessageHandler):
     def __init__(self, *args, **kw):
-        thor.http.common.HttpMessageHandler.__init__(self, *args, **kw)
+        HttpMessageHandler.__init__(self, *args, **kw)
         self.test_top_line = None
         self.test_hdrs = None
         self.test_body = ""

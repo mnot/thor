@@ -10,6 +10,7 @@ from framework import test_host, test_port
 
 import thor
 from thor.events import on
+from thor.http import HttpClient
 
         
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -33,7 +34,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             server.server_close()
 
     def create_client(self, host, port, client_side):
-        client = thor.HttpClient(loop=self.loop)
+        client = HttpClient(loop=self.loop)
         client.connect_timeout = 1
         client_side(client)
 
@@ -250,7 +251,7 @@ Connection: close
 
     # FIXME: works because dns is currently blocking
     def test_conn_noname_err(self):
-        client = thor.HttpClient(loop=self.loop)
+        client = HttpClient(loop=self.loop)
         exchange = client.exchange()
         @on(exchange)
         def error(err_msg):
@@ -267,7 +268,7 @@ Connection: close
 
         
     def test_url_err(self):
-        client = thor.HttpClient(loop=self.loop)
+        client = HttpClient(loop=self.loop)
         exchange = client.exchange()
         @on(exchange)
         def error(err_msg):
@@ -284,7 +285,7 @@ Connection: close
 
 
     def test_url_port_err(self):
-        client = thor.HttpClient(loop=self.loop)
+        client = HttpClient(loop=self.loop)
         exchange = client.exchange()
         @on(exchange)
         def error(err_msg):

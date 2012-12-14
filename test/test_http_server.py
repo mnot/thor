@@ -9,11 +9,12 @@ import framework
 
 import thor
 from thor.events import on
+from thor.http import HttpServer
 
 class TestHttpServer(framework.ClientServerTestCase):
             
     def create_server(self, test_host, test_port, server_side):
-        server = thor.HttpServer(test_host, test_port, loop=self.loop)
+        server = HttpServer(test_host, test_port, loop=self.loop)
         server_side(server)
         @on(self.loop)
         def stop():
