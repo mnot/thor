@@ -218,7 +218,8 @@ class LoopBase(EventEmitter):
             if callback:
                 callback(*args)
         cb.__name__ = callback.__name__
-        new_event = (self.time() + delta, cb)
+        now       = self.time()
+        new_event = (now + delta, cb)
         events = self.__sched_events
         bisect.insort(events, new_event)
         class event_holder:
@@ -232,7 +233,8 @@ class LoopBase(EventEmitter):
                     except ValueError: # already gone
                         pass
         res = event_holder()
-        self._step(True)
+        # We force a step if the event is scheduled before the next iteration
+        if new_event[0]  < ((self.last_event_check or now) + self.precision): self._step(True)
         return res
 
     def _eventmask(self, events):
