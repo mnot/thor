@@ -95,6 +95,7 @@ class LoopBase(EventEmitter):
         EventEmitter.__init__(self)
         self.precision = precision or .5 # of running scheduled queue (secs)
         self.running = False # whether or not the loop is running (read-only)
+        self.last_event_check = 0
         self.__sched_events = []
         self._fd_targets = {}
         self.__now = None
@@ -106,55 +107,66 @@ class LoopBase(EventEmitter):
     def run(self):
         "Start the loop."
         self.running = True
-        last_event_check = 0
+        self.last_event_check = 0
         self.__now = systime.time()
         self.emit('start')
         while self.running:
-            if debug:
-                fd_start = systime.time()
+            self._step()
+
+    def _step( self, force=False ):
+        """Runs one iteration of the loop. When `force` is `True`, this will
+        force an iteration on the events, but will not modfify there
+        `last_event_check`."""
+        if debug:
+            fd_start = systime.time()
+        if not force:
+            # We have to skip FD events if we're in force mode, as otherwise
+            # we'll have to wait for `precision` seconds if there's no
+            # fd event happening.
             self._run_fd_events()
-            self.__now = systime.time()
+        self.__now = systime.time()
+        if debug:
+            delay = self.__now - fd_start
+            if delay >= self.precision * 1.5:
+                sys.stderr.write(
+                 "WARNING: long fd delay (%.2f)\n" % delay
+                )
+        # find scheduled events
+        if not self.running:
+            return
+        delay = self.__now - self.last_event_check
+        if force or delay >= self.precision * 0.90:
             if debug:
-                delay = self.__now - fd_start
-                if delay >= self.precision * 1.5:
+                if (not force) and self.last_event_check and (delay >= self.precision * 4):
                     sys.stderr.write(
-                     "WARNING: long fd delay (%.2f)\n" % delay
+                      "WARNING: long loop delay (%.2f)\n" % delay
                     )
-            # find scheduled events
-            if not self.running:
-                break
-            delay = self.__now - last_event_check
-            if delay >= self.precision * 0.90:
-                if debug:
-                    if last_event_check and (delay >= self.precision * 4):
-                        sys.stderr.write(
-                          "WARNING: long loop delay (%.2f)\n" % delay
-                        )
-                    if len(self.__sched_events) > 5000:
-                        sys.stderr.write(
-                          "WARNING: %i events scheduled\n" % \
-                            len(self.__sched_events))
-                last_event_check = self.__now
-                for event in self.__sched_events:
-                    when, what = event
-                    if self.__now >= when:
-                        try:
-                            self.__sched_events.remove(event)
-                        except ValueError:
-                            # a previous event may have removed this one.
-                            continue
-                        if debug:
-                            ev_start = systime.time()
-                        what()
-                        if debug:
-                            delay = systime.time() - ev_start
-                            if delay > self.precision * 2:
-                                sys.stderr.write(
-                        "WARNING: long event delay (%.2f): %s\n" % \
-                                (delay, repr(what)) 
-                                )
-                    else:
-                        break
+                if len(self.__sched_events) > 5000:
+                    sys.stderr.write(
+                      "WARNING: %i events scheduled\n" % \
+                        len(self.__sched_events))
+            if not force:
+                self.last_event_check = self.__now
+            for event in self.__sched_events:
+                when, what = event
+                if self.__now >= when:
+                    try:
+                        self.__sched_events.remove(event)
+                    except ValueError:
+                        # a previous event may have removed this one.
+                        continue
+                    if debug:
+                        ev_start = systime.time()
+                    what()
+                    if debug:
+                        delay = systime.time() - ev_start
+                        if delay > self.precision * 2:
+                            sys.stderr.write(
+                    "WARNING: long event delay (%.2f): %s\n" % \
+                            (delay, repr(what))
+                            )
+                else:
+                    break
 
     def _run_fd_events(self):
         "Run loop-specific FD events."
@@ -219,7 +231,9 @@ class LoopBase(EventEmitter):
                         self._deleted = True
                     except ValueError: # already gone
                         pass
-        return event_holder()
+        res = event_holder()
+        self._step(True)
+        return res
 
     def _eventmask(self, events):
         "Calculate the mask for a list of events."
