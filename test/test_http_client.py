@@ -402,13 +402,6 @@ Connection: close
                 'phrase': 'OK',
                 'body': "12345"
             })
-            exchange2 = client.exchange()
-            self.check_exchange(exchange2, {
-                'version': "1.1",
-                'status': "404",
-                'phrase': 'Not Found',
-                'body': "54321"
-            })
 
             @on(exchange1)
             def response_start(*args):
@@ -416,17 +409,24 @@ Connection: close
 
             @on(exchange1)
             def response_done(trailers):
+                exchange2 = client.exchange()
+                self.check_exchange(exchange2, {
+                    'version': "1.1",
+                    'status': "404",
+                    'phrase': 'Not Found',
+                    'body': "54321"
+                })
                 exchange2.request_start("GET", req_uri, [])
                 exchange2.request_done([])
 
-            @on(exchange2)
-            def response_start(*args):
-                self.assertEqual(self.conn_id, id(exchange2.tcp_conn))
-                self.conn_checked = True
+                @on(exchange2)
+                def response_start(*args):
+                    self.assertEqual(self.conn_id, id(exchange2.tcp_conn))
+                    self.conn_checked = True
 
-            @on(exchange2)
-            def response_done(trailers):
-                self.loop.stop()
+                @on(exchange2)
+                def response_done(trailers):
+                    self.loop.stop()
 
             exchange1.request_start("GET", req_uri, [])
             exchange1.request_done([])
