@@ -125,10 +125,12 @@ class HttpClient(object):
                 except (KeyError, ValueError):
                     pass
             tcp_conn.on('close', idle_close)
-            if self.idle_timeout:
+            if self.idle_timeout > 0:
                 tcp_conn._idler = self.loop.schedule(
                     self.idle_timeout, tcp_conn.close
                 )
+            else:
+                tcp_conn.close()
             if not self._conns.has_key(origin):
                 self._conns[origin] = [tcp_conn]
             else:
@@ -235,7 +237,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs
         ]
         req_hdrs.append(("Host", self.authority))
-        req_hdrs.append(("Connection", "keep-alive"))
+        if self.client.idle_timeout > 0:
+            req_hdrs.append(("Connection", "keep-alive"))
+        else:
+            req_hdrs.append(("Connection", "close"))
         if "content-length" in header_names(req_hdrs):
             delimit = COUNTED
         elif self._req_body:
