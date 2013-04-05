@@ -43,7 +43,7 @@ from thor.tls import TlsClient
 
 from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
-    WAITING, ERROR, \
+    WAITING, HEADERS_DONE, ERROR, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from thor.http.error import UrlError, ConnectError, \
@@ -318,6 +318,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.input_error(ConnectError(
                 "Server dropped connection before the response was complete."
             ))
+            
+            if self._input_state == HEADERS_DONE and self.inspecting:
+                self.input_end([])
 
     def _retry(self):
         "Retry the request."
