@@ -34,6 +34,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from collections import defaultdict
 from urlparse import urlsplit, urlunsplit
 
 import thor
@@ -66,10 +67,12 @@ class HttpClient(object):
         self.read_timeout = None
         self.retry_limit = 2
         self.retry_delay = 0.5 # in sec
+        self.max_server_conn = 4
         self.proxy_tls = False
         self.proxy_host = None
         self.proxy_port = None
-        self._conns = {}
+        self._idle_conns = defaultdict(list)
+        self._conn_counts = defaultdict(int)
         self.loop.on('stop', self._close_conns)
 
     def exchange(self):
@@ -91,17 +94,14 @@ class HttpClient(object):
             scheme, host, port = origin
         while True:
             try:
-                tcp_conn = self._conns[origin].pop()
-            except (IndexError, KeyError):
-                if scheme == 'http':
-                    tcp_client = self.tcp_client_class(self.loop)
-                elif scheme == 'https':
-                    tcp_client = self.tls_client_class(self.loop)
-                else:
-                    raise ValueError, 'unknown scheme %s' % scheme
-                tcp_client.on('connect', handle_connect)
-                tcp_client.on('connect_error', handle_connect_error)
-                tcp_client.connect(host, port, connect_timeout)
+                tcp_conn = self._idle_conns[origin].pop()
+            except IndexError:
+                self._new_conn(
+                    origin,
+                    handle_connect,
+                    handle_connect_error,
+                    connect_timeout
+                )
                 break
             if tcp_conn.tcp_connected:
                 if hasattr(tcp_conn, "_idler"):
@@ -118,10 +118,11 @@ class HttpClient(object):
         if tcp_conn.tcp_connected:
             def idle_close():
                 "Remove the connection from the pool when it closes."
+                if hasattr(tcp_conn, "_idler"):
+                    tcp_conn._idler.delete()                    
+                self._dead_conn(origin)
                 try:
-                    if hasattr(tcp_conn, "_idler"):
-                        tcp_conn._idler.delete()                    
-                    self._conns[origin].remove(tcp_conn)
+                    self._idle_conns[origin].remove(tcp_conn)
                 except (KeyError, ValueError):
                     pass
             tcp_conn.on('close', idle_close)
@@ -131,20 +132,38 @@ class HttpClient(object):
                 )
             else:
                 tcp_conn.close()
-            if not self._conns.has_key(origin):
-                self._conns[origin] = [tcp_conn]
-            else:
-                self._conns[origin].append(tcp_conn)
+                self._dead_conn(origin)
+            self._idle_conns[origin].append(tcp_conn)
+        else:
+            self._dead_conn(origin)
+
+    def _new_conn(self, origin, handle_connect, handle_error, timeout):
+        "Create a new connection."
+        (scheme, host, port) = origin
+        if scheme == 'http':
+            tcp_client = self.tcp_client_class(self.loop)
+        elif scheme == 'https':
+            tcp_client = self.tls_client_class(self.loop)
+        else:
+            raise ValueError, 'unknown scheme %s' % scheme
+        tcp_client.on('connect', handle_connect)
+        tcp_client.on('connect_error', handle_error)
+        self._conn_counts[origin] += 1
+        tcp_client.connect(host, port, timeout)
+
+    def _dead_conn(self, origin):
+        "Notify the client that a connect to origin is dead."
+        self._conn_counts[origin] -= 1
 
     def _close_conns(self):
         "Close all idle HTTP connections."
-        for conn_list in self._conns.values():
+        for conn_list in self._idle_conns.values():
             for conn in conn_list:
                 try:
                     conn.close()
                 except:
                     pass
-        self._conns = {}
+        self._idle_conns = {}
         # TODO: probably need to close in-progress conns too.
 
 
@@ -162,6 +181,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.authority = None
         self.res_version = None
         self.tcp_conn = None
+        self.origin = None
         self._conn_reusable = False
         self._req_body = False
         self._req_started = False
@@ -187,10 +207,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.uri = uri
         self.req_hdrs = req_hdrs
         try:
-            origin = self._parse_uri(self.uri)
+            self.origin = self._parse_uri(self.uri)
         except (TypeError, ValueError):
             return 
-        self.client._attach_conn(origin, self._handle_connect,
+        self.client._attach_conn(self.origin, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
     # TODO: if we sent Expect: 100-continue, don't wait forever
@@ -382,12 +402,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def input_end(self, trailers):
         "Indicate that the response body is complete."
         self._clear_read_timeout()
-        if self.tcp_conn:
-            if self.tcp_conn.tcp_connected and self._conn_reusable:
-                self.client._release_conn(self.tcp_conn, self.scheme)
-            else:
-                self.tcp_conn.close()
-            self.tcp_conn = None
+        if self.tcp_conn.tcp_connected and self._conn_reusable:
+            self.client._release_conn(self.tcp_conn, self.scheme)
+        else:
+            if self.tcp_conn:
+              self.tcp_conn.close()
+            self._dead_conn()
+        self.tcp_conn = None
         self.emit('response_done', trailers)
 
     def input_error(self, err):
@@ -401,11 +422,15 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
               self.tcp_conn and self.tcp_conn.tcp_connected:
                 self.client._release_conn(self.tcp_conn, self.scheme)
             else:
+                self._dead_conn()
                 if self.tcp_conn:
                     self.tcp_conn.close()
             self.tcp_conn = None
         self.emit('error', err)
         
+    def _dead_conn(self):
+        "Inform the client that the connection is dead."
+        self.client._dead_conn(self.origin)
 
     def output(self, chunk):
         self._output_buffer.append(chunk)
