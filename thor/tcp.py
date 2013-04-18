@@ -107,7 +107,7 @@ class TcpConnection(EventSource):
     read_bufsize = 1024 * 16
 
     _block_errs = set([(socket.error, e) for e in [
-        errno.EAGAIN, errno.EWOULDBLOCK
+        errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT
     ]])
     _close_errs = set([(socket.error, e) for e in [
         errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,
