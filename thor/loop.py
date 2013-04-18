@@ -177,6 +177,10 @@ class LoopBase(EventEmitter):
         "Stop emitting events from fd."
         raise NotImplementedError
 
+    def fd_count(self):
+        "Return how many FDs are currently monitored by the loop."
+        return len(self._fd_targets)
+
     def event_add(self, fd, event):
         "Start emitting event for fd."
         raise NotImplementedError
