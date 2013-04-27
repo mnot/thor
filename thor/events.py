@@ -44,7 +44,7 @@ class EventEmitter(object):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        del state["__events"]
+        del state["_EventEmitter__events"]
         return state
 
     def on(self, event, listener):
