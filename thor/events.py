@@ -43,7 +43,7 @@ class EventEmitter(object):
         self.__sink = None
 
     def __getstate__(self):
-        state = self.__dict__
+        state = self.__dict__.copy()
         del state["__events"]
         return state
 
