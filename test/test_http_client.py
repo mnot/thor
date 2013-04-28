@@ -12,6 +12,7 @@ import thor
 from thor.events import on
 from thor.http import HttpClient
 
+thor.loop.debug = True
         
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
@@ -74,7 +75,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             
         @on(self.loop)
         def stop():
-            self.assertTrue(exchange.test_happened)
+            self.assertTrue(exchange.test_happened, expected)
 
 
 
@@ -416,8 +417,10 @@ Connection: close
                     'phrase': 'Not Found',
                     'body': "54321"
                 })
-                exchange2.request_start("GET", req_uri, [])
-                exchange2.request_done([])
+                def start2():
+                    exchange2.request_start("GET", req_uri, [])
+                    exchange2.request_done([])
+                self.loop.schedule(1, start2)
 
                 @on(exchange2)
                 def response_start(*args):
@@ -438,7 +441,7 @@ Content-Type: text/plain
 Content-Length: 5
 
 12345""")
-            time.sleep(1)
+            time.sleep(2)
             conn.request.sendall("""\
 HTTP/1.1 404 Not Found
 Content-Type: text/plain
@@ -470,8 +473,10 @@ Connection: close
 
             @on(exchange1)
             def response_done(trailers):
-                exchange2.request_start("GET", req_uri, [])
-                exchange2.request_done([])
+                def start2():
+                    exchange2.request_start("GET", req_uri, [])
+                    exchange2.request_done([])
+                self.loop.schedule(1, start2)
 
             @on(exchange2)
             def error(err_msg):
@@ -491,7 +496,7 @@ Content-Type: text/plain
 Content-Length: 5
 
 12345""")
-            time.sleep(1)
+            time.sleep(2)
             conn.request.sendall("""\
 HTTP/9.1 404 Not Found
 Content-Type: text/plain
