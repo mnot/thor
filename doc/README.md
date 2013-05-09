@@ -3,9 +3,9 @@
 
 ## API Reference
 
-* [Events](doc/events.md) - Emitting and listening for events
-* [The Loop](doc/loop.md) - The event loop itself
-* [TCP](doc/tcp.md) - Network connections
-* [TLS/SSL](doc/tls.md) - Encrypted network connections
-* [UDP](doc/udp.md) - Network datagrams
-* [HTTP](doc/http.md) - HyperText Transfer Protocol
+* [Events](events.md) - Emitting and listening for events
+* [The Loop](loop.md) - The event loop itself
+* [TCP](tcp.md) - Network connections
+* [TLS/SSL](tls.md) - Encrypted network connections
+* [UDP](udp.md) - Network datagrams
+* [HTTP](http.md) - HyperText Transfer Protocol

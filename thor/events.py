@@ -9,7 +9,7 @@ Event utilities, including:
 
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
-Copyright (c) 2005-2011 Mark Nottingham
+Copyright (c) 2005-2013 Mark Nottingham
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -43,8 +43,8 @@ class EventEmitter(object):
         self.__sink = None
 
     def __getstate__(self):
-        state = self.__dict__
-        del state["__events"]
+        state = self.__dict__.copy()
+        del state["_EventEmitter__events"]
         return state
 
     def on(self, event, listener):

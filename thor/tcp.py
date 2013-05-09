@@ -13,7 +13,7 @@ you (using a 'data' event), and you push data to the network connection
 
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
-Copyright (c) 2005-2011 Mark Nottingham
+Copyright (c) 2005-2013 Mark Nottingham
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -107,7 +107,7 @@ class TcpConnection(EventSource):
     read_bufsize = 1024 * 16
 
     _block_errs = set([(socket.error, e) for e in [
-        errno.EAGAIN, errno.EWOULDBLOCK
+        errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT
     ]])
     _close_errs = set([(socket.error, e) for e in [
         errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,

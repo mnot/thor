@@ -9,7 +9,7 @@ Python 2.6+'s built-in poll / epoll / kqueue support.
 
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
-Copyright (c) 2005-2011 Mark Nottingham
+Copyright (c) 2005-2013 Mark Nottingham
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -188,6 +188,10 @@ class LoopBase(EventEmitter):
     def unregister_fd(self, fd):
         "Stop emitting events from fd."
         raise NotImplementedError
+
+    def fd_count(self):
+        "Return how many FDs are currently monitored by the loop."
+        return len(self._fd_targets)
 
     def event_add(self, fd, event):
         "Start emitting event for fd."
