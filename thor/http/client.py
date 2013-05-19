@@ -163,7 +163,7 @@ class HttpClient(object):
                     conn.close()
                 except:
                     pass
-        self._idle_conns = {}
+        self._idle_conns.clear()
         # TODO: probably need to close in-progress conns too.
 
 
