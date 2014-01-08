@@ -2,6 +2,9 @@
 python=`which python`
 PY_TESTS=test_*.py
 
+.PHONY: run
+run: test
+
 .PHONY: test
 test: $(PY_TESTS)
 
