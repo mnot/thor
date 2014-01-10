@@ -140,7 +140,7 @@ Content-Length: %(body_len)s
 
     def test_hdrs_null(self):
         body = "lorum ipsum whatever goes after that."
-        self.checkSingleMsg(["""\
+        self.checkSingleMsg([u"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Foo: \0

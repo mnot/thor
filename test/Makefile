@@ -10,7 +10,7 @@ test: $(PY_TESTS)
 
 .PHONY: $(PY_TESTS)
 $(PY_TESTS):
-	PYTHONPATH=../ $(python) $@
+	PYTHONPATH=.:../ $(python) $@
 
 .PHONY: lint
 lint:
