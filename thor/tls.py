@@ -70,12 +70,10 @@ class TlsClient(TcpClient):
     """
     def __init__(self, loop=None):
         TcpClient.__init__(self, loop)
-        # FIXME: CAs
-        self.sock = sys_ssl.wrap_socket(
-            self.sock, 
-            cert_reqs=sys_ssl.CERT_NONE,
-            do_handshake_on_connect=False
-        )
+        try:
+            self.tls_context = sys_ssl.SSLContext(sys_ssl.PROTOCOL_SSLv23)
+        except AttributeError:
+            self.tls_context = None
 
     def handshake(self):
         try:
@@ -102,6 +100,19 @@ class TlsClient(TcpClient):
         self.host = host
         self.port = port
         self.once('writable', self.handshake)
+        # FIXME: CAs
+        if self.tls_context:
+            self.sock = self.tls_context.wrap_socket(
+                self.sock, 
+                do_handshake_on_connect=False,
+                server_hostname=self.host
+            )
+        else: # server_hostname requires 2.7.9
+            self.sock = sys_ssl.wrap_socket(
+                self.sock, 
+                cert_reqs=sys_ssl.CERT_NONE,
+                do_handshake_on_connect=False
+            )
         # TODO: use socket.getaddrinfo(); needs to be non-blocking.
         try:
             err = self.sock.connect_ex((host, port))
