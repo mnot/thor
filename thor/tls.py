@@ -40,8 +40,15 @@ from thor.tcp import TcpServer, TcpClient, TcpConnection, server_listen
 
 TcpConnection._block_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_READ))
 TcpConnection._block_errs.add(
-                        (sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_WRITE)
+    (sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_WRITE)
 )
+if hasattr(sys_ssl, 'SSLContext'):
+    TcpConnection._block_errs.add(
+        (sys_ssl.SSLWantReadError, sys_ssl.SSL_ERROR_WANT_READ)
+    )
+    TcpConnection._block_errs.add(
+        (sys_ssl.SSLWantWriteError, sys_ssl.SSL_ERROR_WANT_WRITE)
+    )
 TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_EOF))
 TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_SSL))
 
