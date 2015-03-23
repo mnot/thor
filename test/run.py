@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
+import os
 import sys
 import unittest
 
-sys.path.insert(0, '..')
+base = os.path.dirname(os.path.realpath(__file__)).rsplit('/',1)[0]
+sys.path.insert(0, base)
 
 from test_events import TestEventEmitter
 from test_http_parser import TestHttpParser
