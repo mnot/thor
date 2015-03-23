@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
+import sys
 import unittest
+
+sys.path.insert(0, '..')
 
 from test_events import TestEventEmitter
 from test_http_parser import TestHttpParser
