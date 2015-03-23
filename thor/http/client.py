@@ -454,7 +454,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._read_timeout_ev.delete()
 
 
-def test_client(request_uri, out, err):
+def test_client(request_uri, out, err):  # pragma: no coverage
     "A simple demonstration of a client."
     from thor.loop import stop, run
 

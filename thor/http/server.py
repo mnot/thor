@@ -256,7 +256,7 @@ class HttpServerExchange(EventEmitter):
         self.http_conn.output_end(trailers)
 
 
-def test_handler(x):
+def test_handler(x): # pragma: no cover
     @on(x, 'request_start')
     def go(*args):
         print "start: %s on %s" % (str(args[1]), id(x.http_conn))
