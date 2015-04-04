@@ -42,7 +42,7 @@ TcpConnection._block_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_READ))
 TcpConnection._block_errs.add(
     (sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_WRITE)
 )
-if hasattr(sys_ssl, 'SSLContext'):
+if hasattr(sys_ssl, 'SSLWantReadError'):
     TcpConnection._block_errs.add(
         (sys_ssl.SSLWantReadError, sys_ssl.SSL_ERROR_WANT_READ)
     )
