@@ -51,6 +51,10 @@ if hasattr(sys_ssl, 'SSLWantReadError'):
     )
 TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_EOF))
 TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_SSL))
+if hasattr(sys_ssl, 'SSLEOFError'):
+    TcpConnection._close_errs.add(
+        (sys_ssl.SSLEOFError, sys_ssl.SSL_ERROR_EOF)
+    )
 
 # TODO: TlsServer
 # TODO: expose cipher info, peer info
