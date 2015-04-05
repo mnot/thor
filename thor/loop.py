@@ -121,8 +121,6 @@ class LoopBase(EventEmitter):
                      "WARNING: long fd delay (%.2f)\n" % delay
                     )
             # find scheduled events
-            if not self.running:
-                break
             delay = self.__now - last_event_check
             if delay >= self.precision * 0.90:
                 if debug:
@@ -137,7 +135,7 @@ class LoopBase(EventEmitter):
                 last_event_check = self.__now
                 for event in self.__sched_events:
                     when, what = event
-                    if self.__now >= when:
+                    if self.running and self.__now >= when:
                         try:
                             self.__sched_events.remove(event)
                         except ValueError:
