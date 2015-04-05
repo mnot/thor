@@ -27,6 +27,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import types
+
 class HttpError(Exception):
     desc = "Unknown Error"
     server_status = None # status this produces when it occurs in a server
