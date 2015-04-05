@@ -35,6 +35,8 @@ class HttpError(Exception):
 
     def __init__(self, detail=None):
         Exception.__init__(self)
+        if type(detail) != types.UnicodeType:
+            detail = unicode(detail, "utf-8", "replace")
         self.detail = detail
 
     def __repr__(self):
