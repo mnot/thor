@@ -29,11 +29,13 @@ Create a request/response exchange.
 
 ### thor.http.HttpClientExchange
 
-#### _void_ request\_start ( _str_ `method`,  _uri_,  _[headers](#headers)_ `headers` )
+#### _void_ request\_start ( _str_ `method`,  _str_ `uri`,  _[headers](#headers)_ `headers` )
 
 Start the request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
-Note that hop-by-hop headers will be stripped from _headers_; Thor manages its own connections headers (such as _Connection_, _Keep-Alive_, and so on.)
+note that `uri` is a string; if you want to use an IRI, you'll need to convert it first.
+
+Also, hop-by-hop headers will be stripped from `headers`; Thor manages its own connections headers (such as _Connection_, _Keep-Alive_, and so on.)
 
 After calling *request_start*, *request_body* may be called zero or more times, and then *request_done* must be called.
 
@@ -98,7 +100,7 @@ Emitted when the server starts a new request/response `exchange`.
 ### thor.http.HttpServerExchange
 
 
-#### event 'request\_start' ( _str_ `method`,  _uri_,  _[headers](#headers)_ `headers` )
+#### event 'request\_start' ( _str_ `method`,  _str_ `uri`,  _[headers](#headers)_ `headers` )
 
 Emitted when the exchange receives a request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
