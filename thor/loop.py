@@ -31,7 +31,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import bisect
 import select
 import sys
 import time as systime
@@ -211,7 +210,7 @@ class LoopBase(EventEmitter):
         cb.__name__ = callback.__name__
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
-        bisect.insort(events, new_event)
+        self._insort(events, new_event)
         class event_holder:
             def __init__(self):
                 self._deleted = False
@@ -223,6 +222,17 @@ class LoopBase(EventEmitter):
                     except ValueError: # already gone
                         pass
         return event_holder()
+
+    def _insort(self, a, x, lo=0, hi=None):
+        if lo < 0:
+            raise ValueError('lo must be non-negative')
+        if hi is None:
+            hi = len(a)
+        while lo < hi:
+            mid = (lo+hi)//2
+            if x[0] < a[mid][0]: hi = mid
+            else: lo = mid+1
+        a.insert(lo, x)
 
     def _eventmask(self, events):
         "Calculate the mask for a list of events."
