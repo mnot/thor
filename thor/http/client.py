@@ -204,7 +204,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Given a URI, parse out the host, port, authority and request target. 
         Returns None if there is an error, otherwise the origin.
         """
-        (scheme, authority, path, query, fragment) = urlsplit(uri) # todo: IRI
+        (scheme, authority, path, query, fragment) = urlsplit(uri)
         scheme = scheme.lower()
         if scheme == 'http':
             default_port = 80
@@ -355,7 +355,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         self._clear_read_timeout
         try:
-            proto_version, status_txt = top_line.decode('utf-8').split(None, 1) # TODO: encoding
+            proto_version, status_txt = top_line.decode('ascii').split(None, 1) # TODO: encoding
             proto, self.res_version = proto_version.rsplit('/', 1)
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line))

@@ -12,7 +12,7 @@ import time
 import unittest
 
 import framework
-test_host = framework.test_host.decode('ascii')
+test_host = str(framework.test_host.decode('ascii'))
 test_port = framework.test_port
 
 
@@ -101,7 +101,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/basic" % (test_host, test_port)
+            req_uri = "http://%s:%i/basic" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -132,7 +132,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/chunked_response" % (test_host, test_port)
+            req_uri = "http://%s:%i/chunked_response" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -167,7 +167,7 @@ Transfer-Encoding: chunked
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/chunked_request" % (test_host, test_port)
+            req_uri = "http://%s:%i/chunked_request" % (test_host, test_port)
             exchange.request_start(
                 "POST", req_uri, []
             )
@@ -217,7 +217,7 @@ Transfer-Encoding: chunked
             })
             exchange2.on('response_done', check_done)
 
-            req_uri = u"http://%s:%i/multiconn" % (test_host, test_port)
+            req_uri = "http://%s:%i/multiconn" % (test_host, test_port)
             exchange1.request_start(
                 "GET", req_uri, []
             )
@@ -250,7 +250,7 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/conn_refuse_err" % (test_host, test_port)
+            req_uri = "http://%s:%i/conn_refuse_err" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -269,7 +269,7 @@ Connection: close
             )
             self.loop.stop()
 
-        req_uri = u"http://foo.bar/conn_noname_err"
+        req_uri = "http://foo.bar/conn_noname_err"
         exchange.request_start(
             "GET", req_uri, []
         )
@@ -286,7 +286,7 @@ Connection: close
             )
             self.loop.stop()
 
-        req_uri = u"foo://%s:%s/url_err" % (test_host, test_port)
+        req_uri = "foo://%s:%s/url_err" % (test_host, test_port)
         exchange.request_start(
             "GET", req_uri, []
         )
@@ -303,7 +303,7 @@ Connection: close
             )
             self.loop.stop()
 
-        req_uri = u"http://%s:ABC123/url_port_err" % (test_host)
+        req_uri = "http://%s:ABC123/url_port_err" % (test_host)
         exchange.request_start(
             "GET", req_uri, []
         )
@@ -320,7 +320,7 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/http_version_err" % (test_host, test_port)
+            req_uri = "http://%s:%i/http_version_err" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -348,7 +348,7 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/protoname_err" % (test_host, test_port)
+            req_uri = "http://%s:%i/protoname_err" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -382,7 +382,7 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/close_in_body" % (test_host, test_port)
+            req_uri = "http://%s:%i/close_in_body" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -403,7 +403,7 @@ Connection: close
     def test_conn_reuse(self):
         self.conn_checked = False
         def client_side(client):
-            req_uri = u"http://%s:%i/conn_reuse" % (test_host, test_port)
+            req_uri = "http://%s:%i/conn_reuse" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {
                 'version': "1.1",
@@ -465,7 +465,7 @@ Connection: close
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
         def client_side(client):
-            req_uri = u"http://%s:%i/succeed_then_err" % (test_host, test_port)
+            req_uri = "http://%s:%i/succeed_then_err" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {
                 'version': "1.1",
@@ -530,7 +530,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/HEAD" % (test_host, test_port)
+            req_uri = "http://%s:%i/HEAD" % (test_host, test_port)
             exchange.request_start(
                 "HEAD", req_uri, []
             )
@@ -562,7 +562,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = u"http://%s:%i/req_retry" % (test_host, test_port)
+            req_uri = "http://%s:%i/req_retry" % (test_host, test_port)
             exchange.request_start(
                 "OPTIONS", req_uri, []
             )
@@ -600,7 +600,7 @@ Connection: close
                 )
                 self.loop.stop()
                 
-            req_uri = u"http://%s:%i/req_retry_fail" % (test_host, test_port)
+            req_uri = "http://%s:%i/req_retry_fail" % (test_host, test_port)
             exchange.request_start(
                 "OPTIONS", req_uri, []
             )
