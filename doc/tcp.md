@@ -60,7 +60,7 @@ For example:
     s.on('connect', handle_conn)
 
 
-### event 'start'  {#server_start_event}
+### event 'start' ()
 
 Emitted when the server starts.
 
