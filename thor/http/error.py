@@ -4,6 +4,7 @@
 Thor HTTP Errors
 """
 
+from __future__ import absolute_import
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2008-2010 Mark Nottingham
@@ -37,8 +38,8 @@ class HttpError(Exception):
 
     def __init__(self, detail=None):
         Exception.__init__(self)
-        if detail and type(detail) != types.UnicodeType:
-            detail = unicode(detail, "utf-8", "replace")
+#        if detail and type(detail) != str:
+#            detail = unicode(detail, "utf-8", "replace")
         self.detail = detail
 
     def __repr__(self):

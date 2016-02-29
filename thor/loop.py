@@ -7,6 +7,7 @@ This is a generic library for building asynchronous event loops, using
 Python 2.6+'s built-in poll / epoll / kqueue support.
 """
 
+from __future__ import absolute_import
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2005-2013 Mark Nottingham
@@ -37,8 +38,8 @@ import time as systime
 
 from thor.events import EventEmitter
 
-assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
-    "Please use Python 2.6 or greater"
+#assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
+#    "Please use Python 2.6 or greater"
 
 __all__ = ['run', 'stop', 'schedule', 'time', 'running', 'debug']
 
@@ -163,7 +164,7 @@ class LoopBase(EventEmitter):
         self.__sched_events = []
         self.__now = None
         self.running = False
-        for fd in self._fd_targets.keys():
+        for fd in list(self._fd_targets):
             self.unregister_fd(fd)
         self.emit('stop')
 
@@ -189,7 +190,7 @@ class LoopBase(EventEmitter):
 
     def _fd_event(self, event, fd):
         "An event has occured on an fd."
-        if self._fd_targets.has_key(fd):
+        if fd in self._fd_targets:
             self._fd_targets[fd].emit(event)
         # TODO: automatic unregister on 'close'?
 
@@ -204,7 +205,7 @@ class LoopBase(EventEmitter):
         Returns an object which can be used to later remove the event, by
         calling its delete() method.
         """
-        def cb():
+        def cb(): # FIXME: can't compare functions in py3. Suck.
             if callback:
                 callback(*args)
         cb.__name__ = callback.__name__
@@ -232,7 +233,7 @@ class LoopBase(EventEmitter):
 
     def _filter2events(self, evfilter):
         "Calculate the events implied by a given filter."
-        if not self.__event_cache.has_key(evfilter):
+        if evfilter not in self.__event_cache:
             events = set()
             for et in self._event_types:
                 if et & evfilter:
@@ -409,7 +410,7 @@ def make(precision=None):
         loop = PollLoop(precision)
     else:
         # TODO: select()-based loop (I suppose)
-        raise ImportError, "What is this thing, a Windows box?"
+        raise ImportError("What is this thing, a Windows box?")
     return loop
 
 _loop = make() # by default, just one big loop.

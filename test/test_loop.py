@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from __future__ import absolute_import
 import errno
 import os
 import socket
@@ -126,26 +127,26 @@ class TestEventSource(unittest.TestCase):
 
     def test_EventSource_register(self):
         self.es.register_fd(self.r_fd)
-        self.assertTrue(self.r_fd in self.loop._fd_targets.keys())
+        self.assertTrue(self.r_fd in list(self.loop._fd_targets))
     
     def test_EventSource_unregister(self):
         self.es.register_fd(self.r_fd)
-        self.assertTrue(self.r_fd in self.loop._fd_targets.keys())
+        self.assertTrue(self.r_fd in list(self.loop._fd_targets))
         self.es.unregister_fd()
-        self.assertFalse(self.r_fd in self.loop._fd_targets.keys())
+        self.assertFalse(self.r_fd in list(self.loop._fd_targets))
         
     def test_EventSource_event_del(self):
         self.es.register_fd(self.r_fd, 'readable')
         self.es.on('readable', self.readable_check)
         self.es.event_del('readable')
-        os.write(self.w_fd, 'foo')
+        os.write(self.w_fd, b'foo')
         self.loop._run_fd_events()
         self.assertFalse('readable' in self.events_seen)
         
     def test_EventSource_readable(self):
         self.es.register_fd(self.r_fd, 'readable')
         self.es.on('readable', self.readable_check)
-        os.write(self.w_fd, "foo")
+        os.write(self.w_fd, b"foo")
         self.loop._run_fd_events()
         self.assertTrue('readable' in self.events_seen)
 
@@ -155,9 +156,9 @@ class TestEventSource(unittest.TestCase):
         self.loop._run_fd_events()
         self.assertFalse('readable' in self.events_seen)
 
-    def readable_check(self, check="foo"):
+    def readable_check(self, check=b"foo"):
         data = os.read(self.r_fd, 5)
-        self.assertEquals(data, check)
+        self.assertEqual(data, check)
         self.events_seen.append('readable')
 
 #    def test_EventSource_close(self):

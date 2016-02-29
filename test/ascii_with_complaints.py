@@ -37,6 +37,7 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 (c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
 
 """
+from __future__ import absolute_import
 import codecs, warnings
 
 def encode(input, errors='strict'):

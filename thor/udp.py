@@ -7,6 +7,7 @@ This is a generic library for building event-based / asynchronous
 UDP servers and clients.
 """
 
+from __future__ import absolute_import
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2011-2013 Mark Nottingham
@@ -93,7 +94,7 @@ class UdpEndpoint(EventSource):
         "send datagram to host:port."
         try:
             self.sock.sendto(datagram, (host, port))
-        except socket.error, why:
+        except socket.error as why:
             if why[0] in self._block_errs:
                 pass # we drop these on the floor. It's UDP, after all.
             else:
@@ -106,8 +107,8 @@ class UdpEndpoint(EventSource):
         while True:
             try:
                 data, addr = self.sock.recvfrom(self.recv_buffer)
-            except socket.error, why:
-                if why[0] in self._block_errs:
+            except socket.error as why:
+                if why.args[0] in self._block_errs:
                     break
                 else:
                     raise

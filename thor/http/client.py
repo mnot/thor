@@ -11,6 +11,9 @@ will block the entire client.
 
 """
 
+from __future__ import absolute_import
+from __future__ import print_function
+
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2005-2013 Mark Nottingham
@@ -35,7 +38,10 @@ THE SOFTWARE.
 """
 
 from collections import defaultdict
-from urlparse import urlsplit, urlunsplit
+try:
+    from urlparse import urlsplit, urlunsplit
+except ImportError:
+    from urllib.parse import urlsplit, urlunsplit
 
 import thor
 from thor.events import EventEmitter, on
@@ -50,7 +56,7 @@ from thor.http.common import HttpMessageHandler, \
 from thor.http.error import UrlError, ConnectError, \
     ReadTimeoutError, HttpVersionError
 
-req_rm_hdrs = hop_by_hop_hdrs + ['host']
+req_rm_hdrs = hop_by_hop_hdrs + [b'host']
 
 # TODO: next-hop version cache for Expect/Continue, etc.
 
@@ -145,7 +151,7 @@ class HttpClient(object):
         elif scheme == 'https':
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError, 'unknown scheme %s' % scheme
+            raise ValueError('unknown scheme %s' % scheme)
         tcp_client.on('connect', handle_connect)
         tcp_client.on('connect_error', handle_error)
         self._conn_counts[origin] += 1
@@ -209,7 +215,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         try:
             self.origin = self._parse_uri(self.uri)
         except (TypeError, ValueError):
-            return 
+            return
         self.client._attach_conn(self.origin, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
@@ -221,7 +227,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Given a URI, parse out the host, port, authority and request target. 
         Returns None if there is an error, otherwise the origin.
         """
-        (scheme, authority, path, query, fragment) = urlsplit(uri)
+        (scheme, authority, path, query, fragment) = urlsplit(uri) # todo: IRI
         scheme = scheme.lower()
         if scheme == 'http':
             default_port = 80
@@ -239,6 +245,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             except ValueError:
                 self.input_error(UrlError("Non-integer port in URL"))
                 raise
+            if not 1 <= port <= 65535:
+                self.input_error(UrlError("URL port out of range"))
+                raise ValueError
         else:
             host, port = authority, default_port
         if path == "":
@@ -250,31 +259,33 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _req_start(self):
         """
-        Actually queue the request headers for sending.
+        Queue the request headers for sending.
         """
         self._req_started = True
         req_hdrs = [
             i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs
         ]
-        req_hdrs.append(("Host", self.authority))
+        req_hdrs.append((b"Host", self.authority.encode('ascii')))
         if self.client.idle_timeout > 0:
-            req_hdrs.append(("Connection", "keep-alive"))
+            req_hdrs.append((b"Connection", b"keep-alive"))
         else:
-            req_hdrs.append(("Connection", "close"))
-        if "content-length" in header_names(req_hdrs):
+            req_hdrs.append((b"Connection", b"close"))
+        if b"content-length" in header_names(req_hdrs):
             delimit = COUNTED
         elif self._req_body:
-            req_hdrs.append(("Transfer-Encoding", "chunked"))
+            req_hdrs.append((b"Transfer-Encoding", b"chunked"))
             delimit = CHUNKED
         else:
             delimit = NOBODY
-        self.output_start("%s %s HTTP/1.1" % (self.method, self.req_target),
-            req_hdrs, delimit
-        )
+        self.output_start(b"%s %s HTTP/1.1" % (
+            self.method.encode('ascii'), self.req_target.encode('ascii')
+        ), req_hdrs, delimit)
 
 
     def request_body(self, chunk):
         "Send part of the request body. May be called zero to many times."
+        if self._input_state == ERROR:
+            return
         if not self._req_started:
             self._req_body = True
             self._req_start()
@@ -285,6 +296,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
         """
+        if self._input_state == ERROR:
+            return
         if not self._req_started:
             self._req_start()
         self.output_end(trailers)
@@ -304,7 +317,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         tcp_conn.on('close', self._conn_closed)
         tcp_conn.on('pause', self._req_body_pause)
         # FIXME: should this be done AFTER _req_start?
-        self.output("") # kick the output buffer
+        self.output(b"") # kick the output buffer
         self.tcp_conn.pause(False)
 
     def _handle_connect_error(self, err_type, err_id, err_str):
@@ -315,7 +328,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "The server closed the connection."
         self._clear_read_timeout()
         if self._input_buffer:
-            self.handle_input("")
+            self.handle_input(b"")
         if self._input_delimit == CLOSE:
             self.input_end([])
         elif self._input_state == WAITING: # TODO: needs to be tighter
@@ -363,9 +376,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
         """
-        self._clear_read_timeout()
+        self._clear_read_timeout
         try:
-            proto_version, status_txt = top_line.split(None, 1)
+            proto_version, status_txt = top_line.decode('utf-8').split(None, 1) # TODO: encoding
             proto, self.res_version = proto_version.rsplit('/', 1)
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line))
@@ -380,7 +393,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             res_phrase = ""
         if 'close' not in conn_tokens:
             if (
-              self.res_version == "1.0" and 'keep-alive' in conn_tokens) or \
+              self.res_version == "1.0" and b'keep-alive' in conn_tokens) or \
               self.res_version in ["1.1"]:
                 self._conn_reusable = True
         self._set_read_timeout('start')
@@ -390,7 +403,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                   hdr_tuples
         )
         allows_body = (res_code not in no_body_status) \
-            and (self.method != "HEAD")
+                      and (self.method != "HEAD")
         return allows_body
 
     def input_body(self, chunk):
@@ -435,7 +448,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def output(self, chunk):
         self._output_buffer.append(chunk)
         if self.tcp_conn and self.tcp_conn.tcp_connected:
-            self.tcp_conn.write("".join(self._output_buffer))
+            self.tcp_conn.write(b"".join(self._output_buffer))
             self._output_buffer = []
 
     # misc
@@ -465,14 +478,14 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     @on(x)
     def response_start(status, phrase, headers):
         "Print the response headers."
-        print "HTTP/%s %s %s" % (x.res_version, status, phrase)
-        print "\n".join(["%s:%s" % header for header in headers])
-        print
+        print(b"HTTP/%s %s %s" % (x.res_version, status, phrase))
+        print(b"\n".join([b"%s:%s" % header for header in headers]))
+        print()
 
     @on(x)
     def error(err_msg):
         if err_msg:
-            err("*** ERROR: %s (%s)\n" %
+            err(b"*** ERROR: %s (%s)\n" %
                 (err_msg.desc, err_msg.detail)
             )
         stop()
@@ -483,7 +496,7 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     def response_done(trailers):
         stop()
 
-    x.request_start("GET", request_uri, [])
+    x.request_start(b"GET", request_uri, [])
     x.request_done([])
     run()
 

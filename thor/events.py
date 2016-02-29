@@ -7,6 +7,7 @@ Event utilities, including:
 * on - a decorator for making functions and methods listen to events.
 """
 
+from __future__ import absolute_import
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2005-2013 Mark Nottingham
@@ -96,7 +97,7 @@ class EventEmitter(object):
         """
         Return a list of events being listened for.
         """
-        return self.__events.keys()
+        return list(self.__events)
 
     def emit(self, event, *args):
         """

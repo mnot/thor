@@ -7,6 +7,7 @@ This module contains utility functions and a base class
 for the parsing portions of the HTTP client and server.
 """
 
+from __future__ import absolute_import
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2005-2013 Mark Nottingham
@@ -31,13 +32,17 @@ THE SOFTWARE.
 """
 
 from collections import defaultdict
-import re
 
 from thor.http import error
 
-lws = re.compile("\r?\n[ \t]+", re.M)
-hdr_end = re.compile(r"\r?\n\r?\n", re.M)
-linesep = "\r\n"
+linesep = b"\r\n"
+
+if b"0"[0] == 48:
+    NEWLINE = ord("\n")
+    RETURN = ord("\r")
+else:
+    NEWLINE = "\n"
+    RETURN = "\r"
 
 # conn_modes
 CLOSE, COUNTED, CHUNKED, NOBODY = 'close', 'counted', 'chunked', 'nobody'
@@ -48,9 +53,9 @@ WAITING, HEADERS_DONE, ERROR = 1, 2, 3
 idempotent_methods = ['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS', 'TRACE']
 safe_methods = ['GET', 'HEAD', 'OPTIONS', 'TRACE']
 no_body_status = ['100', '101', '204', '304']
-hop_by_hop_hdrs = ['connection', 'keep-alive', 'proxy-authenticate',
-                   'proxy-authorization', 'te', 'trailers',
-                   'transfer-encoding', 'upgrade', 'proxy-connection']
+hop_by_hop_hdrs = [b'connection', b'keep-alive', b'proxy-authenticate',
+                   b'proxy-authorization', b'te', b'trailers',
+                   b'transfer-encoding', b'upgrade', b'proxy-connection']
 
 
 def dummy(*args, **kw):
@@ -76,7 +81,7 @@ def header_dict(hdr_tuples, omit=None):
         n = n.lower()
         if n in (omit or []):
             continue
-        out[n].extend([i.strip() for i in v.split(',')])
+        out[n].extend([i.strip() for i in v.split(b',')])
     return out
 
 def get_header(hdr_tuples, name):
@@ -91,7 +96,7 @@ def get_header(hdr_tuples, name):
     """
     # TODO: support quoted strings
     return [v.strip() for v in sum(
-               [l.split(',') for l in
+               [l.split(b',') for l in
                     [i[1] for i in hdr_tuples if i[0].lower() == name]
                ]
             , [])
@@ -106,7 +111,12 @@ class HttpMessageHandler:
     For parsing, it expects you to override input_start, input_body and
     input_end, and call handle_input when you get bytes from the network.
 
-    For serialising, it expects you to override _output.
+    For serialising, it expects you to override output.
+    
+    Headers (and trailers) are represented as a list of (name, value) tuples, 
+    each being bytes.
+    
+    Body chunks are bytes.
     """
 
     inspecting = False # if True, don't fail on errors, but preserve them.
@@ -114,7 +124,7 @@ class HttpMessageHandler:
     def __init__(self):
         self.input_header_length = 0
         self.input_transfer_length = 0
-        self._input_buffer = ""
+        self._input_buffer = b""
         self._input_state = WAITING
         self._input_delimit = None
         self._input_body_left = 0
@@ -129,6 +139,16 @@ class HttpMessageHandler:
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
 
+        top_line is a bytes that contains the first line.
+        
+        hdr_tuples is a list of (bytes, bytes) tuples, one for each header line.
+        
+        conn_tokens is a list of bytes, one for each Connection token.
+        
+        transfer_codes is a list of bytes, one for each transfer coding.
+        
+        content_length is an integer representing the Content-Length header.
+
         Returns boolean allows_body to indicate whether the message allows a
         body.
 
@@ -138,148 +158,162 @@ class HttpMessageHandler:
         raise NotImplementedError
 
     def input_body(self, chunk):
-        "Process a body chunk from the wire."
+        """
+        Process a body chunk from the wire.
+        
+        Chunk is a bytes.
+        """
         raise NotImplementedError
 
     def input_end(self, trailers):
         """
         Indicate that the response body is complete. Optionally can contain
         trailers.
+        
+        Trailers are a list of (bytes, bytes) tuples, just like headers in _input_start.
         """
         raise NotImplementedError
 
     def input_error(self, err):
-        "Indicate an unrecoverable parsing problem with the input stream."
+        """
+        Indicate an unrecoverable parsing problem with the input stream.
+        
+        err is an instance of thor.http.error.*.
+        """
         raise NotImplementedError
 
-    def handle_input(self, instr):
+    def handle_input(self, inbytes):
         """
-        Given a chunk of input, figure out what state we're in and handle it,
-        making the appropriate calls.
+        Given a bytes representing a chunk of input, figure out what state 
+        we're in and handle it, making the appropriate calls.
         """
-        if self._input_buffer != "":
+        if self._input_buffer != b"":
             # will need to move to a list if writev comes around
-            instr = self._input_buffer + instr
-            self._input_buffer = ""
+            inbytes = self._input_buffer + inbytes
+            self._input_buffer = b""
         if self._input_state == WAITING:
-            if hdr_end.search(instr): # found one
-                rest = self._parse_headers(instr)
+            headers, rest = self._split_headers(inbytes)
+            if headers != None: # found one
+                self._parse_headers(headers)
                 try:
                     self.handle_input(rest)
                 except RuntimeError:
                     self.input_error(error.TooManyMsgsError)
                     # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
-                self._input_buffer = instr
+                self._input_buffer = inbytes
         elif self._input_state == HEADERS_DONE:
             try:
-                handler = getattr(self, '_handle_%s' % self._input_delimit)
+                body_handler = getattr(self, '_handle_%s' % self._input_delimit)
             except AttributeError:
-                raise Exception, "Unknown input delimiter %s" % \
-                                 self._input_delimit
-            handler(instr)
+                raise Exception("Unknown input delimiter %s" % \
+                                 self._input_delimit)
+            body_handler(inbytes)
         elif self._input_state == ERROR:
             pass # I'm silently ignoring input that I don't understand.
         else:
-            raise Exception, "Unknown state %s" % self._input_state
+            raise Exception("Unknown state %s" % self._input_state)
 
-    def _handle_nobody(self, instr):
+    def _handle_nobody(self, inbytes):
         "Handle input that shouldn't have a body."
         self.input_end([])
         self._input_state = WAITING
-        self.handle_input(instr)
+        self.handle_input(inbytes)
 
-    def _handle_close(self, instr):
+    def _handle_close(self, inbytes):
         "Handle input where the body is delimited by the connection closing."
-        self.input_transfer_length += len(instr)
-        self.input_body(instr)
+        self.input_transfer_length += len(inbytes)
+        self.input_body(inbytes)
 
-    def _handle_chunked(self, instr):
+    def _handle_chunked(self, inbytes):
         "Handle input where the body is delimited by chunked encoding."
-        while instr:
+        while inbytes:
             if self._input_body_left < 0: # new chunk
-                instr = self._handle_chunk_new(instr)
+                inbytes = self._handle_chunk_new(inbytes)
             elif self._input_body_left > 0:
                 # we're in the middle of reading a chunk
-                instr = self._handle_chunk_body(instr)
+                inbytes = self._handle_chunk_body(inbytes)
             elif self._input_body_left == 0: # body is done
-                instr = self._handle_chunk_done(instr)
+                inbytes = self._handle_chunk_done(inbytes)
 
-    def _handle_chunk_new(self, instr):
+    def _handle_chunk_new(self, inbytes):
+        "Handle the start of a new body chunk."
         try:
-            # they really need to use CRLF
-            chunk_size, rest = instr.split(linesep, 1)
+            chunk_size, rest = inbytes.split(b"\r\n", 1)
         except ValueError:
             # don't have the whole chunk_size yet... wait a bit
-            if len(instr) > 512:
+            if len(inbytes) > 512:
                 # OK, this is absurd...
-                self.input_error(error.ChunkError(instr))
+                self.input_error(error.ChunkError(inbytes))
                 # TODO: need testing around this; catching the right thing?
             else:
-                self._input_buffer += instr
+                self._input_buffer += inbytes
             return
         # TODO: do we need to ignore blank lines?
-        if ";" in chunk_size: # ignore chunk extensions
-            chunk_size = chunk_size.split(";", 1)[0]
+        if b";" in chunk_size: # ignore chunk extensions
+            chunk_size = chunk_size.split(b";", 1)[0]
         try:
             self._input_body_left = int(chunk_size, 16)
         except ValueError:
             self.input_error(error.ChunkError(chunk_size))
             return
-        self.input_transfer_length += len(instr) - len(rest)
+        self.input_transfer_length += len(inbytes) - len(rest)
         return rest
 
-    def _handle_chunk_body(self, instr):
-        got = len(instr)
+    def _handle_chunk_body(self, inbytes):
+        "Handle a continuing body chunk."
+        got = len(inbytes)
         if self._input_body_left + 2 < got: # got more than the chunk
             this_chunk = self._input_body_left
-            self.input_body(instr[:this_chunk])
+            self.input_body(inbytes[:this_chunk])
             self.input_transfer_length += this_chunk + 2
             self._input_body_left = -1
-            return instr[this_chunk + 2:] # +2 consumes the trailing CRLF
+            return inbytes[this_chunk + 2:] # +2 consumes the trailing CRLF
         elif self._input_body_left + 2 == got:
             # got the whole chunk exactly (including CRLF)
-            self.input_body(instr[:-2])
+            self.input_body(inbytes[:-2])
             self.input_transfer_length += self._input_body_left + 2
             self._input_body_left = -1
         elif self._input_body_left == got: # corner case
-            self._input_buffer += instr  
+            self._input_buffer += inbytes  
         else: # got partial chunk
-            self.input_body(instr)
+            self.input_body(inbytes)
             self.input_transfer_length += got
             self._input_body_left -= got
 
-    def _handle_chunk_done(self, instr):
-        if len(instr) >= 2 and instr[:2] == linesep:
+    def _handle_chunk_done(self, inbytes):
+        "Handle a finished body chunk."
+        if len(inbytes) >= 2 and inbytes[:2] == b"\r\n":
             self._input_state = WAITING
             self.input_end([])
-            self.handle_input(instr[2:]) # 2 consumes the CRLF
-        elif hdr_end.search(instr): # trailers
-            self._input_state = WAITING
-            trailer_block, rest = hdr_end.split(instr, 1)
-            trailers = self._parse_fields(trailer_block.splitlines())
-            if trailers == None: # found a problem
-                self._input_state = ERROR # TODO: need an explicit error 
-                return
-            else:
-                self.input_end(trailers)
-                self.handle_input(rest)
-        else: # don't have full trailers yet
-            self._input_buffer = instr
+            self.handle_input(inbytes[2:]) # 2 consumes the CRLF
+        else:
+            trailer_block, rest = self._split_headers(inbytes) # trailers
+            if trailer_block != None: 
+                self._input_state = WAITING
+                trailers = self._parse_fields(trailer_block.splitlines())
+                if trailers == None: # found a problem
+                    self._input_state = ERROR # TODO: need an explicit error 
+                    return
+                else:
+                    self.input_end(trailers)
+                    self.handle_input(rest)
+            else: # don't have full trailers yet
+                self._input_buffer = inbytes
 
-    def _handle_counted(self, instr):
+    def _handle_counted(self, inbytes):
         "Handle input where the body is delimited by the Content-Length."
-        if self._input_body_left <= len(instr): # got it all (and more?)
+        if self._input_body_left <= len(inbytes): # got it all (and more?)
             self.input_transfer_length += self._input_body_left
-            self.input_body(instr[:self._input_body_left])
+            self.input_body(inbytes[:self._input_body_left])
             self.input_end([])
             self._input_state = WAITING
-            if instr[self._input_body_left:]:
-                self.handle_input(instr[self._input_body_left:])
+            if inbytes[self._input_body_left:]:
+                self.handle_input(inbytes[self._input_body_left:])
         else: # got some of it
-            self.input_body(instr)
-            self.input_transfer_length += len(instr)
-            self._input_body_left -= len(instr)
+            self.input_body(inbytes)
+            self.input_transfer_length += len(inbytes)
+            self._input_body_left -= len(inbytes)
 
     def _parse_fields(self, header_lines, gather_conn_info=False):
         """
@@ -293,11 +327,11 @@ class HttpMessageHandler:
         content_length = None
 
         for line in header_lines:
-            if line[:1] in [" ", "\t"]: # Fold LWS
+            if line[:1] in [b" ", b"\t"]: # Fold LWS
                 if len(hdr_tuples):
                     hdr_tuples[-1] = (
                         hdr_tuples[-1][0], 
-                        "%s %s" % (hdr_tuples[-1][1], line.lstrip())
+                        b"%s %s" % (hdr_tuples[-1][1], line.lstrip())
                     )
                     continue
                 else: # top header starts with whitespace
@@ -305,14 +339,14 @@ class HttpMessageHandler:
                     if not self.inspecting:
                         return
             try:
-                fn, fv = line.split(":", 1)
+                fn, fv = line.split(b":", 1)
             except ValueError:
                 if self.inspecting:
                     hdr_tuples.append(line)
                 else:
                     continue # TODO: error on unparseable field?
             # TODO: a zero-length name isn't valid
-            if fn[-1:] in [" ", "\t"]:
+            if fn[-1:] in [b" ", b"\t"]:
                 self.input_error(error.HeaderSpaceError(fn))
                 if not self.inspecting:
                     return
@@ -323,14 +357,14 @@ class HttpMessageHandler:
                 f_val = fv.strip()
 
                 # parse connection-related headers
-                if f_name == "connection":
+                if f_name == b"connection":
                     conn_tokens += [
-                        v.strip().lower() for v in f_val.split(',')
+                        v.strip().lower() for v in f_val.split(b',')
                     ]
-                elif f_name == "transfer-encoding": # TODO: parameters? no...
+                elif f_name == b"transfer-encoding": # TODO: parameters? no...
                     transfer_codes += [v.strip().lower() for \
-                                       v in f_val.split(',')]
-                elif f_name == "content-length":
+                                       v in f_val.split(b',')]
+                elif f_name == b"content-length":
                     if content_length != None:
                         try:
                             if int(f_val) == content_length:
@@ -355,31 +389,55 @@ class HttpMessageHandler:
         else:
             return hdr_tuples
 
-    def _parse_headers(self, instr):
+    def _split_headers(self, inbytes):
         """
-        Given a string that we knows starts with a header block (possibly
-        more), parse the headers out and return the rest. Calls
-        self.input_start to kick off processing.
+        Given a bytes, split out and return (headers, rest), 
+        consuming the whitespace between them.
+    
+        If there is not a complete header block, return None for headers.
         """
-        top, rest = hdr_end.split(instr, 1)
-        self.input_header_length = len(top)
-        header_lines = top.splitlines()
+    
+        pos = 0
+        size = len(inbytes)
+        while pos <= size:
+            pos = inbytes.find(b"\n", pos)
+            back = 0
+            if pos == -1:
+                return None, inbytes
+            if pos > 0 and inbytes[pos - 1] == RETURN:
+                back += 1
+            pos += 1
+            if pos < size:
+                if inbytes[pos] == RETURN:
+                    pos += 1
+                    back += 1
+                if pos < size and inbytes[pos] == NEWLINE:
+                    return inbytes[:pos - back - 1], inbytes[pos + 1:]
+        return None, inbytes
+
+    def _parse_headers(self, inbytes):
+        """
+        Given a bytes that we knows starts with a header block, 
+        parse the headers. Calls self.input_start to kick off processing.
+        """
+        self.input_header_length = len(inbytes)
+        header_lines = inbytes.splitlines()
 
         # chop off the top line
         while True: # TODO: limit?
             try:
                 top_line = header_lines.pop(0)
-                if top_line.strip() != "":
+                if top_line.strip() != b"":
                     break
             except IndexError: # empty
-                return rest
+                return
         
         try:
             hdr_tuples, conn_tokens, transfer_codes, content_length \
             = self._parse_fields(header_lines, True)
         except TypeError: # returned None because there was an error
             if not self.inspecting:
-                return "" # throw away the rest
+                return
             
         # ignore content-length if transfer-encoding is present
         if transfer_codes != [] and content_length != None:
@@ -390,14 +448,14 @@ class HttpMessageHandler:
                         conn_tokens, transfer_codes, content_length)
         except ValueError: # parsing error of some kind; abort.
             if not self.inspecting:
-                return "" # throw away the rest
+                return
             allows_body = True
 
         self._input_state = HEADERS_DONE
         if not allows_body:
             self._input_delimit = NOBODY
         elif len(transfer_codes) > 0:
-            if transfer_codes[-1] == 'chunked':
+            if transfer_codes[-1] == b'chunked':
                 self._input_delimit = CHUNKED
                 self._input_body_left = -1 # flag that we don't know
             else:
@@ -407,34 +465,36 @@ class HttpMessageHandler:
             self._input_body_left = content_length
         else:
             self._input_delimit = CLOSE
-        return rest
 
     ### output-related methods
 
     def output(self, out):
+        """
+        Write something to whatever we're talking to. Should be overridden.
+        """
         raise NotImplementedError
 
     def output_start(self, top_line, hdr_tuples, delimit):
         """
-        Start ouputting a HTTP message.
+        Start outputting a HTTP message.
         """
         self._output_delimit = delimit
         out = linesep.join(
                 [top_line] +
-                ["%s: %s" % (k.strip(), v) for k, v in hdr_tuples] +
-                ["", ""]
+                [b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples] +
+                [b"", b""]
         )
         self.output(out)
         self._output_state = HEADERS_DONE
 
     def output_body(self, chunk):
         """
-        Output a part of a HTTP message.
+        Output a part of a HTTP message. Takes bytes.
         """
         if not chunk or self._output_delimit == None:
             return
         if self._output_delimit == CHUNKED:
-            chunk = "%s\r\n%s\r\n" % (hex(len(chunk))[2:], chunk)
+            chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode('ascii'), chunk)
         self.output(chunk)
         # TODO: body counting
 #        self._output_body_sent += len(chunk)
@@ -448,8 +508,8 @@ class HttpMessageHandler:
         if self._output_delimit == NOBODY:
             pass # didn't have a body at all.
         elif self._output_delimit == CHUNKED:
-            self.output("0\r\n%s\r\n" % "\r\n".join([
-                "%s: %s" % (k.strip(), v) for k, v in trailers
+            self.output(b"0\r\n%s\r\n" % b"\r\n".join([
+                b"%s: %s" % (k.strip(), v) for k, v in trailers
             ]))
         elif self._output_delimit == COUNTED:
             pass # TODO: double-check the length
@@ -459,6 +519,6 @@ class HttpMessageHandler:
         elif self._output_delimit == None:
             pass # encountered an error before we found a delmiter
         else:
-            raise AssertionError, "Unknown request delimiter %s" % \
-                                  self._output_delimit
+            raise AssertionError("Unknown request delimiter %s" % \
+                                  self._output_delimit)
         self._output_state = WAITING

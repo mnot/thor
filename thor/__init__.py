@@ -7,6 +7,7 @@ Thor is a Python library for evented IO, with a focus on enabling
 high-performance HTTP intermediaries.
 """
 
+from __future__ import absolute_import
 __version__ = "0.2.5"
 
 from thor.loop import run, stop, time, schedule, running

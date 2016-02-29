@@ -8,6 +8,8 @@ This is a generic library for building event-based / asynchronous
 SSL/TLS servers and clients.
 """
 
+from __future__ import absolute_import
+from __future__ import print_function
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2005-2013 Mark Nottingham
@@ -90,7 +92,7 @@ class TlsClient(TcpClient):
         try:
             self.sock.do_handshake()
             self.once('writable', self.handle_connect)
-        except sys_ssl.SSLError, why:
+        except sys_ssl.SSLError as why:
             if why[0] == sys_ssl.SSL_ERROR_WANT_READ:
 #                self.once('readable', self.handshake)
                 self.once('writable', self.handshake) # Oh, Linux...
@@ -98,7 +100,7 @@ class TlsClient(TcpClient):
                 self.once('writable', self.handshake)
             else:
                 self.handle_conn_error(sys_ssl.SSLError, why)
-        except socket.error, why:
+        except socket.error as why:
             self.handle_conn_error(socket.error, why)
 
     # TODO: refactor into tcp.py
@@ -127,10 +129,10 @@ class TlsClient(TcpClient):
         # TODO: use socket.getaddrinfo(); needs to be non-blocking.
         try:
             err = self.sock.connect_ex((host, port))
-        except socket.gaierror, why:
+        except socket.gaierror as why:
             self.handle_conn_error(socket.gaierror, why)
             return
-        except socket.error, why:
+        except socket.error as why:
             self.handle_conn_error(socket.error, why)
             return
         if err != errno.EINPROGRESS:
@@ -191,7 +193,7 @@ if __name__ == "__main__":
         conn.on('data', sys.stdout.write)
         conn.write("GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
         conn.pause(False)
-        print conn.socket.cipher()
+        print(conn.socket.cipher())
 
     c = TlsClient()
     c.on('connect', go)
