@@ -368,7 +368,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         except ValueError:
             res_code = status_txt.rstrip()
             res_phrase = ""
-        if 'close' not in conn_tokens:
+        if b'close' not in conn_tokens:
             if (
               self.res_version == "1.0" and b'keep-alive' in conn_tokens) or \
               self.res_version in ["1.1"]:

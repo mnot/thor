@@ -142,7 +142,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         """
         self._input_state = ERROR
         status_code, status_phrase = err.server_status or \
-            (500, 'Internal Server Error')
+            ('500', 'Internal Server Error')
         hdrs = [
             (b'Content-Type', b'text/plain'),
         ]
@@ -239,7 +239,7 @@ def test_handler(x): # pragma: no cover
     @on(x, 'request_start')
     def go(*args):
         print("start: %s on %s" % (str(args[1]), id(x.http_conn)))
-        x.response_start(200, "OK", [])
+        x.response_start('200', "OK", [])
         x.response_body('foo!')
         x.response_done([])
 
