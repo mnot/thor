@@ -1,11 +1,11 @@
 # TCP
 
 
-## thor.TcpClient ( _[thor.loop](loop)_ `loop`? )
+## thor.TcpClient ( _[thor.loop](loop.md)_ `loop`? )
 
 A TCP client. If `loop` is omitted, the "default" loop will be used.
 
-Note that new connections will not emit *data* events until they are unpaused; see [thor.tcp.TcpConnection.pause](#void-thortcptcpconnnectionpause--bool-paused).
+Note that new connections will not emit *data* events until they are unpaused; see [thor.tcp.TcpConnection.pause](#void-thortcptcpconnnectionpause--bool-paused-).
 
 For example:
 
@@ -33,12 +33,12 @@ For example:
 
 ### _void_ thor.TcpClient.connect ( _str_ `host`,  _int_ `port`, _int_ `timeout`? )
 
-Call to initiate a connection to `port` on `host`. [connect](#event-connect--tcpconnection-connection) will be emitted when a connection is available, and [connect_error](#event-connect_error--errtype-error) will be emitted when it fails.
+Call to initiate a connection to `port` on `host`. [connect](#event-connect--tcpconnection-connection-) will be emitted when a connection is available, and [connect_error](#event-connect_error--errtype-error-) will be emitted when it fails.
 
-If `timeout` is given, it specifies a connect timeout, in seconds. If the  timeout is exceeded and no connection or explicit failure is encountered, [connect_error](#event-connect_error--errtype-error) will be emitted with *socket.error* as the _errtype_ and  *errno.ETIMEDOUT* as the _error_.
+If `timeout` is given, it specifies a connect timeout, in seconds. If the  timeout is exceeded and no connection or explicit failure is encountered, [connect_error](#event-connect_error--errtype-error-) will be emitted with *socket.error* as the _errtype_ and  *errno.ETIMEDOUT* as the _error_.
 
 
-#### event 'connect' ( _[TcpConnection](#thortcptcpconnection)_ `connection` )  {#client_connect_event}
+#### event 'connect' ( _[TcpConnection](#thortcptcpconnection)_ `connection` )
 
 Emitted when the connection has succeeded.
 
