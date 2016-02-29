@@ -1,7 +1,7 @@
 # TCP
 
 
-## thor.TcpClient ( _[thor.loop](loop)_ `loop`? )   {#TcpClient}
+## thor.TcpClient ( _[thor.loop](loop)_ `loop`? )   {# TcpClient}
 
 A TCP client. If `loop` is omitted, the "default" loop will be used.
 
