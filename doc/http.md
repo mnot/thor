@@ -152,7 +152,7 @@ Thor has several utility functions for manipulating this data structure; see [th
 <span id="header_names"/>
 ### _set_ thor.http.header\_names ( _[headers](#headers)_ `headers` )
 
-Given a list of header tuples `headers`, return the set of header field-names present.
+Given a list of header tuples `headers`, return the set of _str_ header field-names present.
 
 
 <span id="header_dict"/>
