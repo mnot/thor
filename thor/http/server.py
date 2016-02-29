@@ -100,7 +100,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         and queue the request to be processed by the application.
         """
         try:
-            method, _req_line = top_line.decode('utf-8').split(None, 1) ## TODO: encoding
+            method, _req_line = top_line.decode('ascii').split(None, 1) ## TODO: encoding errors
             uri, req_version = _req_line.rsplit(None, 1)
             req_version = req_version.rsplit('/', 1)[1]
         except (ValueError, IndexError):
