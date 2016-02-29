@@ -1,10 +1,9 @@
 # TLS/SSL
 
-<span id="TlsClient"/>
-## thor.TlsClient ( _loop_ )
+## thor.TlsClient ( _[thor.loop](loop.md)_ `loop`? )
 
 A TCP client with a SSL/TLS wrapper. The interface is identical to that
-of *thor.TcpClient*.
+of [thor.TcpClient](tcp.md#thortcpclient--thorloop-loop-).
 
 For example:
 

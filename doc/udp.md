@@ -1,41 +1,42 @@
 # UDP
 
 
-## thor.UdpEndpoint ( _loop_ )
+## thor.UdpEndpoint (  _[thor.loop](loop.md)_ `loop`? )
 
-A UDP endpoint. _loop_ is a *thor.loop*; if omitted, the "default" loop will be used.
+A UDP endpoint. If `loop` is omitted, the "default" loop will be used.
 
-Note that new endpoints will not emit *datagram* events until they are unpaused;  see [thor.UdpEndpoint.pause](#pause).
+Note that new endpoints will not emit *datagram* events until they are unpaused; see [thor.UdpEndpoint.pause](#void-thorudpendpointpause-bool-paused-).
 
-### thor.UdpEndpoint.max\_dgram
+
+### _int_ thor.UdpEndpoint.max\_dgram
 
 The maximum number of bytes that sent with *send()*.
 
 
-### thor.UdpEndpoint.bind ( _host_, _port_ )
+### _void_ thor.UdpEndpoint.bind ( _str_ `host`,  _int_ `port` )
 
 Optionally binds the endpoint to _port_ on _host_ (which must be a local interface). If called, it must occur before *send()*.
 
 If not called before *send()*, the socket will be assigned a random local port by the operating system. 
 
 
-### thor.UdpEndpoint.send ( _datagram_, _host_, _port_ )
+### _void_ thor.UdpEndpoint.send ( _bytes_ `datagram`,  _str_ `host`,  _int_ `port` )
 
-Send _datagram_ to _port_ on _host_. 
+Send `datagram` to `port` on `host`. 
 
 Note that UDP is intrinsically an unreliable protocol, so the datagram may or may not be received. See also *thor.UdpEndpoint.max\_dgram.*
 
 
-### thor.UdpEndpoint.pause ( _paused_ )
+### _void_ thor.UdpEndpoint.pause (  _bool_ `paused` )
 
-Stop the endpoint from emitting *datagram* events if _paused_ is True; resume emitting them if False.
+Stop the endpoint from emitting *datagram* events if `paused` is True; resume emitting them if False.
 
 
-### thor.UdpEndpoint.shutdown ()
+### _void_ thor.UdpEndpoint.shutdown ()
 
 Stop the endpoint.
 
 
-### event 'datagram' ( _datagram_, _host_, _port_ )
+### event 'datagram' (  _bytes_ `datagram`,  _str_ `host`,  _int_ `port` )
 
-Emitted when the socket receives _datagram_ from _port_ on _host_.
+Emitted when the socket receives `datagram` from `port` on `host`.
