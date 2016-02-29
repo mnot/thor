@@ -48,11 +48,11 @@ Emitted when the connection has succeeded.
 Emitted when the connection failed. _errtype_ is *socket.error* or  *socket.gaierror*; _error_ is the error type specific to the type. 
 
 
-## thor.TcpServer ( _str_ `host`,  _int_ `port`, _[thor.loop](loop)_ `loop`? )
+## thor.TcpServer ( _str_ `host`,  _int_ `port`, _[thor.loop](loop.md)_ `loop`? )
 
 A TCP server. `host` and `port` specify the host and port to listen on, respectively; if given, `loop` specifies the *thor.loop* to use. If `loop` is omitted, the "default" loop will be used.
 
-Note that new connections will not emit *data* events until they are unpaused; see [pause](#void-thortcptcpconnnectionpause--bool-paused).
+Note that new connections will not emit *data* events until they are unpaused; see [pause](#void-thortcptcpconnnectionpause--bool-paused-).
 
 For example:
 
@@ -88,7 +88,7 @@ A single TCP connection.
 
 ### event 'data' ( _bytes_ `data` )
 
-Emitted when incoming _data_ is received by the connection. See [thor.tcp.TcpConnection.pause](#void-thortcptcpconnnectionpause--bool-paused) to control these events.
+Emitted when incoming _data_ is received by the connection. See [thor.tcp.TcpConnection.pause](#void-thortcptcpconnnectionpause--bool-paused-) to control these events.
 
 
 ### event 'close' () 
@@ -110,7 +110,7 @@ Write _data_ to the connection. Note that it may not be sent immediately.
 
 ### _void_ thor.tcp.TcpConnnection.pause ( _bool_ `paused` )
 
-Controls the incoming side of the connection (i.e., *data* events). When  `paused` is True, incoming [data](#event-data--bytes-data) events will stop; when `paused` is false, they will resume again.
+Controls the incoming side of the connection (i.e., *data* events). When  `paused` is True, incoming [data](#event-data--bytes-data-) events will stop; when `paused` is false, they will resume again.
 
 Note that by default, *TcpConnection*s are paused; i.e., to read from them, you must first *thor.tcp.TcpConnection.pause*(_False_).
 
