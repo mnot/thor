@@ -199,6 +199,7 @@ Content-Length: 5
 #    def test_unknown_transfercode(self): # should be 501
 #    def test_shutdown(self):
 #    def test_alternate_tcp_server(self):
+#    def test_startline_encoding(self):
 
 
 if __name__ == '__main__':

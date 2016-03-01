@@ -338,6 +338,42 @@ Connection: close
         self.go([server_side], [client_side])
 
 
+    def test_http_start_encoding_err(self):
+        def client_side(client):
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': "1.1",
+                'status': "200",
+                'phrase': u'ÖK',
+                'body': b"12345"
+            })
+            @on(exchange)
+            def error(err_msg):
+                self.assertEqual(
+                    err_msg.__class__, thor.http.error.StartLineEncodingError
+                )
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+                
+            req_uri = "http://%s:%i/http_start_encoding_err" % (test_host, test_port)
+            exchange.request_start(
+                "GET", req_uri, []
+            )
+            exchange.request_done([])
+                
+        def server_side(conn):
+            conn.request.send(b"""\
+HTTP/1.1 200 \xc3\x96K
+Content-Type: text/plain
+Content-Length: 5
+Connection: close
+
+12345""")
+            conn.request.close()
+        self.go([server_side], [client_side])
+
+
     def test_http_protoname_err(self):
         def client_side(client):
             exchange = client.exchange()

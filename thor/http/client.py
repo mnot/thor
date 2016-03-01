@@ -31,7 +31,7 @@ from thor.http.common import HttpMessageHandler, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from thor.http.error import UrlError, ConnectError, \
-    ReadTimeoutError, HttpVersionError
+    ReadTimeoutError, HttpVersionError, StartLineEncodingError
 
 req_rm_hdrs = hop_by_hop_hdrs + [b'host']
 
@@ -355,7 +355,12 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         self._clear_read_timeout
         try:
-            proto_version, status_txt = top_line.decode('ascii').split(None, 1) # TODO: encoding
+            top_line_str = top_line.decode('ascii', 'strict')
+        except UnicodeDecodeError:
+            top_line_str = top_line.decode('utf-8', 'replace')
+            self.input_error(StartLineEncodingError(top_line_str))
+        try:
+            proto_version, status_txt = top_line_str.split(None, 1) # TODO: encoding
             proto, self.res_version = proto_version.rsplit('/', 1)
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line))
@@ -392,12 +397,12 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def input_end(self, trailers):
         "Indicate that the response body is complete."
         self._clear_read_timeout()
-        if self.tcp_conn.tcp_connected and self._conn_reusable:
-            self.client._release_conn(self.tcp_conn, self.scheme)
-        else:
-            if self.tcp_conn:
-              self.tcp_conn.close()
-            self._dead_conn()
+        if self.tcp_conn:
+            if self.tcp_conn.tcp_connected and self._conn_reusable:
+                self.client._release_conn(self.tcp_conn, self.scheme)
+            else:
+                self.tcp_conn.close()
+        self._dead_conn()
         self.tcp_conn = None
         self.emit('response_done', trailers)
 

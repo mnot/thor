@@ -26,7 +26,8 @@ from thor.http.common import HttpMessageHandler, \
     ERROR, \
     hop_by_hop_hdrs, \
     get_header, header_names
-from thor.http.error import HttpVersionError, HostRequiredError, TransferCodeError
+from thor.http.error import HttpVersionError, HostRequiredError, \
+     TransferCodeError, StartLineEncodingError
 
 
 class HttpServer(EventEmitter):
@@ -100,7 +101,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         and queue the request to be processed by the application.
         """
         try:
-            method, _req_line = top_line.decode('ascii').split(None, 1) ## TODO: encoding errors
+            top_line_str = top_line.decode('ascii', 'strict')
+        except UnicodeDecodeError:
+            top_line_str = top_line.decode('utf-8', 'replace')
+            self.input_error(StartLineEncodingError(top_line_str))        
+        try:
+            method, _req_line = top_line_str.split(None, 1)
             uri, req_version = _req_line.rsplit(None, 1)
             req_version = req_version.rsplit('/', 1)[1]
         except (ValueError, IndexError):

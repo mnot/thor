@@ -46,6 +46,11 @@ class HttpVersionError(HttpError):
     desc = "Unrecognised HTTP version"
     server_status = ("505", "HTTP Version Not Supported")
 
+class StartLineEncodingError(HttpError):
+    desc = "Disallowed characters in start-line"
+    server_recoverable = True
+    client_recoverable = True
+    
 class ReadTimeoutError(HttpError):
     desc = "Read Timeout"
 
