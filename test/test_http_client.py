@@ -682,7 +682,7 @@ Connection: close
                 'version': "1.1",
                 'status': "304",
                 'phrase': "Not Modified",
-                'body': ''
+                'body': b''
             })
             
             @on(exchange)
@@ -694,7 +694,7 @@ Connection: close
             exchange.request_done([])
             
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 304 Not Modified
 Content-Type: text/plain
 Content-Length: 5
@@ -713,7 +713,7 @@ Connection: close
                 'version': "1.1",
                 'status': "304",
                 'phrase': "Not Modified",
-                'body': ''
+                'body': b''
             })
             
             @on(exchange)
@@ -728,7 +728,7 @@ Connection: close
             exchange.request_done([])
             
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 304 Not Modified
 Content-Type: text/plain
 Content-Length: 5
@@ -746,7 +746,7 @@ Connection: close
                 'version': "1.1",
                 'status': "200",
                 'phrase': "OK",
-                'body': '12345'
+                'body': b'12345'
             })
             
             @on(exchange)
@@ -761,7 +761,7 @@ Connection: close
             exchange.request_done([])
             
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
