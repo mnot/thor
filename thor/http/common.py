@@ -57,7 +57,7 @@ def header_dict(hdr_tuples, omit=None):
     out = defaultdict(list)
     for (n, v) in hdr_tuples:
         n = n.lower()
-        if n in omit or []:
+        if n in (omit or []):
             continue
         out[n].extend([i.strip() for i in v.split(b',')])
     return out
