@@ -6,8 +6,6 @@ Thor HTTP Errors
 
 from __future__ import absolute_import
 
-import types
-
 class HttpError(Exception):
     desc = "Unknown Error"
     server_status = None # status this produces when it occurs in a server
@@ -51,7 +49,7 @@ class StartLineEncodingError(HttpError):
     desc = "Disallowed characters in start-line"
     server_recoverable = True
     client_recoverable = True
-    
+
 class ReadTimeoutError(HttpError):
     desc = "Read Timeout"
 
@@ -63,7 +61,7 @@ class HeaderSpaceError(HttpError):
     desc = "Whitespace at the end of a header field-name"
     server_status = ("400", "Bad Request")
     client_recoverable = True
-    
+
 class TopLineSpaceError(HttpError):
     desc = "Whitespace after top line, before first header"
     server_status = ("400", "Bad Request")
