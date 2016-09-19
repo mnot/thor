@@ -52,17 +52,17 @@ Signal that the request body is finished. This must be called for every request.
 
 #### event 'response\_start' ( _str_ `status`,  _str_ `phrase`,  _[headers](#headers)_ `headers` )
 
-Emitted when the client starts receiving the exchange's response. `status` and `phrase` contain the HTTP response status code and reason phrase, respectively, and `headers` contains the response header tuples (see [working with HTTP headers](#headers)).
+Emitted once, when the client starts receiving the exchange's response. `status` and `phrase` contain the HTTP response status code and reason phrase, respectively, and `headers` contains the response header tuples (see [working with HTTP headers](#headers)).
 
 
 #### event 'response\_body' ( _bytes_ `chunk` )
 
-Emitted when a `chunk` of the response body is received.
+Emitted zero to many times, when a `chunk` of the response body is received.
 
 
 #### event 'response\_done' (  _[headers](#headers)_ `trailers` )
 
-Emitted when the response is successfully completed. `trailers` is the list
+Emitted once, when the response is successfully completed. `trailers` is the list
 of HTTP trailers; see [working with HTTP headers](#headers).
 
 
@@ -70,7 +70,7 @@ of HTTP trailers; see [working with HTTP headers](#headers).
 
 Emitted when there is an error with the request or response. `err` is an instance of one of the *thor.http.error* classes that describes what happened.
 
-If *error* is emitted, no other events will be emitted by this exchange.
+If _err.client_recoverable_ is `False`, no other events will be emitted by this exchange.
 
 
 
@@ -102,17 +102,17 @@ Emitted when the server starts a new request/response `exchange`.
 
 #### event 'request\_start' ( _str_ `method`,  _str_ `uri`,  _[headers](#headers)_ `headers` )
 
-Emitted when the exchange receives a request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
+Emitted once, when the exchange receives a request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
 
 #### event 'request\_body' ( _bytes_ `chunk` )
 
-Emitted when a `chunk` of the request body is received.
+Emitted zero to many times, when a `chunk` of the request body is received.
 
 
 #### event 'request\_done' (  _[headers](#headers)_ `trailers`? )
 
-Emitted when the request is successfully completed. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+Emitted once, when the request is successfully completed. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
 #### _void_ response\_start ( _str_ `status`,  _str_ `phrase`,  _[headers](#headers)_ `headers` )

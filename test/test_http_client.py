@@ -311,6 +311,23 @@ Connection: close
         exchange.request_done([])
 
 
+    def test_url_port_range(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(
+                err_msg.__class__, thor.http.error.UrlError
+            )
+            self.loop.stop()
+
+        req_uri = "http://%s:80000/" % (test_host)
+        exchange.request_start(
+            "GET", req_uri, []
+        )
+        exchange.request_done([])
+
+
     def test_http_version_err(self):
         def client_side(client):
             exchange = client.exchange()
@@ -656,6 +673,104 @@ Connection: close
 12345""")
             conn.request.close()
         self.go([server_side], [client_side])   
+
+
+    def test_nobody(self):
+        def client_side(client):
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': "1.1",
+                'status': "304",
+                'phrase': "Not Modified",
+                'body': ''
+            })
+            
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = "http://%s:%s" % (test_host, test_port)
+            exchange.request_start("GET", req_uri, [])
+            exchange.request_done([])
+            
+        def server_side(conn):
+            conn.request.send("""\
+HTTP/1.1 304 Not Modified
+Content-Type: text/plain
+Content-Length: 5
+Connection: close
+
+""")
+            conn.request.close()
+        self.go([server_side], [client_side])
+
+
+
+    def test_nobody_body(self):
+        def client_side(client):
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': "1.1",
+                'status': "304",
+                'phrase': "Not Modified",
+                'body': ''
+            })
+            
+            @on(exchange)
+            def error(err_msg):
+                self.assertEqual(
+                    err_msg.__class__, thor.http.error.ExtraDataError
+                )
+                self.loop.stop()
+
+            req_uri = "http://%s:%s" % (test_host, test_port)
+            exchange.request_start("GET", req_uri, [])
+            exchange.request_done([])
+            
+        def server_side(conn):
+            conn.request.send("""\
+HTTP/1.1 304 Not Modified
+Content-Type: text/plain
+Content-Length: 5
+Connection: close
+
+12345""")
+            conn.request.close()
+        self.go([server_side], [client_side])
+
+
+    def test_extra_body(self):
+        def client_side(client):
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': "1.1",
+                'status': "200",
+                'phrase': "OK",
+                'body': '12345'
+            })
+            
+            @on(exchange)
+            def error(err_msg):
+                self.assertEqual(
+                    err_msg.__class__, thor.http.error.ExtraDataError
+                )
+                self.loop.stop()
+
+            req_uri = "http://%s:%s" % (test_host, test_port)
+            exchange.request_start("GET", req_uri, [])
+            exchange.request_done([])
+            
+        def server_side(conn):
+            conn.request.send("""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 5
+Connection: close
+
+1234567890""")
+            conn.request.close()
+        self.go([server_side], [client_side])
+
 
 
 # TODO:

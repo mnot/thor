@@ -27,7 +27,7 @@ from thor.tls import TlsClient
 
 from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
-    WAITING, ERROR, \
+    QUIET, WAITING, ERROR, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from thor.http.error import UrlError, ConnectError, \
@@ -87,6 +87,8 @@ class HttpClient(object):
                 )
                 break
             if tcp_conn.tcp_connected:
+                tcp_conn.removeListeners('data', 'pause', 'close')
+                tcp_conn.pause(True)
                 if hasattr(tcp_conn, "_idler"):
                     tcp_conn._idler.delete()
                 handle_connect(tcp_conn)
@@ -94,9 +96,8 @@ class HttpClient(object):
 
     def _release_conn(self, tcp_conn, scheme):
         "Add an idle connection back to the pool."
-        tcp_conn.removeListeners('data', 'pause', 'close')
+        tcp_conn.removeListeners('close')
         tcp_conn.on('close', tcp_conn.handle_close)
-        tcp_conn.pause(True)
         origin = (scheme, tcp_conn.host, tcp_conn.port)
         if tcp_conn.tcp_connected:
             def idle_close():
@@ -151,6 +152,7 @@ class HttpClient(object):
 
 
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
+    default_state = QUIET
 
     def __init__(self, client):
         HttpMessageHandler.__init__(self)
@@ -308,7 +310,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.handle_input(b"")
         if self._input_delimit == CLOSE:
             self.input_end([])
-        elif self._input_state == WAITING: # TODO: needs to be tighter
+        elif self._input_state in [WAITING, QUIET]: # TODO: needs to be tighter
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
                     self.client.loop.schedule(
@@ -407,19 +409,18 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.emit('response_done', trailers)
 
     def input_error(self, err):
-        "Indicate an error state."
-        if self.inspecting: # we want to get the rest of the response.
+        "Indicate an error state."        
+        if err.client_recoverable and not self.careful: 
+            # This error isn't absolutely fatal, and we want to see the rest.
+            # Still, we probably don't want to reuse this connection later.
             self._conn_reusable = False
         else:
+            # It really is a fatal error.
             self._input_state = ERROR
             self._clear_read_timeout()
-            if err.client_recoverable and \
-              self.tcp_conn and self.tcp_conn.tcp_connected:
-                self.client._release_conn(self.tcp_conn, self.scheme)
-            else:
-                self._dead_conn()
-                if self.tcp_conn:
-                    self.tcp_conn.close()
+            self._dead_conn()
+            if self.tcp_conn and self.tcp_conn.tcp_connected:
+                self.tcp_conn.close()
             self.tcp_conn = None
         self.emit('error', err)
         

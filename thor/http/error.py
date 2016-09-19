@@ -34,13 +34,14 @@ class ChunkError(HttpError):
 class DuplicateCLError(HttpError):
     desc = "Duplicate Content-Length header"
     server_status = ("400", "Bad Request")
+    client_recoverable = True
 
 class MalformedCLError(HttpError):
     desc = "Malformed Content-Length header"
     server_status = ("400", "Bad Request")
 
-class BodyForbiddenError(HttpError):
-    desc = "This message does not allow a body",
+class ExtraDataError(HttpError):
+    desc = "Extra data was sent after this message was supposed to end"
 
 class HttpVersionError(HttpError):
     desc = "Unrecognised HTTP version"
@@ -61,10 +62,12 @@ class TransferCodeError(HttpError):
 class HeaderSpaceError(HttpError):
     desc = "Whitespace at the end of a header field-name"
     server_status = ("400", "Bad Request")
+    client_recoverable = True
     
 class TopLineSpaceError(HttpError):
     desc = "Whitespace after top line, before first header"
     server_status = ("400", "Bad Request")
+    client_recoverable = True
 
 class TooManyMsgsError(HttpError):
     desc = "Too many messages to parse"
