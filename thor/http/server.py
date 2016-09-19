@@ -59,7 +59,7 @@ class HttpServer(EventEmitter):
 class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
     default_state = WAITING
-    
+
     def __init__(self, tcp_conn, server):
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
@@ -96,8 +96,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def output(self, data):
         self.tcp_conn.write(data)
 
-    def input_start(self, top_line, hdr_tuples, conn_tokens,
-        transfer_codes, content_length):
+    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
@@ -106,7 +105,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             top_line_str = top_line.decode('ascii', 'strict')
         except UnicodeDecodeError:
             top_line_str = top_line.decode('utf-8', 'replace')
-            self.input_error(StartLineEncodingError(top_line_str))        
+            self.input_error(StartLineEncodingError(top_line_str))
         try:
             method, _req_line = top_line_str.split(None, 1)
             uri, req_version = _req_line.rsplit(None, 1)
@@ -129,8 +128,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.ex_queue.append(exchange)
         self.server.emit('exchange', exchange)
         if not self.output_paused:
-            # we only start new requests if we have some output buffer 
-            # available. 
+            # we only start new requests if we have some output buffer
+            # available.
             exchange.request_start()
         allows_body = (content_length and content_length > 0) or (transfer_codes != [])
         return allows_body
@@ -212,9 +211,7 @@ class HttpServerExchange(EventEmitter):
 
     def response_start(self, status_code, status_phrase, res_hdrs):
         "Start a response. Must only be called once per response."
-        res_hdrs = [i for i in res_hdrs \
-                    if not i[0].lower() in hop_by_hop_hdrs ]
-
+        res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
         try:
             body_len = int(get_header(res_hdrs, b"content-length").pop(0))
         except (IndexError, ValueError):
