@@ -7,38 +7,16 @@ This is a generic library for building asynchronous event loops, using
 Python 2.6+'s built-in poll / epoll / kqueue support.
 """
 
-__author__ = "Mark Nottingham <mnot@mnot.net>"
-__copyright__ = """\
-Copyright (c) 2005-2013 Mark Nottingham
+from __future__ import absolute_import
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
-
-import bisect
 import select
 import sys
 import time as systime
 
 from thor.events import EventEmitter
 
-assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
-    "Please use Python 2.6 or greater"
+#assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
+#    "Please use Python 2.6 or greater"
 
 __all__ = ['run', 'stop', 'schedule', 'time', 'running', 'debug']
 
@@ -163,7 +141,7 @@ class LoopBase(EventEmitter):
         self.__sched_events = []
         self.__now = None
         self.running = False
-        for fd in self._fd_targets.keys():
+        for fd in list(self._fd_targets):
             self.unregister_fd(fd)
         self.emit('stop')
 
@@ -189,7 +167,7 @@ class LoopBase(EventEmitter):
 
     def _fd_event(self, event, fd):
         "An event has occured on an fd."
-        if self._fd_targets.has_key(fd):
+        if fd in self._fd_targets:
             self._fd_targets[fd].emit(event)
         # TODO: automatic unregister on 'close'?
 
@@ -204,13 +182,13 @@ class LoopBase(EventEmitter):
         Returns an object which can be used to later remove the event, by
         calling its delete() method.
         """
-        def cb():
+        def cb(): # FIXME: can't compare functions in py3. Suck.
             if callback:
                 callback(*args)
         cb.__name__ = callback.__name__
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
-        bisect.insort(events, new_event)
+        self._insort(events, new_event)
         class event_holder:
             def __init__(self):
                 self._deleted = False
@@ -223,6 +201,17 @@ class LoopBase(EventEmitter):
                         pass
         return event_holder()
 
+    def _insort(self, a, x, lo=0, hi=None):
+        if lo < 0:
+            raise ValueError('lo must be non-negative')
+        if hi is None:
+            hi = len(a)
+        while lo < hi:
+            mid = (lo+hi)//2
+            if x[0] < a[mid][0]: hi = mid
+            else: lo = mid+1
+        a.insert(lo, x)
+
     def _eventmask(self, events):
         "Calculate the mask for a list of events."
         eventmask = 0
@@ -232,7 +221,7 @@ class LoopBase(EventEmitter):
 
     def _filter2events(self, evfilter):
         "Calculate the events implied by a given filter."
-        if not self.__event_cache.has_key(evfilter):
+        if evfilter not in self.__event_cache:
             events = set()
             for et in self._event_types:
                 if et & evfilter:
@@ -409,7 +398,7 @@ def make(precision=None):
         loop = PollLoop(precision)
     else:
         # TODO: select()-based loop (I suppose)
-        raise ImportError, "What is this thing, a Windows box?"
+        raise ImportError("What is this thing, a Windows box?")
     return loop
 
 _loop = make() # by default, just one big loop.

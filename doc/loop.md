@@ -6,38 +6,38 @@ for testing), or want to create a loop with a custom precision, they can be
 explicitly created and bound to a variable using *thor.loop.make*.
 
 
-### thor.loop.make ( _precision_ )
+### _thor.loop_ thor.loop.make ( _int_ `precision`? )
 
 Create and return a named loop that is suitable for the current system. If 
-_precision_ is given, it indicates how often scheduled events will be run.
+`precision` is given, it indicates how often scheduled events will be run.
 
 Returned loop instances have all of the methods and instance variables that 
 *thor.loop* has.
 
 
-### thor.loop.run ()
+### _void_ thor.loop.run ()
 
 Start the loop. Events can be scheduled, etc., before the loop is run, but
 they won't fire until it starts running.
 
 
-### thor.loop.stop ()
+### _void_ thor.loop.stop ()
 
 Stop the loop. Some events may still run while the loop is stopping. Stopping
 the loop clears all scheduled events and forgets the file descriptors that
 it's interested in.
 
 
-### thor.loop.schedule ( _delta_, _callback_, _arg_, ... )
+### _object_ thor.loop.schedule ( _int_ `delta`, _func_ `callback`,  _arg_* )
 
-Schedule callable _callback_ to be called _delta_ seconds from now, with
-one or more _arg_s.
+Schedule callable `callback` to be called `delta` seconds from now, with
+one or more `arg`s.
 
 Returns an object with a *delete* () method; if called, it will remove the
 timeout.
 
 
-### thor.loop.time ()
+### _int_ thor.loop.time ()
 
 Returns the current Unix timestamp, using the loop to save a system call
 when possible. 
@@ -48,22 +48,22 @@ but is useful when a reasonable resolution is adequate (e.g., in non-critical
 logfiles).
 
 
-### thor.loop.running 
+### _bool_ thor.loop.running 
 
 Read-only boolean that is True when the loop is running.
 
 
-### thor.loop.debug
+### _bool_ thor.loop.debug
 
 Boolean that, when True, prints warnings to STDERR when the loop is
 behaving oddly; e.g., a scheduled event is blocking. Default is False.
 
 
-### event 'start'
+### event 'start' ()
 
 Emitted right before loop starts.
 
 
-### event 'stop'
+### event 'stop' ()
 
 Emitted right after the loop stops.

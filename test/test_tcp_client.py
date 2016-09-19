@@ -1,8 +1,14 @@
 #!/usr/bin/env python
 
+from __future__ import absolute_import
+
+try:
+    import SocketServer
+except ImportError:
+    import socketserver as SocketServer
+
 import errno
 import socket
-import SocketServer
 import sys
 import threading
 import unittest
@@ -37,7 +43,7 @@ class TestTcpClientConnect(unittest.TestCase):
             self.conn = conn
             self.assertTrue(conn.tcp_connected)
             self.connect_count += 1
-            conn.write("test")
+            conn.write(b"test")
             conn.close()
             self.loop.schedule(1, self.loop.stop)
         def check_error(err_type, err_id, err_str):

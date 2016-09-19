@@ -11,28 +11,8 @@ will block the entire server.
 
 """
 
-__author__ = "Mark Nottingham <mnot@mnot.net>"
-__copyright__ = """\
-Copyright (c) 2005-2013 Mark Nottingham
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
+from __future__ import absolute_import
+from __future__ import print_function
 
 import os
 import sys
@@ -47,7 +27,7 @@ from thor.http.common import HttpMessageHandler, \
     hop_by_hop_hdrs, \
     get_header, header_names
 from thor.http.error import HttpVersionError, HostRequiredError, \
-    TransferCodeError
+     TransferCodeError, StartLineEncodingError
 
 
 class HttpServer(EventEmitter):
@@ -123,19 +103,24 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         and queue the request to be processed by the application.
         """
         try:
-            method, _req_line = top_line.split(None, 1)
+            top_line_str = top_line.decode('ascii', 'strict')
+        except UnicodeDecodeError:
+            top_line_str = top_line.decode('utf-8', 'replace')
+            self.input_error(StartLineEncodingError(top_line_str))        
+        try:
+            method, _req_line = top_line_str.split(None, 1)
             uri, req_version = _req_line.rsplit(None, 1)
             req_version = req_version.rsplit('/', 1)[1]
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line))
             # TODO: more fine-grained
             raise ValueError
-        if 'host' not in header_names(hdr_tuples):
+        if b'host' not in header_names(hdr_tuples):
             self.input_error(HostRequiredError())
             raise ValueError
         for code in transfer_codes:
             # we only support 'identity' and chunked' codes in requests
-            if code not in ['identity', 'chunked']:
+            if code not in [b'identity', b'chunked']:
                 self.input_error(TransferCodeError(code))
                 raise ValueError
         exchange = HttpServerExchange(
@@ -147,7 +132,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # we only start new requests if we have some output buffer 
             # available. 
             exchange.request_start()
-        allows_body = (content_length) or (transfer_codes != [])
+        allows_body = (content_length and content_length > 0) or (transfer_codes != [])
         return allows_body
 
     def input_body(self, chunk):
@@ -170,11 +155,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             status_code, status_phrase = err.server_status or \
                 (500, 'Internal Server Error')
             hdrs = [
-                ('Content-Type', 'text/plain'),
+                (b'Content-Type', b'text/plain'),
             ]
-            body = err.desc
+            body = err.desc.encode("utf-8") # FIXME
             if err.detail:
-                body += " (%s)" % err.detail
+                body += b" (%s)" % err.detail.encode("utf-8")
             ex = HttpServerExchange(self, '', '', [], "1.1") # FIXME
             ex.response_start(status_code, status_phrase, hdrs)
             ex.response_body(body)
@@ -231,21 +216,21 @@ class HttpServerExchange(EventEmitter):
                     if not i[0].lower() in hop_by_hop_hdrs ]
 
         try:
-            body_len = int(get_header(res_hdrs, "content-length").pop(0))
+            body_len = int(get_header(res_hdrs, b"content-length").pop(0))
         except (IndexError, ValueError):
             body_len = None
         if body_len is not None:
             delimit = COUNTED
-            res_hdrs.append(("Connection", "keep-alive"))
+            res_hdrs.append((b"Connection", b"keep-alive"))
         elif self.req_version == "1.1":
             delimit = CHUNKED
-            res_hdrs.append(("Transfer-Encoding", "chunked"))
+            res_hdrs.append((b"Transfer-Encoding", b"chunked"))
         else:
             delimit = CLOSE
-            res_hdrs.append(("Connection", "close"))
+            res_hdrs.append((b"Connection", b"close"))
 
         self.http_conn.output_start(
-            "HTTP/1.1 %s %s" % (status_code, status_phrase),
+            b"HTTP/1.1 %s %s" % (str(status_code).encode('ascii'), status_phrase.encode('ascii')),
             res_hdrs, delimit
         )
 
@@ -264,18 +249,18 @@ class HttpServerExchange(EventEmitter):
 def test_handler(x): # pragma: no cover
     @on(x, 'request_start')
     def go(*args):
-        print "start: %s on %s" % (str(args[1]), id(x.http_conn))
-        x.response_start(200, "OK", [])
+        print("start: %s on %s" % (str(args[1]), id(x.http_conn)))
+        x.response_start('200', "OK", [])
         x.response_body('foo!')
         x.response_done([])
 
     @on(x, 'request_body')
     def body(chunk):
-        print "body: %s" % chunk
+        print("body: %s" % chunk)
 
     @on(x, 'request_done')
     def done(trailers):
-        print "done: %s" % str(trailers)
+        print("done: %s" % str(trailers))
 
 
 if __name__ == "__main__":

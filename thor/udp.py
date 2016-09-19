@@ -7,35 +7,12 @@ This is a generic library for building event-based / asynchronous
 UDP servers and clients.
 """
 
-__author__ = "Mark Nottingham <mnot@mnot.net>"
-__copyright__ = """\
-Copyright (c) 2011-2013 Mark Nottingham
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
+from __future__ import absolute_import
 
 import errno
 import socket
 
 from thor.loop import EventSource
-
-
 
 
 class UdpEndpoint(EventSource):
@@ -93,7 +70,7 @@ class UdpEndpoint(EventSource):
         "send datagram to host:port."
         try:
             self.sock.sendto(datagram, (host, port))
-        except socket.error, why:
+        except socket.error as why:
             if why[0] in self._block_errs:
                 pass # we drop these on the floor. It's UDP, after all.
             else:
@@ -106,8 +83,8 @@ class UdpEndpoint(EventSource):
         while True:
             try:
                 data, addr = self.sock.recvfrom(self.recv_buffer)
-            except socket.error, why:
-                if why[0] in self._block_errs:
+            except socket.error as why:
+                if why.args[0] in self._block_errs:
                     break
                 else:
                     raise

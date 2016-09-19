@@ -8,28 +8,8 @@ This is a generic library for building event-based / asynchronous
 SSL/TLS servers and clients.
 """
 
-__author__ = "Mark Nottingham <mnot@mnot.net>"
-__copyright__ = """\
-Copyright (c) 2005-2013 Mark Nottingham
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
+from __future__ import absolute_import
+from __future__ import print_function
 
 import errno
 import os
@@ -90,7 +70,7 @@ class TlsClient(TcpClient):
         try:
             self.sock.do_handshake()
             self.once('writable', self.handle_connect)
-        except sys_ssl.SSLError, why:
+        except sys_ssl.SSLError as why:
             if why[0] == sys_ssl.SSL_ERROR_WANT_READ:
 #                self.once('readable', self.handshake)
                 self.once('writable', self.handshake) # Oh, Linux...
@@ -98,7 +78,7 @@ class TlsClient(TcpClient):
                 self.once('writable', self.handshake)
             else:
                 self.handle_conn_error(sys_ssl.SSLError, why)
-        except socket.error, why:
+        except socket.error as why:
             self.handle_conn_error(socket.error, why)
 
     # TODO: refactor into tcp.py
@@ -127,10 +107,10 @@ class TlsClient(TcpClient):
         # TODO: use socket.getaddrinfo(); needs to be non-blocking.
         try:
             err = self.sock.connect_ex((host, port))
-        except socket.gaierror, why:
+        except socket.gaierror as why:
             self.handle_conn_error(socket.gaierror, why)
             return
-        except socket.error, why:
+        except socket.error as why:
             self.handle_conn_error(socket.error, why)
             return
         if err != errno.EINPROGRESS:
@@ -191,7 +171,7 @@ if __name__ == "__main__":
         conn.on('data', sys.stdout.write)
         conn.write("GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
         conn.pause(False)
-        print conn.socket.cipher()
+        print(conn.socket.cipher())
 
     c = TlsClient()
     c.on('connect', go)

@@ -1,5 +1,6 @@
 ##!/usr/bin/env python
 
+from __future__ import absolute_import
 import socket
 import sys
 import time
@@ -46,7 +47,7 @@ class TestHttpServer(framework.ClientServerTestCase):
             self.assertEqual(method, expected.get('method', method))
             self.assertEqual(uri, expected.get('phrase', uri))
 
-        exchange.tmp_req_body = ""
+        exchange.tmp_req_body = b""
         @on(exchange)
         def request_body(chunk):
             exchange.tmp_req_body += chunk
@@ -79,9 +80,9 @@ class TestHttpServer(framework.ClientServerTestCase):
             server.on('exchange', check)
             
         def client_side(client_conn):
-            client_conn.sendall("""\
+            client_conn.sendall(b"""\
 GET / HTTP/1.1
-Host: %s:%s
+Host: %s:%i
 
 """ % (framework.test_host, framework.test_port))
             time.sleep(1)
@@ -99,11 +100,11 @@ Host: %s:%s
             server.on('exchange', check)
             
         def client_side(client_conn):
-            client_conn.sendall("""\
+            client_conn.sendall(b"""\
             
 GET / HTTP/1.1
-Host: %s:%s
-
+Host: %s:%i\r
+\r
 """ % (framework.test_host, framework.test_port))
             time.sleep(1)
             client_conn.close()
@@ -120,9 +121,9 @@ Host: %s:%s
             server.on('exchange', check)
             
         def client_side(client_conn):
-            client_conn.sendall("""\
+            client_conn.sendall(b"""\
 POST / HTTP/1.1
-Host: %s:%s
+Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
@@ -142,9 +143,9 @@ Content-Length: 5
             server.on('exchange', check)
             
         def client_side(client_conn):
-            client_conn.sendall("""\
+            client_conn.sendall(b"""\
 POST / HTTP/1.1
-Host: %s:%s
+Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
@@ -172,10 +173,10 @@ Content-Length: 5
 #        def client_side(client_conn):
 #            client_conn.sendall("""\
 #GET / HTTP/1.1
-#Host: %s:%s
+#Host: %s:%i
 #
 #GET / HTTP/1.1
-#Host: %s:%s
+#Host: %s:%i
 #
 #""" % (
 #    framework.test_host, framework.test_port,
@@ -198,6 +199,7 @@ Content-Length: 5
 #    def test_unknown_transfercode(self): # should be 501
 #    def test_shutdown(self):
 #    def test_alternate_tcp_server(self):
+#    def test_startline_encoding(self):
 
 
 if __name__ == '__main__':

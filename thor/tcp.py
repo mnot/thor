@@ -11,28 +11,7 @@ you (using a 'data' event), and you push data to the network connection
 (using the write method).
 """
 
-__author__ = "Mark Nottingham <mnot@mnot.net>"
-__copyright__ = """\
-Copyright (c) 2005-2013 Mark Nottingham
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
+from __future__ import absolute_import
 
 import errno
 import os
@@ -106,14 +85,14 @@ class TcpConnection(EventSource):
     write_bufsize = 16
     read_bufsize = 1024 * 16
 
-    _block_errs = set([(socket.error, e) for e in [
+    _block_errs = set([
         errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT
-    ]])
-    _close_errs = set([(socket.error, e) for e in [
+    ])
+    _close_errs = set([
         errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,
         errno.ECONNABORTED, errno.ECONNREFUSED,
         errno.ENOTCONN, errno.EPIPE
-    ]])
+    ])
 
     def __init__(self, sock, host, port, loop=None):
         EventSource.__init__(self, loop)
@@ -150,16 +129,15 @@ class TcpConnection(EventSource):
         try:
             # TODO: look into recv_into (but see python issue7827)
             data = self.socket.recv(self.read_bufsize)
-        except Exception, why:
-            err = (type(why), why[0])
-            if err in self._block_errs:
+        except (socket.error, OSError) as why:
+            if why.args[0] in self._block_errs:
                 return
-            elif err in self._close_errs:
+            elif why.args[0] in self._close_errs:
                 self.emit('close')
                 return
             else:
                 raise
-        if data == "":
+        if data == b"":
             self.emit('close')
         else:
             self.emit('data', data)
@@ -169,14 +147,13 @@ class TcpConnection(EventSource):
     def handle_write(self):
         "The connection is ready for writing; write any buffered data."
         if len(self._write_buffer) > 0:
-            data = "".join(self._write_buffer)
+            data = b"".join(self._write_buffer)
             try:
                 sent = self.socket.send(data)
-            except Exception, why:
-                err = (type(why), why[0])
-                if err in self._block_errs:
+            except (socket.error, OSError) as why:
+                if why.args[0] in self._block_errs:
                     return
-                elif err in self._close_errs:
+                elif why.args[0] in self._close_errs:
                     self.emit('close')
                     return
                 else:
@@ -322,7 +299,6 @@ class TcpClient(EventSource):
         self.register_fd(self.sock.fileno(), 'writable')
         self.event_add('error')
 
-
     def connect(self, host, port, connect_timeout=None):
         """
         Connect to host:port (with an optional connect timeout)
@@ -335,21 +311,21 @@ class TcpClient(EventSource):
         # TODO: use socket.getaddrinfo(); needs to be non-blocking.
         try:
             err = self.sock.connect_ex((host, port))
-        except socket.gaierror, why:
+        except socket.gaierror as why:
             self.handle_conn_error(socket.gaierror, why)
             return
-        except socket.error, why:
+        except socket.error as why:
             self.handle_conn_error(socket.error, why)
             return
         if err != errno.EINPROGRESS:
-            self.handle_conn_error(socket.error, [err, os.strerror(err)])
+            self.handle_conn_error(socket.error, socket.error(err, os.strerror(err)))
             return
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
                 self.handle_conn_error,
                 socket.error,
-                [errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)],
+                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
                 True
             )
 
@@ -361,14 +337,14 @@ class TcpClient(EventSource):
             return
         err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err:
-            self.handle_conn_error(socket.error, [err, os.strerror(err)])
+            self.handle_conn_error(socket.error, socket.error(err, os.strerror(err)))
         else:
             tcp_conn = TcpConnection(
                 self.sock, self.host, self.port, self._loop
             )
             self.emit('connect', tcp_conn)
 
-    def handle_conn_error(self, err_type=None, why=None, close=False):
+    def handle_conn_error(self, err_type=None, why=None, close=True):
         """
         Handle a connect error.
 
@@ -385,8 +361,8 @@ class TcpClient(EventSource):
             err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
             err_str = os.strerror(err_id)
         else:
-            err_id = why[0]
-            err_str = why[1]
+            err_id = why.args[0]
+            err_str = why.args[1]
         self._error_sent = True
         self.unregister_fd()
         self.emit('connect_error', err_type, err_id, err_str)

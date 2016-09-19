@@ -1,12 +1,21 @@
 #!/usr/bin/env python
+# coding: utf-8
 
-import SocketServer
+from __future__ import absolute_import
+
+try:
+    import SocketServer
+except ImportError:
+    import socketserver as SocketServer
+
 import sys
 import time
 import unittest
 
 import framework
-from framework import test_host, test_port
+test_host = str(framework.test_host.decode('ascii'))
+test_port = framework.test_port
+
 
 import thor
 from thor.events import on
@@ -60,7 +69,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             self.assertEqual(status, expected.get('status', status))
             self.assertEqual(phrase, expected.get('phrase', phrase))
 
-        exchange.tmp_res_body = ""
+        exchange.tmp_res_body = b""
         @on(exchange)
         def response_body(chunk):
             exchange.tmp_res_body += chunk
@@ -86,21 +95,21 @@ class TestHttpClient(framework.ClientServerTestCase):
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             
             @on(exchange)
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/basic" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
@@ -118,20 +127,20 @@ Connection: close
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             @on(exchange)
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/chunked_response" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Transfer-Encoding: chunked
@@ -146,20 +155,20 @@ Transfer-Encoding: chunked
 
 
     def test_chunked_request(self):
-        req_body = "54321"
+        req_body = b"54321"
         def client_side(client):
             exchange = client.exchange()
             self.check_exchange(exchange, {
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             @on(exchange)
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/chunked_request" % (test_host, test_port)
             exchange.request_start(
                 "POST", req_uri, []
             )
@@ -168,7 +177,7 @@ Transfer-Encoding: chunked
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Transfer-Encoding: chunked
@@ -196,7 +205,7 @@ Transfer-Encoding: chunked
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
 
             exchange1.on('response_done', check_done)
@@ -205,11 +214,11 @@ Transfer-Encoding: chunked
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             exchange2.on('response_done', check_done)
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/multiconn" % (test_host, test_port)
             exchange1.request_start(
                 "GET", req_uri, []
             )
@@ -220,7 +229,7 @@ Transfer-Encoding: chunked
             exchange2.request_done([])                
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
@@ -242,7 +251,7 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/conn_refuse_err" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
@@ -261,7 +270,7 @@ Connection: close
             )
             self.loop.stop()
 
-        req_uri = "http://foo.bar/"
+        req_uri = "http://foo.bar/conn_noname_err"
         exchange.request_start(
             "GET", req_uri, []
         )
@@ -278,7 +287,7 @@ Connection: close
             )
             self.loop.stop()
 
-        req_uri = "foo://%s:%s/" % (test_host, test_port)
+        req_uri = "foo://%s:%s/url_err" % (test_host, test_port)
         exchange.request_start(
             "GET", req_uri, []
         )
@@ -295,7 +304,7 @@ Connection: close
             )
             self.loop.stop()
 
-        req_uri = "http://%s:ABC123/" % (test_host)
+        req_uri = "http://%s:ABC123/url_port_err" % (test_host)
         exchange.request_start(
             "GET", req_uri, []
         )
@@ -329,15 +338,51 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/http_version_err" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/2.5 200 OK
+Content-Type: text/plain
+Content-Length: 5
+Connection: close
+
+12345""")
+            conn.request.close()
+        self.go([server_side], [client_side])
+
+
+    def test_http_start_encoding_err(self):
+        def client_side(client):
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': "1.1",
+                'status': "200",
+                'phrase': u'ÖK',
+                'body': b"12345"
+            })
+            @on(exchange)
+            def error(err_msg):
+                self.assertEqual(
+                    err_msg.__class__, thor.http.error.StartLineEncodingError
+                )
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+                
+            req_uri = "http://%s:%i/http_start_encoding_err" % (test_host, test_port)
+            exchange.request_start(
+                "GET", req_uri, []
+            )
+            exchange.request_done([])
+                
+        def server_side(conn):
+            conn.request.send(b"""\
+HTTP/1.1 200 \xc3\x96K
 Content-Type: text/plain
 Content-Length: 5
 Connection: close
@@ -357,14 +402,14 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/protoname_err" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 ICY/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
@@ -391,14 +436,14 @@ Connection: close
                 )
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/close_in_body" % (test_host, test_port)
             exchange.request_start(
                 "GET", req_uri, []
             )
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 15
@@ -412,13 +457,13 @@ Connection: close
     def test_conn_reuse(self):
         self.conn_checked = False
         def client_side(client):
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/conn_reuse" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
 
             @on(exchange1)
@@ -432,7 +477,7 @@ Connection: close
                     'version': "1.1",
                     'status': "404",
                     'phrase': 'Not Found',
-                    'body': "54321"
+                    'body': b"54321"
                 })
                 def start2():
                     exchange2.request_start("GET", req_uri, [])
@@ -452,14 +497,14 @@ Connection: close
             exchange1.request_done([])
                 
         def server_side(conn):
-            conn.request.sendall("""\
+            conn.request.sendall(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
 
 12345""")
             time.sleep(2)
-            conn.request.sendall("""\
+            conn.request.sendall(b"""\
 HTTP/1.1 404 Not Found
 Content-Type: text/plain
 Content-Length: 5
@@ -474,13 +519,13 @@ Connection: close
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
         def client_side(client):
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/succeed_then_err" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             exchange2 = client.exchange()
 
@@ -507,14 +552,14 @@ Connection: close
             exchange1.request_done([])
                 
         def server_side(conn):
-            conn.request.sendall("""\
+            conn.request.sendall(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
 
 12345""")
             time.sleep(2)
-            conn.request.sendall("""\
+            conn.request.sendall(b"""\
 HTTP/9.1 404 Not Found
 Content-Type: text/plain
 Content-Length: 5
@@ -533,20 +578,20 @@ Connection: close
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': ""
+                'body': b""
             })
             @on(exchange)
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = "http://%s:%s/" % (test_host, test_port)
+            req_uri = "http://%s:%i/HEAD" % (test_host, test_port)
             exchange.request_start(
                 "HEAD", req_uri, []
             )
             exchange.request_done([])
                 
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
@@ -565,13 +610,13 @@ Connection: close
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             @on(exchange)
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = "http://%s:%s" % (test_host, test_port)
+            req_uri = "http://%s:%i/req_retry" % (test_host, test_port)
             exchange.request_start(
                 "OPTIONS", req_uri, []
             )
@@ -581,7 +626,7 @@ Connection: close
         def server_side(conn):
             self.conn_num += 1
             if self.conn_num > 1:
-                conn.request.send("""\
+                conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
@@ -599,7 +644,7 @@ Connection: close
                 'version': "1.1",
                 'status': "200",
                 'phrase': 'OK',
-                'body': "12345"
+                'body': b"12345"
             })
             
             @on(exchange)
@@ -609,7 +654,7 @@ Connection: close
                 )
                 self.loop.stop()
                 
-            req_uri = "http://%s:%s" % (test_host, test_port)
+            req_uri = "http://%s:%i/req_retry_fail" % (test_host, test_port)
             exchange.request_start(
                 "OPTIONS", req_uri, []
             )
@@ -619,7 +664,7 @@ Connection: close
         def server_side(conn):
             self.conn_num += 1
             if self.conn_num > 3:
-                conn.request.send("""\
+                conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
@@ -637,7 +682,7 @@ Connection: close
                 'version': "1.1",
                 'status': "304",
                 'phrase': "Not Modified",
-                'body': ''
+                'body': b''
             })
             
             @on(exchange)
@@ -649,7 +694,7 @@ Connection: close
             exchange.request_done([])
             
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 304 Not Modified
 Content-Type: text/plain
 Content-Length: 5
@@ -668,7 +713,7 @@ Connection: close
                 'version': "1.1",
                 'status': "304",
                 'phrase': "Not Modified",
-                'body': ''
+                'body': b''
             })
             
             @on(exchange)
@@ -683,7 +728,7 @@ Connection: close
             exchange.request_done([])
             
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 304 Not Modified
 Content-Type: text/plain
 Content-Length: 5
@@ -701,7 +746,7 @@ Connection: close
                 'version': "1.1",
                 'status': "200",
                 'phrase': "OK",
-                'body': '12345'
+                'body': b'12345'
             })
             
             @on(exchange)
@@ -716,7 +761,7 @@ Connection: close
             exchange.request_done([])
             
         def server_side(conn):
-            conn.request.send("""\
+            conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5

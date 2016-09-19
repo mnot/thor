@@ -11,31 +11,14 @@ will block the entire client.
 
 """
 
-__author__ = "Mark Nottingham <mnot@mnot.net>"
-__copyright__ = """\
-Copyright (c) 2005-2013 Mark Nottingham
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
+from __future__ import absolute_import
+from __future__ import print_function
 
 from collections import defaultdict
-from urlparse import urlsplit, urlunsplit
+try:
+    from urlparse import urlsplit, urlunsplit
+except ImportError:
+    from urllib.parse import urlsplit, urlunsplit
 
 import thor
 from thor.events import EventEmitter, on
@@ -48,9 +31,9 @@ from thor.http.common import HttpMessageHandler, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from thor.http.error import UrlError, ConnectError, \
-    ReadTimeoutError, HttpVersionError
+    ReadTimeoutError, HttpVersionError, StartLineEncodingError
 
-req_rm_hdrs = hop_by_hop_hdrs + ['host']
+req_rm_hdrs = hop_by_hop_hdrs + [b'host']
 
 # TODO: next-hop version cache for Expect/Continue, etc.
 
@@ -146,7 +129,7 @@ class HttpClient(object):
         elif scheme == 'https':
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError, 'unknown scheme %s' % scheme
+            raise ValueError('unknown scheme %s' % scheme)
         tcp_client.on('connect', handle_connect)
         tcp_client.on('connect_error', handle_error)
         self._conn_counts[origin] += 1
@@ -211,7 +194,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         try:
             self.origin = self._parse_uri(self.uri)
         except (TypeError, ValueError):
-            return 
+            return
         self.client._attach_conn(self.origin, self._handle_connect,
             self._handle_connect_error, self.client.connect_timeout
         )
@@ -241,8 +224,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             except ValueError:
                 self.input_error(UrlError("Non-integer port in URL"))
                 raise
-            if not 0 <= port <= 65535:
-                self.input_error(UrlError("Port out of range 0-65535"))
+            if not 1 <= port <= 65535:
+                self.input_error(UrlError("URL port out of range"))
                 raise ValueError
         else:
             host, port = authority, default_port
@@ -255,31 +238,33 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _req_start(self):
         """
-        Actually queue the request headers for sending.
+        Queue the request headers for sending.
         """
         self._req_started = True
         req_hdrs = [
             i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs
         ]
-        req_hdrs.append(("Host", self.authority))
+        req_hdrs.append((b"Host", self.authority.encode('ascii')))
         if self.client.idle_timeout > 0:
-            req_hdrs.append(("Connection", "keep-alive"))
+            req_hdrs.append((b"Connection", b"keep-alive"))
         else:
-            req_hdrs.append(("Connection", "close"))
-        if "content-length" in header_names(req_hdrs):
+            req_hdrs.append((b"Connection", b"close"))
+        if b"content-length" in header_names(req_hdrs):
             delimit = COUNTED
         elif self._req_body:
-            req_hdrs.append(("Transfer-Encoding", "chunked"))
+            req_hdrs.append((b"Transfer-Encoding", b"chunked"))
             delimit = CHUNKED
         else:
             delimit = NOBODY
-        self.output_start("%s %s HTTP/1.1" % (self.method, self.req_target),
-            req_hdrs, delimit
-        )
+        self.output_start(b"%s %s HTTP/1.1" % (
+            self.method.encode('ascii'), self.req_target.encode('ascii')
+        ), req_hdrs, delimit)
 
 
     def request_body(self, chunk):
         "Send part of the request body. May be called zero to many times."
+        if self._input_state == ERROR:
+            return
         if not self._req_started:
             self._req_body = True
             self._req_start()
@@ -290,6 +275,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
         """
+        if self._input_state == ERROR:
+            return
         if not self._req_started:
             self._req_start()
         self.output_end(trailers)
@@ -309,7 +296,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         tcp_conn.on('close', self._conn_closed)
         tcp_conn.on('pause', self._req_body_pause)
         # FIXME: should this be done AFTER _req_start?
-        self.output("") # kick the output buffer
+        self.output(b"") # kick the output buffer
         self.tcp_conn.pause(False)
 
     def _handle_connect_error(self, err_type, err_id, err_str):
@@ -320,7 +307,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "The server closed the connection."
         self._clear_read_timeout()
         if self._input_buffer:
-            self.handle_input("")
+            self.handle_input(b"")
         if self._input_delimit == CLOSE:
             self.input_end([])
         elif self._input_state in [WAITING, QUIET]: # TODO: needs to be tighter
@@ -368,9 +355,14 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
         """
-        self._clear_read_timeout()
+        self._clear_read_timeout
         try:
-            proto_version, status_txt = top_line.split(None, 1)
+            top_line_str = top_line.decode('ascii', 'strict')
+        except UnicodeDecodeError:
+            top_line_str = top_line.decode('utf-8', 'replace')
+            self.input_error(StartLineEncodingError(top_line_str))
+        try:
+            proto_version, status_txt = top_line_str.split(None, 1) # TODO: encoding
             proto, self.res_version = proto_version.rsplit('/', 1)
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line))
@@ -383,9 +375,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         except ValueError:
             res_code = status_txt.rstrip()
             res_phrase = ""
-        if 'close' not in conn_tokens:
+        if b'close' not in conn_tokens:
             if (
-              self.res_version == "1.0" and 'keep-alive' in conn_tokens) or \
+              self.res_version == "1.0" and b'keep-alive' in conn_tokens) or \
               self.res_version in ["1.1"]:
                 self._conn_reusable = True
         self._set_read_timeout('start')
@@ -395,7 +387,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                   hdr_tuples
         )
         allows_body = (res_code not in no_body_status) \
-            and (self.method != "HEAD")
+                      and (self.method != "HEAD")
         return allows_body
 
     def input_body(self, chunk):
@@ -407,12 +399,12 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def input_end(self, trailers):
         "Indicate that the response body is complete."
         self._clear_read_timeout()
-        if self.tcp_conn.tcp_connected and self._conn_reusable:
-            self.client._release_conn(self.tcp_conn, self.scheme)
-        else:
-            if self.tcp_conn:
-              self.tcp_conn.close()
-            self._dead_conn()
+        if self.tcp_conn:
+            if self.tcp_conn.tcp_connected and self._conn_reusable:
+                self.client._release_conn(self.tcp_conn, self.scheme)
+            else:
+                self.tcp_conn.close()
+        self._dead_conn()
         self.tcp_conn = None
         self.emit('response_done', trailers)
 
@@ -439,7 +431,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def output(self, chunk):
         self._output_buffer.append(chunk)
         if self.tcp_conn and self.tcp_conn.tcp_connected:
-            self.tcp_conn.write("".join(self._output_buffer))
+            self.tcp_conn.write(b"".join(self._output_buffer))
             self._output_buffer = []
 
     # misc
@@ -469,14 +461,14 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     @on(x)
     def response_start(status, phrase, headers):
         "Print the response headers."
-        print "HTTP/%s %s %s" % (x.res_version, status, phrase)
-        print "\n".join(["%s:%s" % header for header in headers])
-        print
+        print(b"HTTP/%s %s %s" % (x.res_version, status, phrase))
+        print(b"\n".join([b"%s:%s" % header for header in headers]))
+        print()
 
     @on(x)
     def error(err_msg):
         if err_msg:
-            err("*** ERROR: %s (%s)\n" %
+            err(b"*** ERROR: %s (%s)\n" %
                 (err_msg.desc, err_msg.detail)
             )
         stop()
@@ -487,7 +479,7 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     def response_done(trailers):
         stop()
 
-    x.request_start("GET", request_uri, [])
+    x.request_start(b"GET", request_uri, [])
     x.request_done([])
     run()
 

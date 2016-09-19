@@ -5,6 +5,8 @@ Framework for testing clients and servers, moving one of them into
 a separate thread.
 """
 
+from __future__ import absolute_import
+from __future__ import print_function
 import os
 import sys
 import threading
@@ -13,7 +15,7 @@ import unittest
 import thor
 from thor.http.common import HttpMessageHandler, WAITING
 
-test_host = "127.0.0.1"
+test_host = b"127.0.0.1"
 test_port = 8001
 
 
@@ -72,7 +74,7 @@ class DummyHttpParser(HttpMessageHandler):
         HttpMessageHandler.__init__(self, *args, **kw)
         self.test_top_line = None
         self.test_hdrs = None
-        self.test_body = ""
+        self.test_body = b""
         self.test_trailers = None
         self.test_err = None
         self.test_states = []
@@ -118,8 +120,8 @@ def make_fifo(filename):
         pass # wasn't there
     try:
         os.mkfifo(filename)
-    except OSError, e:
-        print "Failed to create FIFO: %s" % e
+    except OSError as e:
+        print("Failed to create FIFO: %s" % e)
     else:
         r = os.open(filename, os.O_RDONLY|os.O_NONBLOCK)
         w = os.open(filename, os.O_WRONLY|os.O_NONBLOCK)

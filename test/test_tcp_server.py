@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from __future__ import absolute_import
 import socket
 import sys
 import time
@@ -37,14 +38,14 @@ class TestTcpServer(framework.ClientServerTestCase):
         def server_side(server_conn):
             self.server_recv = 0
             def check_data(chunk):
-                self.assertEqual(chunk, "foo!")
+                self.assertEqual(chunk, b"foo!")
                 self.server_recv += 1
             server_conn.on('data', check_data)
             server_conn.pause(False)
-            server_conn.write("bar!")
+            server_conn.write(b"bar!")
             
         def client_side(client_conn):
-            sent = client_conn.send('foo!')
+            sent = client_conn.send(b'foo!')
 
         self.go([server_side], [client_side])
         self.assertTrue(self.server_recv > 0, self.server_recv)
