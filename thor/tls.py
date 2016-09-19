@@ -19,22 +19,14 @@ import ssl as sys_ssl
 from thor.tcp import TcpServer, TcpClient, TcpConnection, server_listen
 
 TcpConnection._block_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_READ))
-TcpConnection._block_errs.add(
-    (sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_WRITE)
-)
+TcpConnection._block_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_WANT_WRITE))
 if hasattr(sys_ssl, 'SSLWantReadError'):
-    TcpConnection._block_errs.add(
-        (sys_ssl.SSLWantReadError, sys_ssl.SSL_ERROR_WANT_READ)
-    )
-    TcpConnection._block_errs.add(
-        (sys_ssl.SSLWantWriteError, sys_ssl.SSL_ERROR_WANT_WRITE)
-    )
+    TcpConnection._block_errs.add((sys_ssl.SSLWantReadError, sys_ssl.SSL_ERROR_WANT_READ))
+    TcpConnection._block_errs.add((sys_ssl.SSLWantWriteError, sys_ssl.SSL_ERROR_WANT_WRITE))
 TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_EOF))
 TcpConnection._close_errs.add((sys_ssl.SSLError, sys_ssl.SSL_ERROR_SSL))
 if hasattr(sys_ssl, 'SSLEOFError'):
-    TcpConnection._close_errs.add(
-        (sys_ssl.SSLEOFError, sys_ssl.SSL_ERROR_EOF)
-    )
+    TcpConnection._close_errs.add((sys_ssl.SSLEOFError, sys_ssl.SSL_ERROR_EOF))
 
 # TODO: TlsServer
 # TODO: expose cipher info, peer info
