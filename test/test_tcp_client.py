@@ -24,7 +24,7 @@ class LittleRequestHandler(SocketServer.BaseRequestHandler):
         # Echo the back to the client
         data = self.request.recv(1024)
         self.request.send(data)
-        
+
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
 
@@ -61,7 +61,7 @@ class TestTcpClientConnect(unittest.TestCase):
 
     def test_connect(self):
         self.server = LittleServer(
-            (test_host, test_port), 
+            (test_host, test_port),
             LittleRequestHandler
         )
         t = threading.Thread(target=self.server.serve_forever)
@@ -76,7 +76,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.assertEqual(self.timeout_hit, False)
         self.server.shutdown()
         self.server.socket.close()
-        
+
     def test_connect_refused(self):
         self.client.connect(test_host, test_port + 1)
         self.loop.schedule(3, self.timeout)
@@ -86,7 +86,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.assertEqual(self.last_error_type, socket.error)
         self.assertEqual(self.last_error, errno.ECONNREFUSED)
         self.assertEqual(self.timeout_hit, False)
-        
+
     def test_connect_noname(self):
         self.client.connect('does.not.exist', test_port)
         self.loop.schedule(3, self.timeout)

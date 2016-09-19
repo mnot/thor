@@ -24,7 +24,7 @@ class TestTcpServer(framework.ClientServerTestCase):
         def stop():
             self.assertTrue(server.conn_count > 0)
             server.shutdown()
-                    
+
     def create_client(self, host, port, client_side):
         def run_client(client_side1):
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,13 +43,13 @@ class TestTcpServer(framework.ClientServerTestCase):
             server_conn.on('data', check_data)
             server_conn.pause(False)
             server_conn.write(b"bar!")
-            
+
         def client_side(client_conn):
             sent = client_conn.send(b'foo!')
 
         self.go([server_side], [client_side])
         self.assertTrue(self.server_recv > 0, self.server_recv)
- 
+
 # TODO:
 #   def test_pause(self):
 #   def test_shutdown(self):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Framework for testing clients and servers, moving one of them into 
+Framework for testing clients and servers, moving one of them into
 a separate thread.
 """
 
@@ -20,7 +20,7 @@ test_port = 8001
 
 
 class ClientServerTestCase(unittest.TestCase):
-    
+
     def setUp(self):
         self.loop = thor.loop.make()
         self.timeout_hit = False
@@ -34,12 +34,12 @@ class ClientServerTestCase(unittest.TestCase):
         t = threading.Thread(target=target, args=args or [])
         t.setDaemon(True)
         t.start()
-            
+
     def go(self, server_sides, client_sides, timeout=10):
         """
         Start the server(s), handling connections with server_side (handler),
         and then run the client(s), calling client_side (client).
-        
+
         One of the handlers MUST stop the loop before the timeout, which
         is considered failure.
         """
@@ -49,10 +49,10 @@ class ClientServerTestCase(unittest.TestCase):
             if hasattr(server_side, "port_offset"):
                 offset = server_side.port_offset
             self.create_server(test_host, test_port + offset, server_side)
-        
+
         for client_side in client_sides:
             self.create_client(test_host, test_port, client_side)
-            
+
         def do_timeout():
             self.loop.stop()
             self.timeout_hit = True
@@ -62,14 +62,14 @@ class ClientServerTestCase(unittest.TestCase):
 
     def create_server(self, host, port, server_side):
         raise NotImplementedError
-        
+
     def create_client(self, host, port, client_side):
         raise NotImplementedError
-        
+
 
 class DummyHttpParser(HttpMessageHandler):
     default_state = WAITING
-    
+
     def __init__(self, *args, **kw):
         HttpMessageHandler.__init__(self, *args, **kw)
         self.test_top_line = None
@@ -78,14 +78,13 @@ class DummyHttpParser(HttpMessageHandler):
         self.test_trailers = None
         self.test_err = None
         self.test_states = []
-    
-    def input_start(self, top_line, hdr_tuples, conn_tokens, 
-                     transfer_codes, content_length):
+
+    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
         self.test_states.append("START")
         self.test_top_line = top_line
         self.test_hdrs = hdr_tuples
         return bool
-        
+
     def input_body(self, chunk):
         self.test_states.append("BODY")
         self.test_body += chunk
@@ -98,10 +97,10 @@ class DummyHttpParser(HttpMessageHandler):
         self.test_states.append("ERROR")
         self.test_err = err
         return False # never recover.
-        
+
     def check(self, asserter, expected):
         """
-        Check the parsed message against expected attributes and 
+        Check the parsed message against expected attributes and
         assert using asserter as necessary.
         """
         aE = asserter.assertEqual

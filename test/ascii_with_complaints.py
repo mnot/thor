@@ -84,8 +84,7 @@ def getregentry():
         incrementalencoder=IncrementalEncoder,
         incrementaldecoder=IncrementalDecoder,
         streamwriter=StreamWriter,
-        streamreader=StreamReader,
-    )
+        streamreader=StreamReader)
 
 def search_function(encoding):
     if encoding == 'ascii_with_complaints':

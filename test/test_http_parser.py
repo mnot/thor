@@ -11,18 +11,18 @@ import thor.http.error as error
 
 
 class TestHttpParser(unittest.TestCase):
-    
+
     def setUp(self):
         self.parser = DummyHttpParser()
 
     def checkSingleMsg(self, inputs, body, expected_err=None, close=False):
         """
-        Check a single HTTP message. 
+        Check a single HTTP message.
         """
         assert type(inputs) == type([])
         for chunk in inputs:
             self.parser.handle_input(chunk % {
-                b'body': body, 
+                b'body': body,
                 b'body_len': len(body)
             })
         states = self.parser.test_states
@@ -46,7 +46,7 @@ class TestHttpParser(unittest.TestCase):
         """
         for chunk in inputs:
             self.parser.handle_input(chunk % {
-                b'body': body, 
+                b'body': body,
                 b'body_len': len(body)
             })
         states = self.parser.test_states
@@ -127,7 +127,7 @@ Content-Length: %(body_len)i
 %(body)s"""], body)
         headers = [k for k,v in self.parser.test_hdrs]
         self.assertEqual(headers, [b'Content-Type', b'', b'Content-Length'])
-        
+
 
     def test_hdrs_utf8(self):
         body = b"lorum ipsum whatever goes after that."
@@ -183,7 +183,7 @@ Content-Type: text/plain
     def test_extra_line(self):
         body = b"lorum ipsum whatever goes after that."
         self.checkSingleMsg([b"""\
-            
+
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: %(body_len)i
@@ -194,7 +194,7 @@ Content-Length: %(body_len)i
         body = b"lorum ipsum whatever goes after that."
         self.checkSingleMsg([b"""\
 
-    
+
 
 HTTP/1.1 200 OK
 Content-Type: text/plain
@@ -206,7 +206,7 @@ Content-Length: %(body_len)i
         body = "lorum ipsum whatever goes after that."
         self.checkSingleMsg([a.encode('ascii') for a in """\
 
-        
+
 
 HTTP/1.1 200 OK
 Content-Type: text/plain
@@ -445,7 +445,7 @@ Foo: bar
 Baz: 1
 \r
 """], body)
-        self.assertEqual(self.parser.test_trailers, 
+        self.assertEqual(self.parser.test_trailers,
             [(b'Foo', b' bar'), (b'Baz', b' 1')]
         )
 
@@ -489,6 +489,6 @@ Content-Length: %(body_len)i
 #    def test_chunked_then_length(self):
 #    def test_length_then_chunked(self):
 
-            
+
 if __name__ == '__main__':
     unittest.main()

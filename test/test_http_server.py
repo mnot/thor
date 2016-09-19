@@ -13,7 +13,7 @@ from thor.events import on
 from thor.http import HttpServer
 
 class TestHttpServer(framework.ClientServerTestCase):
-            
+
     def create_server(self, test_host, test_port, server_side):
         server = HttpServer(test_host, test_port, loop=self.loop)
         server_side(server)
@@ -35,7 +35,7 @@ class TestHttpServer(framework.ClientServerTestCase):
         expected, and verify that it actually happened.
         """
         exchange.test_happened = False
-        
+
         @on(exchange)
         def error(err_msg):
             exchange.test_happened = True
@@ -56,15 +56,15 @@ class TestHttpServer(framework.ClientServerTestCase):
         def request_done(trailers):
             exchange.test_happened = True
             self.assertEqual(
-                trailers, 
+                trailers,
                 expected.get('req_trailers', trailers)
             )
             self.assertEqual(
-                exchange.tmp_req_body, 
+                exchange.tmp_req_body,
                 expected.get('body', exchange.tmp_req_body)
             )
             self.loop.stop()
-            
+
         @on(self.loop)
         def stop():
             self.assertTrue(exchange.test_happened)
@@ -75,10 +75,10 @@ class TestHttpServer(framework.ClientServerTestCase):
             def check(exchange):
                 self.check_exchange(exchange, {
                     'method': 'GET',
-                    'uri': '/'                    
+                    'uri': '/'
                 })
             server.on('exchange', check)
-            
+
         def client_side(client_conn):
             client_conn.sendall(b"""\
 GET / HTTP/1.1
@@ -98,10 +98,10 @@ Host: %s:%i
                     'uri': '/'
                 })
             server.on('exchange', check)
-            
+
         def client_side(client_conn):
             client_conn.sendall(b"""\
-            
+
 GET / HTTP/1.1
 Host: %s:%i\r
 \r
@@ -116,10 +116,10 @@ Host: %s:%i\r
             def check(exchange):
                 self.check_exchange(exchange, {
                     'method': 'POST',
-                    'uri': '/foo'                    
+                    'uri': '/foo'
                 })
             server.on('exchange', check)
-            
+
         def client_side(client_conn):
             client_conn.sendall(b"""\
 POST / HTTP/1.1
@@ -131,17 +131,17 @@ Content-Length: 5
             time.sleep(1)
             client_conn.close()
         self.go([server_side], [client_side])
-        
+
 
     def test_post_extra_crlf(self):
         def server_side(server):
             def check(exchange):
                 self.check_exchange(exchange, {
                     'method': 'POST',
-                    'uri': '/foo'                    
+                    'uri': '/foo'
                 })
             server.on('exchange', check)
-            
+
         def client_side(client_conn):
             client_conn.sendall(b"""\
 POST / HTTP/1.1
@@ -153,7 +153,7 @@ Content-Length: 5
 """ % (framework.test_host, framework.test_port))
             time.sleep(1)
             client_conn.close()
-        self.go([server_side], [client_side])        
+        self.go([server_side], [client_side])
 
 
 #    def test_pipeline(self):
@@ -169,7 +169,7 @@ Content-Length: 5
 #            @on(self.loop)
 #            def stop():
 #                self.assertEqual(server.ex_count, 2)
-#            
+#
 #        def client_side(client_conn):
 #            client_conn.sendall("""\
 #GET / HTTP/1.1

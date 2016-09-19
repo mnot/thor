@@ -22,31 +22,31 @@ class TestEventEmitter(unittest.TestCase):
                 self.on('rem1', self.handle_rem1a)
                 self.on('rem2', self.handle_rem2)
                 self.on('rem2', self.handle_rem2a)
-            
+
             def handle_foo(self):
                 self.foo_count += 1
-            
+
             def handle_bar(self):
                 self.bar_count += 1
-            
+
             def handle_baz(self):
                 raise Exception("Baz wasn't removed.")
-                
+
             def handle_rem1(self):
                 self.rem1_count += 1
                 self.removeListeners()
                 self.emit('foo')
-                
+
             def handle_rem1a(self):
                 self.rem1_count += 1
-                
+
             def handle_rem2(self):
                 self.rem2_count += 1
                 self.removeListener('rem2', self.handle_rem2a)
-            
+
             def handle_rem2a(self):
                 self.rem2_count += 1
-                
+
         self.t = Thing()
 
     def test_basic(self):
@@ -77,7 +77,7 @@ class TestEventEmitter(unittest.TestCase):
         self.t.emit('baz')
         self.t.emit('foo')
         self.assertEqual(self.t.foo_count, 0)
-        
+
     def test_removeListeners_all(self):
         self.t.emit('foo')
         self.t.removeListeners()
@@ -99,7 +99,7 @@ class TestEventEmitter(unittest.TestCase):
         self.assertEqual(self.t.foo_count, 0)
         self.t.emit('foo')
         self.assertEqual(self.t.foo_count, 1)
-        
+
     def test_on_named(self):
         self.t.boom_count = 0
         @on(self.t, 'boom')
@@ -129,15 +129,15 @@ class TestEventEmitter(unittest.TestCase):
         self.t.emit('rem1')
         self.assertEqual(self.t.foo_count, 0)
         self.assertEqual(self.t.rem1_count, 2)
-        
+
     def test_removeListener_recursion(self):
         """
-        Removing a later listener specifically for 
+        Removing a later listener specifically for
         a given event causes it not to be run.
         """
         self.assertEqual(self.t.rem2_count, 0)
         self.t.emit('rem2')
         self.assertEqual(self.t.rem2_count, 1)
-            
+
 if __name__ == '__main__':
     unittest.main()

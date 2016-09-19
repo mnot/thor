@@ -21,7 +21,7 @@ class IOStopper(thor.loop.EventSource):
         self.r_fd, self.w_fd = make_fifo('tmp_fifo')
         self.on('writable', self.write)
         self.register_fd(self.w_fd, 'writable')
-    
+
     def write(self):
         self.testcase.assertTrue(self._loop.running)
         self._loop.stop()
@@ -31,7 +31,7 @@ class IOStopper(thor.loop.EventSource):
 
 
 class TestLoop(unittest.TestCase):
-    
+
     def setUp(self):
         self.loop = thor.loop.make()
         self.i = 0
@@ -67,7 +67,7 @@ class TestLoop(unittest.TestCase):
         r = IOStopper(self, self.loop)
         self.loop.run()
         self.assertFalse(self.loop.running)
-    
+
     def test_run_stop_run(self):
         def check_running():
             self.assertTrue(self.loop.running)
@@ -78,7 +78,7 @@ class TestLoop(unittest.TestCase):
         self.loop.schedule(0, check_running)
         self.loop.schedule(1, self.loop.stop)
         self.loop.run()
-            
+
     def test_schedule(self):
         run_time = 3 # how long to run for
         def check_time(start_time):
@@ -92,7 +92,7 @@ class TestLoop(unittest.TestCase):
             self.loop.stop()
         self.loop.schedule(run_time, check_time, systime.time())
         self.loop.run()
-        
+
     def test_schedule_delete(self):
         def not_good():
             assert Exception, "this event should not have happened."
@@ -100,7 +100,7 @@ class TestLoop(unittest.TestCase):
         self.loop.schedule(1, e.delete)
         self.loop.schedule(3, self.loop.stop)
         self.loop.run()
-        
+
     def test_time(self):
         run_time = 2
         def check_time():
@@ -128,13 +128,13 @@ class TestEventSource(unittest.TestCase):
     def test_EventSource_register(self):
         self.es.register_fd(self.r_fd)
         self.assertTrue(self.r_fd in list(self.loop._fd_targets))
-    
+
     def test_EventSource_unregister(self):
         self.es.register_fd(self.r_fd)
         self.assertTrue(self.r_fd in list(self.loop._fd_targets))
         self.es.unregister_fd()
         self.assertFalse(self.r_fd in list(self.loop._fd_targets))
-        
+
     def test_EventSource_event_del(self):
         self.es.register_fd(self.r_fd, 'readable')
         self.es.on('readable', self.readable_check)
@@ -142,7 +142,7 @@ class TestEventSource(unittest.TestCase):
         os.write(self.w_fd, b'foo')
         self.loop._run_fd_events()
         self.assertFalse('readable' in self.events_seen)
-        
+
     def test_EventSource_readable(self):
         self.es.register_fd(self.r_fd, 'readable')
         self.es.on('readable', self.readable_check)
@@ -169,7 +169,7 @@ class TestEventSource(unittest.TestCase):
 #        self.assertTrue('close' in self.events_seen)
 #
 #    def close_check(self):
-#        self.events_seen.append('close')        
+#        self.events_seen.append('close')
 
 if __name__ == '__main__':
     unittest.main()
