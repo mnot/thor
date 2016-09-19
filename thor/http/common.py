@@ -182,7 +182,7 @@ class HttpMessageHandler:
             else: # partial headers; store it and wait for more
                 self._input_buffer = inbytes
         elif self._input_state == QUIET:  # shouldn't be getting any data now.
-            self.input_error(error.ExtraDataError(instr))
+            self.input_error(error.ExtraDataError(inbytes))
         elif self._input_state == HEADERS_DONE:  # we found a complete header/trailer set
             try:
                 body_handler = getattr(self, '_handle_%s' % self._input_delimit)
