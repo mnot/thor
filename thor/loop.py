@@ -76,9 +76,7 @@ class LoopBase(EventEmitter):
         self.__sched_events = []
         self._fd_targets = {}
         self.__now = None
-        self._eventlookup = dict(
-            [(v,k) for (k,v) in self._event_types.items()]
-        )
+        self._eventlookup = dict([(v, k) for (k, v) in self._event_types.items()])
         self.__event_cache = {}
 
     def run(self):
@@ -95,21 +93,16 @@ class LoopBase(EventEmitter):
             if debug:
                 delay = self.__now - fd_start
                 if delay >= self.precision * 1.5:
-                    sys.stderr.write(
-                     "WARNING: long fd delay (%.2f)\n" % delay
-                    )
+                    sys.stderr.write("WARNING: long fd delay (%.2f)\n" % delay)
             # find scheduled events
             delay = self.__now - last_event_check
             if delay >= self.precision * 0.90:
                 if debug:
                     if last_event_check and (delay >= self.precision * 4):
-                        sys.stderr.write(
-                          "WARNING: long loop delay (%.2f)\n" % delay
-                        )
+                        sys.stderr.write("WARNING: long loop delay (%.2f)\n" % delay)
                     if len(self.__sched_events) > 5000:
-                        sys.stderr.write(
-                          "WARNING: %i events scheduled\n" % \
-                            len(self.__sched_events))
+                        sys.stderr.write("WARNING: %i events scheduled\n" % \
+                                         len(self.__sched_events))
                 last_event_check = self.__now
                 for event in self.__sched_events:
                     when, what = event
@@ -125,10 +118,8 @@ class LoopBase(EventEmitter):
                         if debug:
                             delay = systime.time() - ev_start
                             if delay > self.precision * 2:
-                                sys.stderr.write(
-                        "WARNING: long event delay (%.2f): %s\n" % \
-                                (delay, repr(what)) 
-                                )
+                                sys.stderr.write("WARNING: long event delay (%.2f): %s\n" % \
+                                                 (delay, repr(what)))
                     else:
                         break
 
@@ -189,7 +180,7 @@ class LoopBase(EventEmitter):
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
-        class event_holder:
+        class event_holder(object):
             def __init__(self):
                 self._deleted = False
             def delete(self):
@@ -208,7 +199,8 @@ class LoopBase(EventEmitter):
             hi = len(a)
         while lo < hi:
             mid = (lo+hi)//2
-            if x[0] < a[mid][0]: hi = mid
+            if x[0] < a[mid][0]:
+                hi = mid
             else: lo = mid+1
         a.insert(lo, x)
 
@@ -241,9 +233,9 @@ class PollLoop(LoopBase):
             select.POLLIN: 'readable',
             select.POLLOUT: 'writable',
             select.POLLERR: 'error',
-            select.POLLHUP: 'close',
+            select.POLLHUP: 'close'}
     #        select.POLLNVAL - TODO
-        }
+
         LoopBase.__init__(self, *args)
         self._poll = select.poll()
         # pylint: enable=E1101
@@ -306,9 +298,7 @@ class EpollLoop(LoopBase):
 
     def event_del(self, fd, event):
         try:
-            eventmask = self._eventmask(
-                self._fd_targets[fd]._interesting_events
-            )
+            eventmask = self._eventmask(self._fd_targets[fd]._interesting_events)
         except KeyError:
             return # no longer interested
         self._epoll.modify(fd, eventmask)
@@ -327,8 +317,7 @@ class KqueueLoop(LoopBase):
     def __init__(self, *args):
         self._event_types = {
             select.KQ_FILTER_READ: 'readable',
-            select.KQ_FILTER_WRITE: 'writable'
-        }
+            select.KQ_FILTER_WRITE: 'writable'}
         LoopBase.__init__(self, *args)
         self.max_ev = 50 # maximum number of events to pull from the queue
         self._kq = select.kqueue()
@@ -352,9 +341,7 @@ class KqueueLoop(LoopBase):
     def event_add(self, fd, event):
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(fd, eventmask,
-                select.KQ_EV_ADD | select.KQ_EV_ENABLE
-            )
+            ev = select.kevent(fd, eventmask, select.KQ_EV_ADD | select.KQ_EV_ENABLE)
             self._kq.control([ev], 0, 0)
 
     def event_del(self, fd, event):
