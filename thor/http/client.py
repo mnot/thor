@@ -241,6 +241,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             except ValueError:
                 self.input_error(UrlError("Non-integer port in URL"))
                 raise
+            if not 0 <= port <= 65535:
+                self.input_error(UrlError("Port out of range 0-65535"))
+                raise ValueError
         else:
             host, port = authority, default_port
         if path == "":

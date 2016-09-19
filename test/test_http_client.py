@@ -302,6 +302,23 @@ Connection: close
         exchange.request_done([])
 
 
+    def test_url_port_range(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(
+                err_msg.__class__, thor.http.error.UrlError
+            )
+            self.loop.stop()
+
+        req_uri = "http://%s:80000/" % (test_host)
+        exchange.request_start(
+            "GET", req_uri, []
+        )
+        exchange.request_done([])
+
+
     def test_http_version_err(self):
         def client_side(client):
             exchange = client.exchange()
