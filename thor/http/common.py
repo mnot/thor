@@ -57,7 +57,7 @@ def header_dict(hdr_tuples, omit=None):
     out = defaultdict(list)
     for (n, v) in hdr_tuples:
         n = n.lower()
-        if n in (omit or []):
+        if n in omit or []:
             continue
         out[n].extend([i.strip() for i in v.split(b',')])
     return out
@@ -74,14 +74,10 @@ def get_header(hdr_tuples, name):
     """
     # TODO: support quoted strings
     return [v.strip() for v in sum(
-               [l.split(b',') for l in
-                    [i[1] for i in hdr_tuples if i[0].lower() == name]
-               ]
-            , [])
-    ]
+        [l.split(b',') for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]
 
 
-class HttpMessageHandler:
+class HttpMessageHandler(object):
     """
     This is a base class for something that has to parse and/or serialise
     HTTP messages, request or response.
@@ -90,10 +86,10 @@ class HttpMessageHandler:
     input_end, and call handle_input when you get bytes from the network.
 
     For serialising, it expects you to override output.
-    
-    Headers (and trailers) are represented as a list of (name, value) tuples, 
+
+    Headers (and trailers) are represented as a list of (name, value) tuples,
     each being bytes.
-    
+
     Body chunks are bytes.
     """
 
@@ -112,20 +108,19 @@ class HttpMessageHandler:
 
     # input-related methods
 
-    def input_start(self, top_line, hdr_tuples, conn_tokens,
-                     transfer_codes, content_length):
+    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
 
         top_line is a bytes that contains the first line.
-        
+
         hdr_tuples is a list of (bytes, bytes) tuples, one for each header line.
-        
+
         conn_tokens is a list of bytes, one for each Connection token.
-        
+
         transfer_codes is a list of bytes, one for each transfer coding.
-        
+
         content_length is an integer representing the Content-Length header.
 
         Returns boolean allows_body to indicate whether the message allows a
@@ -139,7 +134,7 @@ class HttpMessageHandler:
     def input_body(self, chunk):
         """
         Process a body chunk from the wire.
-        
+
         Chunk is a bytes.
         """
         raise NotImplementedError
@@ -148,7 +143,7 @@ class HttpMessageHandler:
         """
         Indicate that the response body is complete. Optionally can contain
         trailers.
-        
+
         Trailers are a list of (bytes, bytes) tuples, just like headers in _input_start.
         """
         raise NotImplementedError
@@ -156,14 +151,14 @@ class HttpMessageHandler:
     def input_error(self, err):
         """
         Indicate an unrecoverable parsing problem with the input stream.
-        
+
         err is an instance of thor.http.error.*.
         """
         raise NotImplementedError
 
     def handle_input(self, inbytes):
         """
-        Given a bytes representing a chunk of input, figure out what state 
+        Given a bytes representing a chunk of input, figure out what state
         we're in and handle it, making the appropriate calls.
         """
         if self._input_buffer != b"":
@@ -256,7 +251,7 @@ class HttpMessageHandler:
             self.input_transfer_length += self._input_body_left + 2
             self._input_body_left = -1
         elif self._input_body_left == got: # corner case
-            self._input_buffer += inbytes  
+            self._input_buffer += inbytes
         else: # got partial chunk
             self.input_body(inbytes)
             self.input_transfer_length += got
@@ -270,11 +265,11 @@ class HttpMessageHandler:
             self.handle_input(inbytes[2:]) # 2 consumes the CRLF
         else:
             trailer_block, rest = self._split_headers(inbytes) # trailers
-            if trailer_block != None: 
+            if trailer_block != None:
                 self._input_state = WAITING
                 trailers = self._parse_fields(trailer_block.splitlines())
                 if trailers == None: # found a problem
-                    self._input_state = ERROR # TODO: need an explicit error 
+                    self._input_state = ERROR # TODO: need an explicit error
                     return
                 else:
                     self.input_end(trailers)
@@ -311,7 +306,7 @@ class HttpMessageHandler:
             if line[:1] in [b" ", b"\t"]: # Fold LWS
                 if len(hdr_tuples):
                     hdr_tuples[-1] = (
-                        hdr_tuples[-1][0], 
+                        hdr_tuples[-1][0],
                         b"%s %s" % (hdr_tuples[-1][1], line.lstrip())
                     )
                     continue
@@ -360,8 +355,8 @@ class HttpMessageHandler:
                         self.input_error(error.MalformedCLError(f_val))
                         if self.careful:
                             return
-            
-        # yes, this is a horrible hack.     
+
+        # yes, this is a horrible hack.
         if gather_conn_info:
             return hdr_tuples, conn_tokens, transfer_codes, content_length
         else:
@@ -369,12 +364,12 @@ class HttpMessageHandler:
 
     def _split_headers(self, inbytes):
         """
-        Given a bytes, split out and return (headers, rest), 
+        Given a bytes, split out and return (headers, rest),
         consuming the whitespace between them.
-    
+
         If there is not a complete header block, return None for headers.
         """
-    
+
         pos = 0
         size = len(inbytes)
         while pos <= size:
@@ -395,7 +390,7 @@ class HttpMessageHandler:
 
     def _parse_headers(self, inbytes):
         """
-        Given a bytes that we knows starts with a header block, 
+        Given a bytes that we knows starts with a header block,
         parse the headers. Calls self.input_start to kick off processing.
         """
         self.input_header_length = len(inbytes)
@@ -409,20 +404,20 @@ class HttpMessageHandler:
                     break
             except IndexError: # empty
                 return
-        
+
         try:
             hdr_tuples, conn_tokens, transfer_codes, content_length \
-            = self._parse_fields(header_lines, True)
+                = self._parse_fields(header_lines, True)
         except TypeError: # returned None because there was an error
-                return "" # throw away the rest
-            
+            return "" # throw away the rest
+
         # ignore content-length if transfer-encoding is present
         if transfer_codes != [] and content_length != None:
             content_length = None
 
         try:
-            allows_body = self.input_start(top_line, hdr_tuples,
-                        conn_tokens, transfer_codes, content_length)
+            allows_body = self.input_start(top_line, hdr_tuples, conn_tokens,
+                                           transfer_codes, content_length)
         except ValueError: # parsing error of some kind; abort.
             return "" # throw away the rest
 
@@ -455,10 +450,9 @@ class HttpMessageHandler:
         """
         self._output_delimit = delimit
         out = linesep.join(
-                [top_line] +
-                [b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples] +
-                [b"", b""]
-        )
+            [top_line] +
+            [b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples] +
+            [b"", b""])
         self._input_state = WAITING
         self.output(out)
         self._output_state = HEADERS_DONE
@@ -491,7 +485,7 @@ class HttpMessageHandler:
             pass # TODO: double-check the length
         elif self._output_delimit == CLOSE:
             # FIXME: abstract out
-            self.tcp_conn.close() # pylint: disable=E1101 
+            self.tcp_conn.close() # pylint: disable=E1101
         elif self._output_delimit == None:
             pass # encountered an error before we found a delmiter
         else:
