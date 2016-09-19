@@ -43,7 +43,7 @@ linesep = "\r\n"
 CLOSE, COUNTED, CHUNKED, NOBODY = 'close', 'counted', 'chunked', 'nobody'
 
 # states
-WAITING, HEADERS_DONE, ERROR = 1, 2, 3
+WAITING, HEADERS_DONE, ERROR, QUIET = 1, 2, 3, 4
 
 idempotent_methods = ['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS', 'TRACE']
 safe_methods = ['GET', 'HEAD', 'OPTIONS', 'TRACE']
@@ -115,7 +115,7 @@ class HttpMessageHandler:
         self.input_header_length = 0
         self.input_transfer_length = 0
         self._input_buffer = ""
-        self._input_state = WAITING
+        self._input_state = QUIET
         self._input_delimit = None
         self._input_body_left = 0
         self._output_state = WAITING
@@ -161,7 +161,7 @@ class HttpMessageHandler:
             # will need to move to a list if writev comes around
             instr = self._input_buffer + instr
             self._input_buffer = ""
-        if self._input_state == WAITING:
+        if self._input_state == WAITING:  # waiting for headers or trailers
             if hdr_end.search(instr): # found one
                 rest = self._parse_headers(instr)
                 try:
@@ -171,22 +171,24 @@ class HttpMessageHandler:
                     # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
                 self._input_buffer = instr
-        elif self._input_state == HEADERS_DONE:
+        elif self._input_state == QUIET:  # shouldn't be getting any data now.
+            self.input_error(error.ExtraDataError(instr))
+        elif self._input_state == HEADERS_DONE:  # we found a complete header/trailer set
             try:
                 handler = getattr(self, '_handle_%s' % self._input_delimit)
             except AttributeError:
                 raise Exception, "Unknown input delimiter %s" % \
                                  self._input_delimit
             handler(instr)
-        elif self._input_state == ERROR:
+        elif self._input_state == ERROR:  # something bad happened.
             pass # I'm silently ignoring input that I don't understand.
         else:
             raise Exception, "Unknown state %s" % self._input_state
 
     def _handle_nobody(self, instr):
         "Handle input that shouldn't have a body."
+        self._input_state = QUIET
         self.input_end([])
-        self._input_state = WAITING
         self.handle_input(instr)
 
     def _handle_close(self, instr):
@@ -251,7 +253,7 @@ class HttpMessageHandler:
 
     def _handle_chunk_done(self, instr):
         if len(instr) >= 2 and instr[:2] == linesep:
-            self._input_state = WAITING
+            self._input_state = QUIET
             self.input_end([])
             self.handle_input(instr[2:]) # 2 consumes the CRLF
         elif hdr_end.search(instr): # trailers
@@ -273,7 +275,7 @@ class HttpMessageHandler:
             self.input_transfer_length += self._input_body_left
             self.input_body(instr[:self._input_body_left])
             self.input_end([])
-            self._input_state = WAITING
+            self._input_state = QUIET
             if instr[self._input_body_left:]:
                 self.handle_input(instr[self._input_body_left:])
         else: # got some of it
@@ -424,6 +426,7 @@ class HttpMessageHandler:
                 ["%s: %s" % (k.strip(), v) for k, v in hdr_tuples] +
                 ["", ""]
         )
+        self._input_state = WAITING
         self.output(out)
         self._output_state = HEADERS_DONE
 

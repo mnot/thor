@@ -104,6 +104,8 @@ class HttpClient(object):
                 )
                 break
             if tcp_conn.tcp_connected:
+                tcp_conn.removeListeners('data', 'pause', 'close')
+                tcp_conn.pause(True)
                 if hasattr(tcp_conn, "_idler"):
                     tcp_conn._idler.delete()
                 handle_connect(tcp_conn)
@@ -111,9 +113,8 @@ class HttpClient(object):
 
     def _release_conn(self, tcp_conn, scheme):
         "Add an idle connection back to the pool."
-        tcp_conn.removeListeners('data', 'pause', 'close')
+        tcp_conn.removeListeners('close')
         tcp_conn.on('close', tcp_conn.handle_close)
-        tcp_conn.pause(True)
         origin = (scheme, tcp_conn.host, tcp_conn.port)
         if tcp_conn.tcp_connected:
             def idle_close():

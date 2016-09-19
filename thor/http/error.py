@@ -60,8 +60,8 @@ class MalformedCLError(HttpError):
     desc = "Malformed Content-Length header"
     server_status = ("400", "Bad Request")
 
-class BodyForbiddenError(HttpError):
-    desc = "This message does not allow a body",
+class ExtraDataError(HttpError):
+    desc = "Extra data was sent after this message was supposed to end",
 
 class HttpVersionError(HttpError):
     desc = "Unrecognised HTTP version"
