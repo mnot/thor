@@ -110,12 +110,13 @@ class HttpMessageHandler:
     """
 
     careful = True # if False, don't fail on errors, but preserve them.
+    default_state = None # QUIET or WAITING
 
     def __init__(self):
         self.input_header_length = 0
         self.input_transfer_length = 0
         self._input_buffer = ""
-        self._input_state = QUIET
+        self._input_state = self.default_state
         self._input_delimit = None
         self._input_body_left = 0
         self._output_state = WAITING
@@ -167,7 +168,7 @@ class HttpMessageHandler:
                 try:
                     self.handle_input(rest)
                 except RuntimeError:
-                    self.input_error(error.TooManyMsgsError)
+                    self.input_error(error.TooManyMsgsError())
                     # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
                 self._input_buffer = instr
@@ -187,7 +188,7 @@ class HttpMessageHandler:
 
     def _handle_nobody(self, instr):
         "Handle input that shouldn't have a body."
-        self._input_state = QUIET
+        self._input_state = self.default_state
         self.input_end([])
         self.handle_input(instr)
 
@@ -253,7 +254,7 @@ class HttpMessageHandler:
 
     def _handle_chunk_done(self, instr):
         if len(instr) >= 2 and instr[:2] == linesep:
-            self._input_state = QUIET
+            self._input_state = self.default_state
             self.input_end([])
             self.handle_input(instr[2:]) # 2 consumes the CRLF
         elif hdr_end.search(instr): # trailers
@@ -275,7 +276,7 @@ class HttpMessageHandler:
             self.input_transfer_length += self._input_body_left
             self.input_body(instr[:self._input_body_left])
             self.input_end([])
-            self._input_state = QUIET
+            self._input_state = self.default_state
             if instr[self._input_body_left:]:
                 self.handle_input(instr[self._input_body_left:])
         else: # got some of it

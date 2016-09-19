@@ -43,7 +43,7 @@ from thor.tcp import TcpServer
 
 from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, \
-    ERROR, \
+    WAITING, ERROR, \
     hop_by_hop_hdrs, \
     get_header, header_names
 from thor.http.error import HttpVersionError, HostRequiredError, \
@@ -78,6 +78,8 @@ class HttpServer(EventEmitter):
 
 class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
+    default_state = WAITING
+    
     def __init__(self, tcp_conn, server):
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
@@ -161,20 +163,23 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Indicate a parsing problem with the request body (which
         hasn't been queued as an exchange yet).
         """
-        self._input_state = ERROR
-        status_code, status_phrase = err.server_status or \
-            (500, 'Internal Server Error')
-        hdrs = [
-            ('Content-Type', 'text/plain'),
-        ]
-        body = err.desc
-        if err.detail:
-            body += " (%s)" % err.detail
-        ex = HttpServerExchange(self, "1.1") # FIXME
-        ex.response_start(status_code, status_phrase, hdrs)
-        ex.response_body(body)
-        ex.response_done([])
-        self.ex_queue.append(ex)
+        if err.server_recoverable:
+            self.emit('error', err)
+        else:
+            self._input_state = ERROR
+            status_code, status_phrase = err.server_status or \
+                (500, 'Internal Server Error')
+            hdrs = [
+                ('Content-Type', 'text/plain'),
+            ]
+            body = err.desc
+            if err.detail:
+                body += " (%s)" % err.detail
+            ex = HttpServerExchange(self, '', '', [], "1.1") # FIXME
+            ex.response_start(status_code, status_phrase, hdrs)
+            ex.response_body(body)
+            ex.response_done([])
+            self.ex_queue.append(ex)
 
 # FIXME: connection?
 

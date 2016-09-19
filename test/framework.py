@@ -11,7 +11,7 @@ import threading
 import unittest
 
 import thor
-from thor.http.common import HttpMessageHandler
+from thor.http.common import HttpMessageHandler, WAITING
 
 test_host = "127.0.0.1"
 test_port = 8001
@@ -66,6 +66,8 @@ class ClientServerTestCase(unittest.TestCase):
         
 
 class DummyHttpParser(HttpMessageHandler):
+    default_state = WAITING
+    
     def __init__(self, *args, **kw):
         HttpMessageHandler.__init__(self, *args, **kw)
         self.test_top_line = None

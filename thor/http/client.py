@@ -44,7 +44,7 @@ from thor.tls import TlsClient
 
 from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
-    WAITING, ERROR, \
+    QUIET, WAITING, ERROR, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from thor.http.error import UrlError, ConnectError, \
@@ -169,6 +169,7 @@ class HttpClient(object):
 
 
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
+    default_state = QUIET
 
     def __init__(self, client):
         HttpMessageHandler.__init__(self)
@@ -319,7 +320,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.handle_input("")
         if self._input_delimit == CLOSE:
             self.input_end([])
-        elif self._input_state == WAITING: # TODO: needs to be tighter
+        elif self._input_state in [WAITING, QUIET]: # TODO: needs to be tighter
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
                     self.client.loop.schedule(

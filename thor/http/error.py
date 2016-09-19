@@ -62,7 +62,7 @@ class MalformedCLError(HttpError):
     server_status = ("400", "Bad Request")
 
 class ExtraDataError(HttpError):
-    desc = "Extra data was sent after this message was supposed to end",
+    desc = "Extra data was sent after this message was supposed to end"
 
 class HttpVersionError(HttpError):
     desc = "Unrecognised HTTP version"
