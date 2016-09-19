@@ -109,7 +109,7 @@ class HttpMessageHandler:
     For serialising, it expects you to override _output.
     """
 
-    inspecting = False # if True, don't fail on errors, but preserve them.
+    careful = True # if False, don't fail on errors, but preserve them.
 
     def __init__(self):
         self.input_header_length = 0
@@ -304,19 +304,16 @@ class HttpMessageHandler:
                     continue
                 else: # top header starts with whitespace
                     self.input_error(error.TopLineSpaceError(line))
-                    if not self.inspecting:
+                    if self.careful:
                         return
             try:
                 fn, fv = line.split(":", 1)
             except ValueError:
-                if self.inspecting:
-                    hdr_tuples.append(line)
-                else:
-                    continue # TODO: error on unparseable field?
+                continue # TODO: error on unparseable field?
             # TODO: a zero-length name isn't valid
             if fn[-1:] in [" ", "\t"]:
                 self.input_error(error.HeaderSpaceError(fn))
-                if not self.inspecting:
+                if self.careful:
                     return
             hdr_tuples.append((fn, fv))
 
@@ -341,14 +338,14 @@ class HttpMessageHandler:
                         except ValueError:
                             pass
                         self.input_error(error.DuplicateCLError())
-                        if not self.inspecting:
+                        if self.careful:
                             return
                     try:
                         content_length = int(f_val)
                         assert content_length >= 0
                     except (ValueError, AssertionError):
                         self.input_error(error.MalformedCLError(f_val))
-                        if not self.inspecting:
+                        if self.careful:
                             return
             
         # yes, this is a horrible hack.     
@@ -380,7 +377,6 @@ class HttpMessageHandler:
             hdr_tuples, conn_tokens, transfer_codes, content_length \
             = self._parse_fields(header_lines, True)
         except TypeError: # returned None because there was an error
-            if not self.inspecting:
                 return "" # throw away the rest
             
         # ignore content-length if transfer-encoding is present
@@ -391,9 +387,7 @@ class HttpMessageHandler:
             allows_body = self.input_start(top_line, hdr_tuples,
                         conn_tokens, transfer_codes, content_length)
         except ValueError: # parsing error of some kind; abort.
-            if not self.inspecting:
-                return "" # throw away the rest
-            allows_body = True
+            return "" # throw away the rest
 
         self._input_state = HEADERS_DONE
         if not allows_body:

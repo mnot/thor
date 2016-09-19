@@ -485,7 +485,6 @@ Content-Length: %(body_len)s
 #    def test_pipeline_nobody(self):
 #    def test_chunked_then_length(self):
 #    def test_length_then_chunked(self):
-#    def test_inspectable(self):
 
             
 if __name__ == '__main__':

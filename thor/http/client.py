@@ -413,19 +413,18 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.emit('response_done', trailers)
 
     def input_error(self, err):
-        "Indicate an error state."
-        if self.inspecting: # we want to get the rest of the response.
+        "Indicate an error state."        
+        if err.client_recoverable and not self.careful: 
+            # This error isn't absolutely fatal, and we want to see the rest.
+            # Still, we probably don't want to reuse this connection later.
             self._conn_reusable = False
         else:
+            # It really is a fatal error.
             self._input_state = ERROR
             self._clear_read_timeout()
-            if err.client_recoverable and \
-              self.tcp_conn and self.tcp_conn.tcp_connected:
-                self.client._release_conn(self.tcp_conn, self.scheme)
-            else:
-                self._dead_conn()
-                if self.tcp_conn:
-                    self.tcp_conn.close()
+            self._dead_conn()
+            if self.tcp_conn and self.tcp_conn.tcp_connected:
+                self.tcp_conn.close()
             self.tcp_conn = None
         self.emit('error', err)
         

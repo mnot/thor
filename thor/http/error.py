@@ -55,6 +55,7 @@ class ChunkError(HttpError):
 class DuplicateCLError(HttpError):
     desc = "Duplicate Content-Length header"
     server_status = ("400", "Bad Request")
+    client_recoverable = True
 
 class MalformedCLError(HttpError):
     desc = "Malformed Content-Length header"
@@ -77,10 +78,12 @@ class TransferCodeError(HttpError):
 class HeaderSpaceError(HttpError):
     desc = "Whitespace at the end of a header field-name"
     server_status = ("400", "Bad Request")
+    client_recoverable = True
     
 class TopLineSpaceError(HttpError):
     desc = "Whitespace after top line, before first header"
     server_status = ("400", "Bad Request")
+    client_recoverable = True
 
 class TooManyMsgsError(HttpError):
     desc = "Too many messages to parse"
