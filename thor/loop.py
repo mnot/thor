@@ -79,6 +79,13 @@ class LoopBase(EventEmitter):
         self._eventlookup = dict([(v, k) for (k, v) in self._event_types.items()])
         self.__event_cache = {}
 
+    def __repr__(self):
+        name = self.__class__.__name__
+        running = self.running and "running" or "not-running"
+        events = len(self.__sched_events)
+        targets = len(self._fd_targets)
+        return "<%s - %s, %i events, %i fd_targets>" % (name, running, events, targets)
+
     def run(self):
         "Start the loop."
         self.running = True

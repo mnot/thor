@@ -177,6 +177,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         status.append('%s {%s}' % (self.method or "-", self.uri or "-"))
         if self.tcp_conn:
             status.append(self.tcp_conn.tcp_connected and 'connected' or 'disconnected')
+        status.append(HttpMessageHandler.__repr__(self))
         return "<%s at %#x>" % (", ".join(status), id(self))
 
     def request_start(self, method, uri, req_hdrs):

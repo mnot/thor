@@ -42,6 +42,10 @@ class UdpEndpoint(EventSource):
         self.on('readable', self.handle_datagram)
         self.register_fd(self.sock.fileno())
 
+    def __repr__(self):
+        status = [self.__class__.__module__ + "." + self.__class__.__name__]
+        return "<%s at %#x>" % (", ".join(status), id(self))
+
     def bind(self, host, port):
         """
         Bind the socket bound to host:port. If called, must be before

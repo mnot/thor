@@ -106,6 +106,9 @@ class HttpMessageHandler(object):
         self._output_state = WAITING
         self._output_delimit = None
 
+    def __repr__(self):
+        return "input %s output %s" % (self._input_state, self._output_state)
+
     # input-related methods
 
     def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
