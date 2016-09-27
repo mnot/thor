@@ -216,7 +216,7 @@ class HttpServerExchange(EventEmitter):
             res_hdrs.append((b"Connection", b"close"))
 
         self.http_conn.output_start(
-            b"HTTP/1.1 %s %s" % (str(status_code), status_phrase), res_hdrs, delimit)
+            b"HTTP/1.1 %s %s" % (status_code, status_phrase), res_hdrs, delimit)
 
     def response_body(self, chunk):
         "Send part of the response body. May be called zero to many times."
