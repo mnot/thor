@@ -361,8 +361,12 @@ class TcpClient(EventSource):
             err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
             err_str = os.strerror(err_id)
         else:
-            err_id = why.args[0]
-            err_str = why.args[1]
+            if hasattr(why, 'args'):
+                args = why.args
+            else:
+                args = why
+            err_id = args[0]
+            err_str = args[1]
         self._error_sent = True
         self.unregister_fd()
         self.emit('connect_error', err_type, err_id, err_str)

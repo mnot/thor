@@ -58,10 +58,12 @@ class TlsClient(TcpClient):
             self.sock.do_handshake()
             self.once('writable', self.handle_connect)
         except sys_ssl.SSLError as why:
-            if why[0] == sys_ssl.SSL_ERROR_WANT_READ:
+            if isinstance(why, sys_ssl.SSLWantReadError):
+#            if why == sys_ssl.SSL_ERROR_WANT_READ:
 #                self.once('readable', self.handshake)
                 self.once('writable', self.handshake) # Oh, Linux...
-            elif why[0] == sys_ssl.SSL_ERROR_WANT_WRITE:
+#            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
+            elif isinstance(why, sys_ssl.SSLWantWriteError):
                 self.once('writable', self.handshake)
             else:
                 self.handle_conn_error(sys_ssl.SSLError, why)
@@ -146,7 +148,7 @@ def monkey_patch_ssl():
         sys_ssl.SSLSocket._real_connect = _real_connect
         sys_ssl.SSLSocket.connect = connect
         sys_ssl.SSLSocket.connect_ex = connect_ex
-monkey_patch_ssl()
+# monkey_patch_ssl()
 
 
 if __name__ == "__main__":
@@ -154,9 +156,12 @@ if __name__ == "__main__":
     from thor import run
     test_host = sys.argv[1]
 
+    def out(outbytes):
+        sys.stdout.write(outbytes.decode('utf-8', 'replace'))
+
     def go(conn):
-        conn.on('data', sys.stdout.write)
-        conn.write("GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
+        conn.on('data', out)
+        conn.write(b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host.encode('ascii'))
         conn.pause(False)
         print(conn.socket.cipher())
 
