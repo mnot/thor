@@ -26,8 +26,7 @@ from thor.http.common import HttpMessageHandler, \
     WAITING, ERROR, \
     hop_by_hop_hdrs, \
     get_header, header_names
-from thor.http.error import HttpVersionError, HostRequiredError, \
-     TransferCodeError, StartLineEncodingError
+from thor.http.error import HttpVersionError, HostRequiredError, TransferCodeError, StartLineError
 
 
 class HttpServer(EventEmitter):
@@ -102,16 +101,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         and queue the request to be processed by the application.
         """
         try:
-            top_line_str = top_line.decode('ascii', 'strict')
-        except UnicodeDecodeError:
-            top_line_str = top_line.decode('utf-8', 'replace')
-            self.input_error(StartLineEncodingError(top_line_str))
-        try:
-            method, _req_line = top_line_str.split(None, 1)
-            uri, req_version = _req_line.rsplit(None, 1)
-            req_version = req_version.rsplit('/', 1)[1]
+            method, req_line = top_line.split(None, 1)
+            uri, req_version = req_line.rsplit(None, 1)
+            req_version = req_version.rsplit(b'/', 1)[1]
         except (ValueError, IndexError):
-            self.input_error(HttpVersionError(top_line))
+            self.input_error(HttpVersionError(repr(top_line)))
             # TODO: more fine-grained
             raise ValueError
         if b'host' not in header_names(hdr_tuples):
@@ -120,11 +114,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         for code in transfer_codes:
             # we only support 'identity' and chunked' codes in requests
             if code not in [b'identity', b'chunked']:
-                self.input_error(TransferCodeError(code))
+                self.input_error(TransferCodeError(repr(code)))
                 raise ValueError
-        exchange = HttpServerExchange(
-            self, method, uri, hdr_tuples, req_version
-        )
+        exchange = HttpServerExchange(self, method, uri, hdr_tuples, req_version)
         self.ex_queue.append(exchange)
         self.server.emit('exchange', exchange)
         if not self.output_paused:
@@ -151,15 +143,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.emit('error', err)
         else:
             self._input_state = ERROR
-            status_code, status_phrase = err.server_status or \
-                (500, 'Internal Server Error')
-            hdrs = [
-                (b'Content-Type', b'text/plain'),
-            ]
-            body = err.desc.encode("utf-8") # FIXME
+            status_code, status_phrase = err.server_status or (b"500", b'Internal Server Error')
+            hdrs = [(b'Content-Type', b'text/plain'),]
+            body = err.desc.encode("utf-8")
             if err.detail:
                 body += b" (%s)" % err.detail.encode("utf-8")
-            ex = HttpServerExchange(self, '', '', [], "1.1") # FIXME
+            ex = HttpServerExchange(self, b'', b'', [], b"1.1")
             ex.response_start(status_code, status_phrase, hdrs)
             ex.response_body(body)
             ex.response_done([])
@@ -219,7 +208,7 @@ class HttpServerExchange(EventEmitter):
         if body_len is not None:
             delimit = COUNTED
             res_hdrs.append((b"Connection", b"keep-alive"))
-        elif self.req_version == "1.1":
+        elif self.req_version == b"1.1":
             delimit = CHUNKED
             res_hdrs.append((b"Transfer-Encoding", b"chunked"))
         else:
@@ -227,9 +216,7 @@ class HttpServerExchange(EventEmitter):
             res_hdrs.append((b"Connection", b"close"))
 
         self.http_conn.output_start(
-            b"HTTP/1.1 %s %s" % (str(status_code).encode('ascii'), status_phrase.encode('ascii')),
-            res_hdrs, delimit
-        )
+            b"HTTP/1.1 %s %s" % (str(status_code), status_phrase), res_hdrs, delimit)
 
     def response_body(self, chunk):
         "Send part of the response body. May be called zero to many times."
@@ -247,8 +234,8 @@ def test_handler(x): # pragma: no cover
     @on(x, 'request_start')
     def go(*args):
         print("start: %s on %s" % (str(args[1]), id(x.http_conn)))
-        x.response_start('200', "OK", [])
-        x.response_body('foo!')
+        x.response_start(b'200', b"OK", [])
+        x.response_body(b'foo!')
         x.response_done([])
 
     @on(x, 'request_body')

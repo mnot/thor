@@ -74,8 +74,8 @@ class TestHttpServer(framework.ClientServerTestCase):
         def server_side(server):
             def check(exchange):
                 self.check_exchange(exchange, {
-                    'method': 'GET',
-                    'uri': '/'
+                    'method': b'GET',
+                    'uri': b'/'
                 })
             server.on('exchange', check)
 
@@ -94,8 +94,8 @@ Host: %s:%i
         def server_side(server):
             def check(exchange):
                 self.check_exchange(exchange, {
-                    'method': 'GET',
-                    'uri': '/'
+                    'method': b'GET',
+                    'uri': b'/'
                 })
             server.on('exchange', check)
 
@@ -115,8 +115,8 @@ Host: %s:%i\r
         def server_side(server):
             def check(exchange):
                 self.check_exchange(exchange, {
-                    'method': 'POST',
-                    'uri': '/foo'
+                    'method': b'POST',
+                    'uri': b'/foo'
                 })
             server.on('exchange', check)
 
@@ -137,8 +137,8 @@ Content-Length: 5
         def server_side(server):
             def check(exchange):
                 self.check_exchange(exchange, {
-                    'method': 'POST',
-                    'uri': '/foo'
+                    'method': b'POST',
+                    'uri': b'/foo'
                 })
             server.on('exchange', check)
 

@@ -29,7 +29,7 @@ Create a request/response exchange.
 
 ### thor.http.HttpClientExchange
 
-#### _void_ request\_start ( _str_ `method`,  _str_ `uri`,  _[headers](#headers)_ `headers` )
+#### _void_ request\_start ( _bytes_ `method`,  _bytes_ `uri`,  _[headers](#headers)_ `headers` )
 
 Start the request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
@@ -50,7 +50,7 @@ Send a `chunk` of request body content.
 Signal that the request body is finished. This must be called for every request. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
-#### event 'response\_start' ( _str_ `status`,  _str_ `phrase`,  _[headers](#headers)_ `headers` )
+#### event 'response\_start' ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
 
 Emitted once, when the client starts receiving the exchange's response. `status` and `phrase` contain the HTTP response status code and reason phrase, respectively, and `headers` contains the response header tuples (see [working with HTTP headers](#headers)).
 
@@ -74,7 +74,7 @@ If _err.client_recoverable_ is `False`, no other events will be emitted by this 
 
 
 
-## thor.http.HttpServer ( _str_ `host`, _int_ `port`,  _[thor.loop](loop.md)_ `loop`? )
+## thor.http.HttpServer ( _bytes_ `host`, _int_ `port`,  _[thor.loop](loop.md)_ `loop`? )
 
 Creates a new server listening on `host`:`port`. If `loop` is supplied, it will be used as the *thor.loop*; otherwise, the "default" loop will be used. 
 
@@ -100,7 +100,7 @@ Emitted when the server starts a new request/response `exchange`.
 ### thor.http.HttpServerExchange
 
 
-#### event 'request\_start' ( _str_ `method`,  _str_ `uri`,  _[headers](#headers)_ `headers` )
+#### event 'request\_start' ( _bytes_ `method`,  _bytes_ `uri`,  _[headers](#headers)_ `headers` )
 
 Emitted once, when the exchange receives a request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
@@ -115,7 +115,7 @@ Emitted zero to many times, when a `chunk` of the request body is received.
 Emitted once, when the request is successfully completed. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
-#### _void_ response\_start ( _str_ `status`,  _str_ `phrase`,  _[headers](#headers)_ `headers` )
+#### _void_ response\_start ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
 
 Start sending the exchange's response. `status` and `phrase` should contain the HTTP response status code and reason phrase, respectively, and `headers` should contain the response header tuples (see [working with HTTP headers](#headers)).
 
@@ -136,7 +136,7 @@ Signal that the response body is finished. This must be called for every respons
 <span id="headers"/>
 ## Working with HTTP Headers 
 
-In Thor's HTTP APIs, headers are moved around as lists of tuples, where each tuple is a (_str_ `field-name`, _bytes_ `field-value`) pair. For example:
+In Thor's HTTP APIs, headers are moved around as lists of tuples, where each tuple is a (_bytes_ `field-name`, _bytes_ `field-value`) pair. For example:
 
     [
         ("Content-Type", b" text/plain"),
@@ -154,21 +154,21 @@ Thor has several utility functions for manipulating this data structure; see [th
 <span id="header_names"/>
 ### _set_ thor.http.header\_names ( _[headers](#headers)_ `headers` )
 
-Given a list of header tuples `headers`, return the set of _str_ header field-names present.
+Given a list of header tuples `headers`, return the set of _bytes_ header field-names present.
 
 
 <span id="header_dict"/>
 ### _dict_ thor.http.header\_dict ( _[headers](#headers)_ `headers`,  _list_ `omit` )
 
-Given a list of header tuples `headers`, return a dictionary whose keys are the _str_ header field-names (normalised to lower case) and whose values are lists of _bytes_ field-values. 
+Given a list of header tuples `headers`, return a dictionary whose keys are the _bytes_ header field-names (normalised to lower case) and whose values are lists of _bytes_ field-values. 
 
 Note that header field-values containing commas are split into separate values. Therefore, this function is NOT suitable for use on fields whose values may contain commas (e.g., in quoted strings, or in cookie values).
 
-If `omit`, a list of _str_ field-names, is specified, those field names will be omitted from the dictionary.
+If `omit`, a list of _bytes_ field-names, is specified, those field names will be omitted from the dictionary.
 
 
 <span id="get_header"/>
-### _list_ thor.http.get\_header ( _[headers](#headers)_ `headers`, _str_ `fieldname` )
+### _list_ thor.http.get\_header ( _[headers](#headers)_ `headers`, _bytes_ `fieldname` )
 
 Given a list of header tuples `headers`, return a list of _bytes_ field-values for the given `fieldname`. 
 

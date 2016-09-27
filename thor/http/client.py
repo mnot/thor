@@ -31,7 +31,7 @@ from thor.http.common import HttpMessageHandler, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names
 from thor.http.error import UrlError, ConnectError, \
-    ReadTimeoutError, HttpVersionError, StartLineEncodingError
+    ReadTimeoutError, HttpVersionError, StartLineError
 
 req_rm_hdrs = hop_by_hop_hdrs + [b'host']
 
@@ -45,15 +45,16 @@ class HttpClient(object):
 
     def __init__(self, loop=None):
         self.loop = loop or thor.loop._loop
-        self.idle_timeout = 60 # in seconds
-        self.connect_timeout = None
-        self.read_timeout = None
-        self.retry_limit = 2
-        self.retry_delay = 0.5 # in sec
-        self.max_server_conn = 4
-        self.proxy_tls = False
-        self.proxy_host = None
-        self.proxy_port = None
+        self.idle_timeout = 60       # integer seconds
+        self.connect_timeout = None  # integer seconds
+        self.read_timeout = None     # integer seconds
+        self.retry_limit = 2         # integer
+        self.retry_delay = 0.5       # integer seconds
+        self.max_server_conn = 4     # integer
+        self.proxy_tls = False       # boolean
+        self.proxy_host = None       # bytes
+        self.proxy_port = None       # integer
+        self.careful = True          # boolean
         self._idle_conns = defaultdict(list)
         self._conn_counts = defaultdict(int)
         self.loop.on('stop', self._close_conns)
@@ -67,9 +68,9 @@ class HttpClient(object):
             # TODO: full form of request-target
             host, port = self.proxy_host, self.proxy_port
             if self.proxy_tls:
-                scheme = 'https'
+                scheme = b'https'
             else:
-                scheme = 'http'
+                scheme = b'http'
             origin = (scheme, host, port)
         else:
             scheme, host, port = origin
@@ -77,12 +78,7 @@ class HttpClient(object):
             try:
                 tcp_conn = self._idle_conns[origin].pop()
             except IndexError:
-                self._new_conn(
-                    origin,
-                    handle_connect,
-                    handle_connect_error,
-                    connect_timeout
-                )
+                self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
                 break
             if tcp_conn.tcp_connected:
                 tcp_conn.removeListeners('data', 'pause', 'close')
@@ -109,9 +105,7 @@ class HttpClient(object):
                     pass
             tcp_conn.on('close', idle_close)
             if self.idle_timeout > 0:
-                tcp_conn._idler = self.loop.schedule(
-                    self.idle_timeout, tcp_conn.close
-                )
+                tcp_conn._idler = self.loop.schedule(self.idle_timeout, tcp_conn.close)
             else:
                 tcp_conn.close()
                 self._dead_conn(origin)
@@ -122,16 +116,16 @@ class HttpClient(object):
     def _new_conn(self, origin, handle_connect, handle_error, timeout):
         "Create a new connection."
         (scheme, host, port) = origin
-        if scheme == 'http':
+        if scheme == b'http':
             tcp_client = self.tcp_client_class(self.loop)
-        elif scheme == 'https':
+        elif scheme == b'https':
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError('unknown scheme %s' % scheme)
+            raise ValueError(u'unknown scheme %s' % repr(scheme))
         tcp_client.on('connect', handle_connect)
         tcp_client.on('connect_error', handle_error)
         self._conn_counts[origin] += 1
-        tcp_client.connect(host, port, timeout)
+        tcp_client.connect(host, port, timeout) # FIXME: encoding?
 
     def _dead_conn(self, origin):
         "Notify the client that a connect to origin is dead."
@@ -156,6 +150,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
         self.client = client
+        self.careful = client.careful
         self.method = None
         self.uri = None
         self.req_hdrs = None
@@ -174,7 +169,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def __repr__(self):
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append('%s {%s}' % (self.method or "-", self.uri or "-"))
+        status.append('%s {%s}' % (self.method.encode('utf-8', 'replace') or "-", self.uri or "-"))
         if self.tcp_conn:
             status.append(self.tcp_conn.tcp_connected and 'connected' or 'disconnected')
         status.append(HttpMessageHandler.__repr__(self))
@@ -182,9 +177,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def request_start(self, method, uri, req_hdrs):
         """
-        Start a request to uri using method, where
-        req_hdrs is a list of (field_name, field_value) for
-        the request headers.
+        Start a request to uri using method, where req_hdrs is a list of (field_name, field_value)
+        for the request headers.
+        
+        All values are bytes.
         """
         self.method = method
         self.uri = uri
@@ -200,37 +196,37 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _parse_uri(self, uri):
         """
-        Given a URI, parse out the host, port, authority and request target.
+        Given a bytes, parse out the host, port, authority and request target.
         Returns None if there is an error, otherwise the origin.
         """
         (scheme, authority, path, query, fragment) = urlsplit(uri)
         scheme = scheme.lower()
-        if scheme == 'http':
+        if scheme == b'http':
             default_port = 80
-        elif scheme == 'https':
+        elif scheme == b'https':
             default_port = 443
         else:
-            self.input_error(UrlError("Unsupported URL scheme '%s'" % scheme))
+            self.input_error(UrlError("Unsupported URL scheme '%s'" % repr(scheme)))
             raise ValueError
-        if "@" in authority:
-            userinfo, authority = authority.split("@", 1)
-        if ":" in authority:
-            host, port = authority.rsplit(":", 1)
+        if b"@" in authority:
+            userinfo, authority = authority.split(b"@", 1)
+        if b":" in authority:
+            host, port = authority.rsplit(b":", 1)
             try:
                 port = int(port)
             except ValueError:
-                self.input_error(UrlError("Non-integer port in URL"))
+                self.input_error(UrlError("Non-integer port '%s' in URL" % repr(port)))
                 raise
             if not 1 <= port <= 65535:
-                self.input_error(UrlError("URL port out of range"))
+                self.input_error(UrlError("URL port %i out of range" % port))
                 raise ValueError
         else:
             host, port = authority, default_port
-        if path == "":
-            path = "/"
+        if path == b"":
+            path = b"/"
         self.scheme = scheme
         self.authority = authority
-        self.req_target = urlunsplit(('', '', path, query, ''))
+        self.req_target = urlunsplit((b'', b'', path, query, b''))
         return scheme, host, port
 
     def _req_start(self):
@@ -239,7 +235,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         self._req_started = True
         req_hdrs = [i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs]
-        req_hdrs.append((b"Host", self.authority.encode('ascii')))
+        req_hdrs.append((b"Host", self.authority))
         if self.client.idle_timeout > 0:
             req_hdrs.append((b"Connection", b"keep-alive"))
         else:
@@ -251,9 +247,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             delimit = CHUNKED
         else:
             delimit = NOBODY
-        self.output_start(b"%s %s HTTP/1.1" % (self.method.encode('ascii'),
-                                               self.req_target.encode('ascii')), req_hdrs, delimit)
-
+        self.output_start(b"%s %s HTTP/1.1" % (self.method, self.req_target), req_hdrs, delimit)
 
     def request_body(self, chunk):
         "Send part of the request body. May be called zero to many times."
@@ -307,14 +301,12 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         elif self._input_state in [WAITING, QUIET]: # TODO: needs to be tighter
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
-                    self.client.loop.schedule(
-                        self.client.retry_delay, self._retry
-                    )
+                    self.client.loop.schedule(self.client.retry_delay, self._retry)
                 else:
                     self.input_error(
                         ConnectError("Tried to connect %s times." % (self._retries + 1)))
             else:
-                self.input_error(ConnectError("Can't retry %s method" % self.method))
+                self.input_error(ConnectError("Can't retry %s method" % repr(self.method)))
         else:
             self.input_error(ConnectError(
                 "Server dropped connection before the response was complete."))
@@ -343,31 +335,26 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         self._clear_read_timeout()
         try:
-            top_line_str = top_line.decode('ascii', 'strict')
-        except UnicodeDecodeError:
-            top_line_str = top_line.decode('utf-8', 'replace')
-            self.input_error(StartLineEncodingError(top_line_str))
-        try:
-            proto_version, status_txt = top_line_str.split(None, 1) # TODO: encoding
-            proto, self.res_version = proto_version.rsplit('/', 1)
+            proto_version, status_txt = top_line.split(None, 1)
+            proto, self.res_version = proto_version.rsplit(b'/', 1)
         except (ValueError, IndexError):
-            self.input_error(HttpVersionError(top_line))
+            self.input_error(StartLineError(repr(top_line_str)))
             raise ValueError
-        if proto != "HTTP" or self.res_version not in ["1.0", "1.1"]:
-            self.input_error(HttpVersionError(proto_version))
+        if proto != b"HTTP" or self.res_version not in [b"1.0", b"1.1"]:
+            self.input_error(HttpVersionError(repr(proto_version)))
             raise ValueError
         try:
             res_code, res_phrase = status_txt.split(None, 1)
         except ValueError:
             res_code = status_txt.rstrip()
-            res_phrase = ""
+            res_phrase = b""
         if b'close' not in conn_tokens:
-            if (self.res_version == "1.0" and b'keep-alive' in conn_tokens) \
-              or self.res_version in ["1.1"]:
+            if (self.res_version == b"1.0" and b'keep-alive' in conn_tokens) \
+              or self.res_version in [b"1.1"]:
                 self._conn_reusable = True
         self._set_read_timeout('start')
         self.emit('response_start', res_code, res_phrase, hdr_tuples)
-        allows_body = (res_code not in no_body_status) and (self.method != "HEAD")
+        allows_body = (res_code not in no_body_status) and (self.method != b"HEAD")
         return allows_body
 
     def input_body(self, chunk):
@@ -420,9 +407,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "Set the read timeout."
         if self.client.read_timeout:
             self._read_timeout_ev = self.client.loop.schedule(
-                self.client.read_timeout, self.input_error,
-                ReadTimeoutError(kind)
-            )
+                self.client.read_timeout, self.input_error, ReadTimeoutError(kind))
 
     def _clear_read_timeout(self):
         "Clear the read timeout."
@@ -436,6 +421,7 @@ def test_client(request_uri, out, err):  # pragma: no coverage
 
     c = HttpClient()
     c.connect_timeout = 5
+    c.careful = False
     x = c.exchange()
 
     @on(x)
@@ -448,14 +434,15 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     @on(x)
     def error(err_msg):
         if err_msg:
-            err(b"*** ERROR: %s (%s)\n" % (err_msg.desc, err_msg.detail))
-        stop()
+            err(b"\033[1;31m*** ERROR:\033[0;39m %s (%s)\n" % (err_msg.desc, err_msg.detail))
+        if not err_msg.client_recoverable:
+            stop()
 
     x.on('response_body', out)
 
     @on(x)
     def response_done(trailers):
-        stop()
+        thor.schedule(1, stop)
 
     x.request_start(b"GET", request_uri, [])
     x.request_done([])

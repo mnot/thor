@@ -19,8 +19,8 @@ if b"0"[0] == 48:
     NEWLINE = ord("\n")
     RETURN = ord("\r")
 else:
-    NEWLINE = "\n"
-    RETURN = "\r"
+    NEWLINE = b"\n"
+    RETURN = b"\r"
 
 # conn_modes
 CLOSE, COUNTED, CHUNKED, NOBODY = 'close', 'counted', 'chunked', 'nobody'
@@ -28,9 +28,9 @@ CLOSE, COUNTED, CHUNKED, NOBODY = 'close', 'counted', 'chunked', 'nobody'
 # states
 WAITING, HEADERS_DONE, ERROR, QUIET = 1, 2, 3, 4
 
-idempotent_methods = ['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS', 'TRACE']
-safe_methods = ['GET', 'HEAD', 'OPTIONS', 'TRACE']
-no_body_status = ['100', '101', '204', '304']
+idempotent_methods = [b'GET', b'HEAD', b'PUT', b'DELETE', b'OPTIONS', b'TRACE']
+safe_methods = [b'GET', b'HEAD', b'OPTIONS', b'TRACE']
+no_body_status = [b'100', b'101', b'204', b'304']
 hop_by_hop_hdrs = [b'connection', b'keep-alive', b'proxy-authenticate',
                    b'proxy-authorization', b'te', b'trailers',
                    b'transfer-encoding', b'upgrade', b'proxy-connection']
@@ -164,24 +164,23 @@ class HttpMessageHandler(object):
         Given a bytes representing a chunk of input, figure out what state
         we're in and handle it, making the appropriate calls.
         """
-        if self._input_buffer != b"":
-            # will need to move to a list if writev comes around
+        if self._input_buffer != b"": # will need to move to a list if writev comes around
             inbytes = self._input_buffer + inbytes
             self._input_buffer = b""
         if self._input_state == WAITING:  # waiting for headers or trailers
             headers, rest = self._split_headers(inbytes)
             if headers != None: # found one
-                self._parse_headers(headers)
-                try:
-                    self.handle_input(rest)
-                except RuntimeError:
-                    self.input_error(error.TooManyMsgsError())
-                    # we can't recover from this, so we bail.
+                if self._parse_headers(headers):
+                    try:
+                        self.handle_input(rest)
+                    except RuntimeError:
+                        self.input_error(error.TooManyMsgsError())
+                        # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
                 self._input_buffer = inbytes
         elif self._input_state == QUIET:  # shouldn't be getting any data now.
             if inbytes:
-                self.input_error(error.ExtraDataError(inbytes))
+                self.input_error(error.ExtraDataError(repr(inbytes)))
         elif self._input_state == HEADERS_DONE:  # we found a complete header/trailer set
             try:
                 body_handler = getattr(self, '_handle_%s' % self._input_delimit)
@@ -224,7 +223,7 @@ class HttpMessageHandler(object):
             # don't have the whole chunk_size yet... wait a bit
             if len(inbytes) > 512:
                 # OK, this is absurd...
-                self.input_error(error.ChunkError(inbytes))
+                self.input_error(error.ChunkError(repr(inbytes)))
                 # TODO: need testing around this; catching the right thing?
             else:
                 self._input_buffer += inbytes
@@ -235,7 +234,7 @@ class HttpMessageHandler(object):
         try:
             self._input_body_left = int(chunk_size, 16)
         except ValueError:
-            self.input_error(error.ChunkError(chunk_size))
+            self.input_error(error.ChunkError(repr(chunk_size)))
             return
         self.input_transfer_length += len(inbytes) - len(rest)
         return rest
@@ -315,7 +314,7 @@ class HttpMessageHandler(object):
                     )
                     continue
                 else: # top header starts with whitespace
-                    self.input_error(error.TopLineSpaceError(line))
+                    self.input_error(error.TopLineSpaceError(repr(line)))
                     if self.careful:
                         return
             try:
@@ -324,7 +323,7 @@ class HttpMessageHandler(object):
                 continue # TODO: error on unparseable field?
             # TODO: a zero-length name isn't valid
             if fn[-1:] in [b" ", b"\t"]:
-                self.input_error(error.HeaderSpaceError(fn))
+                self.input_error(error.HeaderSpaceError(repr(fn)))
                 if self.careful:
                     return
             hdr_tuples.append((fn, fv))
@@ -356,7 +355,7 @@ class HttpMessageHandler(object):
                         content_length = int(f_val)
                         assert content_length >= 0
                     except (ValueError, AssertionError):
-                        self.input_error(error.MalformedCLError(f_val))
+                        self.input_error(error.MalformedCLError(repr(f_val)))
                         if self.careful:
                             return
 
@@ -396,6 +395,8 @@ class HttpMessageHandler(object):
         """
         Given a bytes that we knows starts with a header block,
         parse the headers. Calls self.input_start to kick off processing.
+        
+        Returns True if no fatal problems are found.
         """
         self.input_header_length = len(inbytes)
         header_lines = inbytes.splitlines()
@@ -407,13 +408,13 @@ class HttpMessageHandler(object):
                 if top_line.strip() != b"":
                     break
             except IndexError: # empty
-                return
+                return True
 
         try:
             hdr_tuples, conn_tokens, transfer_codes, content_length \
                 = self._parse_fields(header_lines, True)
         except TypeError: # returned None because there was an error
-            return "" # throw away the rest
+            return False # throw away the rest
 
         # ignore content-length if transfer-encoding is present
         if transfer_codes != [] and content_length != None:
@@ -422,8 +423,8 @@ class HttpMessageHandler(object):
         try:
             allows_body = self.input_start(top_line, hdr_tuples, conn_tokens,
                                            transfer_codes, content_length)
-        except ValueError: # parsing error of some kind; abort.
-            return "" # throw away the rest
+        except ValueError: # fatal parsing error of some kind; abort.
+            return False # throw away the rest
 
         self._input_state = HEADERS_DONE
         if not allows_body:
@@ -439,6 +440,7 @@ class HttpMessageHandler(object):
             self._input_body_left = content_length
         else:
             self._input_delimit = CLOSE
+        return True
 
     ### output-related methods
 
@@ -488,7 +490,6 @@ class HttpMessageHandler(object):
         elif self._output_delimit == COUNTED:
             pass # TODO: double-check the length
         elif self._output_delimit == CLOSE:
-            # FIXME: abstract out
             self.tcp_conn.close() # pylint: disable=E1101
         elif self._output_delimit == None:
             pass # encountered an error before we found a delmiter
