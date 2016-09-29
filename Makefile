@@ -17,3 +17,8 @@ dist: test
 .PHONY: test
 test:
 	cd test; make
+
+.PHONY: clean
+clean:
+	find . -type f -name \*.pyc -exec rm {} \;
+	find . -type d -name __pycache__ -exec rmdir {} \;
