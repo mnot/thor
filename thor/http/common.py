@@ -36,9 +36,6 @@ hop_by_hop_hdrs = [b'connection', b'keep-alive', b'proxy-authenticate',
                    b'transfer-encoding', b'upgrade', b'proxy-connection']
 
 
-def dummy(*args, **kw):
-    "Dummy method that does nothing; useful to ignore a callback."
-    pass
 
 def header_names(hdr_tuples):
     """
