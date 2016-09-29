@@ -179,7 +179,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         Start a request to uri using method, where req_hdrs is a list of (field_name, field_value)
         for the request headers.
-        
+
         All values are bytes.
         """
         self.method = method

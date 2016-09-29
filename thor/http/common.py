@@ -276,7 +276,7 @@ class HttpMessageHandler(object):
             if trailer_block != None:
                 self._input_state = WAITING
                 trailers = self._parse_fields(trailer_block.splitlines())
-                if trailers == None: # found a problem
+                if trailers is None: # found a problem
                     self._input_state = ERROR # TODO: need an explicit error
                     return
                 else:
@@ -400,7 +400,7 @@ class HttpMessageHandler(object):
         """
         Given a bytes that we knows starts with a header block,
         parse the headers. Calls self.input_start to kick off processing.
-        
+
         Returns True if no fatal problems are found.
         """
         self.input_header_length = len(inbytes)
@@ -472,7 +472,7 @@ class HttpMessageHandler(object):
         """
         Output a part of a HTTP message. Takes bytes.
         """
-        if not chunk or self._output_delimit == None:
+        if not chunk or self._output_delimit is None:
             return
         if self._output_delimit == CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode('ascii'), chunk)
@@ -496,7 +496,7 @@ class HttpMessageHandler(object):
             pass # TODO: double-check the length
         elif self._output_delimit == CLOSE:
             self.tcp_conn.close() # pylint: disable=E1101
-        elif self._output_delimit == None:
+        elif self._output_delimit is None:
             pass # encountered an error before we found a delmiter
         else:
             raise AssertionError("Unknown request delimiter %s" % \
