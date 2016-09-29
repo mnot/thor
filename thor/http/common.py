@@ -59,7 +59,11 @@ def header_dict(hdr_tuples, omit=None):
         n = n.lower()
         if n in (omit or []):
             continue
-        out[n].extend([i.strip() for i in v.split(b',')])
+        if isinstance(v, bytes):
+            splitter = b','
+        else:
+            splitter = ','
+        out[n].extend([i.strip() for i in v.split(splitter)])
     return out
 
 def get_header(hdr_tuples, name):
@@ -73,8 +77,12 @@ def get_header(hdr_tuples, name):
     Set-Cookie, or any value with a quoted string).
     """
     # TODO: support quoted strings
+    if hdr_tuples and isinstance(hdr_tuples[0][1], bytes):
+        splitter = b','
+    else:
+        splitter = ','
     return [v.strip() for v in sum(
-        [l.split(b',') for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]
+        [l.split(splitter) for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]
 
 
 class HttpMessageHandler(object):
