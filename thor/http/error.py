@@ -70,7 +70,6 @@ class TooManyMsgsError(HttpError):
 class UrlError(HttpError):
     desc = u"Unsupported or invalid URI"
     server_status = (b"400", b"Bad Request")
-    client_recoverable = True
 
 class LengthRequiredError(HttpError):
     desc = u"Content-Length required"
