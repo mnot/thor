@@ -11,6 +11,7 @@ run: test
 .PHONY: dist
 dist: test
 	git tag thor-$(version)
+	git push
 	git push --tags origin
 	python setup.py sdist upload
 
