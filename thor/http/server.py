@@ -105,7 +105,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             uri, req_version = req_line.rsplit(None, 1)
             req_version = req_version.rsplit(b'/', 1)[1]
         except (ValueError, IndexError):
-            self.input_error(HttpVersionError(repr(top_line)))
+            self.input_error(HttpVersionError(top_line.decode('utf-8', 'replace')))
             # TODO: more fine-grained
             raise ValueError
         if b'host' not in header_names(hdr_tuples):
@@ -114,7 +114,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         for code in transfer_codes:
             # we only support 'identity' and chunked' codes in requests
             if code not in [b'identity', b'chunked']:
-                self.input_error(TransferCodeError(repr(code)))
+                self.input_error(TransferCodeError(code.decode('utf-8', 'replace')))
                 raise ValueError
         exchange = HttpServerExchange(self, method, uri, hdr_tuples, req_version)
         self.ex_queue.append(exchange)

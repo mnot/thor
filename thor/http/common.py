@@ -185,7 +185,7 @@ class HttpMessageHandler(object):
                 self._input_buffer = inbytes
         elif self._input_state == QUIET:  # shouldn't be getting any data now.
             if inbytes:
-                self.input_error(error.ExtraDataError(repr(inbytes)))
+                self.input_error(error.ExtraDataError(inbytes.decode('utf-8', 'replace')))
         elif self._input_state == HEADERS_DONE:  # we found a complete header/trailer set
             try:
                 body_handler = getattr(self, '_handle_%s' % self._input_delimit)
@@ -228,7 +228,7 @@ class HttpMessageHandler(object):
             # don't have the whole chunk_size yet... wait a bit
             if len(inbytes) > 512:
                 # OK, this is absurd...
-                self.input_error(error.ChunkError(repr(inbytes)))
+                self.input_error(error.ChunkError(inbytes.decode('utf-8', 'replace')))
                 # TODO: need testing around this; catching the right thing?
             else:
                 self._input_buffer += inbytes
@@ -239,7 +239,7 @@ class HttpMessageHandler(object):
         try:
             self._input_body_left = int(chunk_size, 16)
         except ValueError:
-            self.input_error(error.ChunkError(repr(chunk_size)))
+            self.input_error(error.ChunkError(chunk_size.decode('utf-8', 'replace')))
             return
         self.input_transfer_length += len(inbytes) - len(rest)
         return rest
@@ -319,7 +319,7 @@ class HttpMessageHandler(object):
                     )
                     continue
                 else: # top header starts with whitespace
-                    self.input_error(error.TopLineSpaceError(repr(line)))
+                    self.input_error(error.TopLineSpaceError(line.decode('utf-8', 'replace')))
                     if self.careful:
                         return
             try:
@@ -328,7 +328,7 @@ class HttpMessageHandler(object):
                 continue # TODO: error on unparseable field?
             # TODO: a zero-length name isn't valid
             if fn[-1:] in [b" ", b"\t"]:
-                self.input_error(error.HeaderSpaceError(repr(fn)))
+                self.input_error(error.HeaderSpaceError(fn.decode('utf-8', 'replace')))
                 if self.careful:
                     return
             hdr_tuples.append((fn, fv))
@@ -360,7 +360,7 @@ class HttpMessageHandler(object):
                         content_length = int(f_val)
                         assert content_length >= 0
                     except (ValueError, AssertionError):
-                        self.input_error(error.MalformedCLError(repr(f_val)))
+                        self.input_error(error.MalformedCLError(f_val.decode('utf-8', 'replace')))
                         if self.careful:
                             return
 

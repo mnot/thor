@@ -121,7 +121,7 @@ class HttpClient(object):
         elif scheme == b'https':
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError(u'unknown scheme %s' % repr(scheme))
+            raise ValueError(u'unknown scheme %s' % scheme.decode('utf-8', 'replace'))
         tcp_client.on('connect', handle_connect)
         tcp_client.on('connect_error', handle_error)
         self._conn_counts[origin] += 1
@@ -206,7 +206,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         elif scheme == b'https':
             default_port = 443
         else:
-            self.input_error(UrlError("Unsupported URL scheme '%s'" % repr(scheme)))
+            self.input_error(UrlError("Unsupported URL scheme '%s'" % \
+                                      scheme.decode('utf-8', 'replace')))
             raise ValueError
         if b"@" in authority:
             userinfo, authority = authority.split(b"@", 1)
@@ -215,7 +216,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             try:
                 port = int(port)
             except ValueError:
-                self.input_error(UrlError("Non-integer port '%s' in URL" % repr(port)))
+                self.input_error(UrlError("Non-integer port '%s' in URL" % \
+                                          port.decode('utf-8', 'replace')))
                 raise
             if not 1 <= port <= 65535:
                 self.input_error(UrlError("URL port %i out of range" % port))
@@ -306,7 +308,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                     self.input_error(
                         ConnectError("Tried to connect %s times." % (self._retries + 1)))
             else:
-                self.input_error(ConnectError("Can't retry %s method" % repr(self.method)))
+                self.input_error(ConnectError("Can't retry %s method" % \
+                                              self.method.decode('utf-8', 'replace')))
         else:
             self.input_error(ConnectError(
                 "Server dropped connection before the response was complete."))
@@ -338,10 +341,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             proto_version, status_txt = top_line.split(None, 1)
             proto, self.res_version = proto_version.rsplit(b'/', 1)
         except (ValueError, IndexError):
-            self.input_error(StartLineError(repr(top_line_str)))
+            self.input_error(StartLineError(top_line.decode('utf-8', 'replace')))
             raise ValueError
         if proto != b"HTTP" or self.res_version not in [b"1.0", b"1.1"]:
-            self.input_error(HttpVersionError(repr(proto_version)))
+            self.input_error(HttpVersionError(proto_version.decode('utf-8', 'replace')))
             raise ValueError
         try:
             res_code, res_phrase = status_txt.split(None, 1)
