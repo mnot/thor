@@ -5,8 +5,9 @@ python:
   - "pypy"
 install:
   - pip install coveralls
+  - pip install nose
 # command to run tests
 script:
-  coverage run test/run.py
+  coverage run nosetests
 after_success:
   coveralls
