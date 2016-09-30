@@ -114,42 +114,6 @@ class TlsClient(TcpClient):
                 True
             )
 
-def monkey_patch_ssl():
-    """
-    Oh, god, I feel dirty.
-    
-    See Python bug 11326.
-    """
-    if not hasattr(sys_ssl.SSLSocket, '_real_connect'):
-        import _ssl
-        def _real_connect(self, addr, return_errno):
-            if self._sslobj:
-                raise ValueError(
-                    "attempt to connect already-connected SSLSocket!"
-                )
-            self._sslobj = _ssl.sslwrap(self._sock, False, self.keyfile,
-                self.certfile, self.cert_reqs, self.ssl_version,
-                self.ca_certs, self.ciphers)
-            try:
-                socket.socket.connect(self, addr)
-                if self.do_handshake_on_connect:
-                    self.do_handshake()
-            except socket.error as e:
-                if return_errno:
-                    return e.errno
-                else:
-                    self._sslobj = None
-                    raise e
-            return 0
-        def connect(self, addr):
-            self._real_connect(addr, False)
-        def connect_ex(self, addr):
-            return self._real_connect(addr, True)
-        sys_ssl.SSLSocket._real_connect = _real_connect
-        sys_ssl.SSLSocket.connect = connect
-        sys_ssl.SSLSocket.connect_ex = connect_ex
-# monkey_patch_ssl()
-
 
 if __name__ == "__main__":
     import sys
