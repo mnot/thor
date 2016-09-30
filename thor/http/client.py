@@ -430,8 +430,9 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     @on(x)
     def response_start(status, phrase, headers):
         "Print the response headers."
-        print(b"HTTP/%s %s %s" % (x.res_version, status, phrase))
-        print(b"\n".join([b"%s:%s" % header for header in headers]))
+        sys.stdout.buffer.write(b"HTTP/%s %s %s\n" % (x.res_version, status, phrase))
+        sys.stdout.buffer.write(b"\n".join([b"%s:%s" % header for header in headers]))
+        print()
         print()
 
     @on(x)
@@ -454,4 +455,4 @@ def test_client(request_uri, out, err):  # pragma: no coverage
 
 if __name__ == "__main__":
     import sys
-    test_client(sys.argv[1], sys.stdout.write, sys.stderr.write)
+    test_client(sys.argv[1].encode('ascii'), sys.stdout.buffer.write, sys.stderr.write)
