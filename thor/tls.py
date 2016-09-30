@@ -56,15 +56,15 @@ class TlsClient(TcpClient):
     def handshake(self):
         try:
             self.sock.do_handshake()
-            self.once('writable', self.handle_connect)
+            self.once('fd_writable', self.handle_connect)
         except sys_ssl.SSLError as why:
             if isinstance(why, sys_ssl.SSLWantReadError):
 #            if why == sys_ssl.SSL_ERROR_WANT_READ:
-#                self.once('readable', self.handshake)
-                self.once('writable', self.handshake) # Oh, Linux...
+#                self.once('fd_readable', self.handshake)
+                self.once('fd_writable', self.handshake) # Oh, Linux...
 #            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
             elif isinstance(why, sys_ssl.SSLWantWriteError):
-                self.once('writable', self.handshake)
+                self.once('fd_writable', self.handshake)
             else:
                 self.handle_conn_error(sys_ssl.SSLError, why)
         except socket.error as why:
@@ -79,7 +79,7 @@ class TlsClient(TcpClient):
         """
         self.host = host
         self.port = port
-        self.once('writable', self.handshake)
+        self.once('fd_writable', self.handshake)
         # FIXME: CAs
         if self.tls_context:
             self.sock = self.tls_context.wrap_socket(

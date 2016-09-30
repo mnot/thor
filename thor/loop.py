@@ -237,10 +237,10 @@ class PollLoop(LoopBase):
     def __init__(self, *args):
         # pylint: disable=E1101
         self._event_types = {
-            select.POLLIN: 'readable',
-            select.POLLOUT: 'writable',
-            select.POLLERR: 'error',
-            select.POLLHUP: 'close'}
+            select.POLLIN: 'fd_readable',
+            select.POLLOUT: 'fd_writable',
+            select.POLLERR: 'fd_error',
+            select.POLLHUP: 'fd_close'}
     #        select.POLLNVAL - TODO
 
         LoopBase.__init__(self, *args)
@@ -278,10 +278,10 @@ class EpollLoop(LoopBase):
     def __init__(self, *args):
         # pylint: disable=E1101
         self._event_types = {
-            select.EPOLLIN: 'readable',
-            select.EPOLLOUT: 'writable',
-            select.EPOLLHUP: 'close',
-            select.EPOLLERR: 'error'
+            select.EPOLLIN: 'fd_readable',
+            select.EPOLLOUT: 'fd_writable',
+            select.EPOLLHUP: 'fd_close',
+            select.EPOLLERR: 'fd_error'
         }
         LoopBase.__init__(self, *args)
         self._epoll = select.epoll()
@@ -323,8 +323,8 @@ class KqueueLoop(LoopBase):
     """
     def __init__(self, *args):
         self._event_types = {
-            select.KQ_FILTER_READ: 'readable',
-            select.KQ_FILTER_WRITE: 'writable'}
+            select.KQ_FILTER_READ: 'fd_readable',
+            select.KQ_FILTER_WRITE: 'fd_writable'}
         LoopBase.__init__(self, *args)
         self.max_ev = 50 # maximum number of events to pull from the queue
         self._kq = select.kqueue()
@@ -364,7 +364,7 @@ class KqueueLoop(LoopBase):
             for event_type in event_types:
                 self._fd_event(event_type, int(e.ident))
             if e.flags & select.KQ_EV_EOF:
-                self._fd_event('close', int(e.ident))
+                self._fd_event('fd_close', int(e.ident))
             if e.flags & select.KQ_EV_ERROR:
                 pass
             # TODO: pull errors, etc. out of flags and fflags

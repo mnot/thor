@@ -19,8 +19,8 @@ class IOStopper(thor.loop.EventSource):
         thor.loop.EventSource.__init__(self, loop)
         self.testcase = testcase
         self.r_fd, self.w_fd = make_fifo('tmp_fifo')
-        self.on('writable', self.write)
-        self.register_fd(self.w_fd, 'writable')
+        self.on('fd_writable', self.write)
+        self.register_fd(self.w_fd, 'fd_writable')
 
     def write(self):
         self.testcase.assertTrue(self._loop.running)
@@ -136,30 +136,30 @@ class TestEventSource(unittest.TestCase):
         self.assertFalse(self.r_fd in list(self.loop._fd_targets))
 
     def test_EventSource_event_del(self):
-        self.es.register_fd(self.r_fd, 'readable')
-        self.es.on('readable', self.readable_check)
-        self.es.event_del('readable')
+        self.es.register_fd(self.r_fd, 'fd_readable')
+        self.es.on('fd_readable', self.readable_check)
+        self.es.event_del('fd_readable')
         os.write(self.w_fd, b'foo')
         self.loop._run_fd_events()
-        self.assertFalse('readable' in self.events_seen)
+        self.assertFalse('fd_readable' in self.events_seen)
 
     def test_EventSource_readable(self):
-        self.es.register_fd(self.r_fd, 'readable')
-        self.es.on('readable', self.readable_check)
+        self.es.register_fd(self.r_fd, 'fd_readable')
+        self.es.on('fd_readable', self.readable_check)
         os.write(self.w_fd, b"foo")
         self.loop._run_fd_events()
-        self.assertTrue('readable' in self.events_seen)
+        self.assertTrue('fd_readable' in self.events_seen)
 
     def test_EventSource_not_readable(self):
-        self.es.register_fd(self.r_fd, 'readable')
-        self.es.on('readable', self.readable_check)
+        self.es.register_fd(self.r_fd, 'fd_readable')
+        self.es.on('fd_readable', self.readable_check)
         self.loop._run_fd_events()
-        self.assertFalse('readable' in self.events_seen)
+        self.assertFalse('fd_readable' in self.events_seen)
 
     def readable_check(self, check=b"foo"):
         data = os.read(self.r_fd, 5)
         self.assertEqual(data, check)
-        self.events_seen.append('readable')
+        self.events_seen.append('fd_readable')
 
 #    def test_EventSource_close(self):
 #        self.es.register_fd(self.fd, 'close')

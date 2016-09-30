@@ -39,7 +39,7 @@ class UdpEndpoint(EventSource):
         self.max_dgram = min((2**16 - 40), self.sock.getsockopt(
             socket.SOL_SOCKET, socket.SO_SNDBUF
         ))
-        self.on('readable', self.handle_datagram)
+        self.on('fd_readable', self.handle_datagram)
         self.register_fd(self.sock.fileno())
 
     def __repr__(self):
@@ -59,16 +59,16 @@ class UdpEndpoint(EventSource):
 
     def shutdown(self):
         "Close the listening socket."
-        self.removeListeners('readable')
+        self.removeListeners('fd_readable')
         self.sock.close()
         # TODO: emit close?
 
     def pause(self, paused):
         "Control incoming datagram events."
         if paused:
-            self.event_del('readable')
+            self.event_del('fd_readable')
         else:
-            self.event_add('readable')
+            self.event_add('fd_readable')
 
     def send(self, datagram, host, port):
         "send datagram to host:port."
