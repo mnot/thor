@@ -85,14 +85,11 @@ class TcpConnection(EventSource):
     write_bufsize = 16
     read_bufsize = 1024 * 16
 
-    _block_errs = set([
-        errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT
-    ])
+    _block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT])
     _close_errs = set([
         errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,
         errno.ECONNABORTED, errno.ECONNREFUSED,
-        errno.ENOTCONN, errno.EPIPE
-    ])
+        errno.ENOTCONN, errno.EPIPE])
 
     def __init__(self, sock, host, port, loop=None):
         EventSource.__init__(self, loop)
@@ -127,7 +124,6 @@ class TcpConnection(EventSource):
     def handle_read(self):
         "The connection has data read for reading"
         try:
-            # TODO: look into recv_into (but see python issue7827)
             data = self.socket.recv(self.read_bufsize)
         except (socket.error, OSError) as why:
             if why.args[0] in self._block_errs:
@@ -142,8 +138,6 @@ class TcpConnection(EventSource):
         else:
             self.emit('data', data)
 
-    # TODO: try using buffer; see
-    # http://itamarst.org/writings/pycon05/fast.html
     def handle_write(self):
         "The connection is ready for writing; write any buffered data."
         if len(self._write_buffer) > 0:
@@ -162,8 +156,7 @@ class TcpConnection(EventSource):
                 self._write_buffer = [data[sent:]]
             else:
                 self._write_buffer = []
-        if self._output_paused and \
-          len(self._write_buffer) < self.write_bufsize:
+        if self._output_paused and len(self._write_buffer) < self.write_bufsize:
             self._output_paused = False
             self.emit('pause', False)
         if self._closing:
@@ -292,7 +285,6 @@ class TcpClient(EventSource):
         self.port = None
         self._timeout_ev = None
         self._error_sent = False
-        # TODO: IPV6
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setblocking(False)
         self.on('error', self.handle_conn_error)
@@ -326,8 +318,7 @@ class TcpClient(EventSource):
                 self.handle_conn_error,
                 socket.error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
-                True
-            )
+                True)
 
     def handle_connect(self):
         self.unregister_fd()
@@ -339,9 +330,7 @@ class TcpClient(EventSource):
         if err:
             self.handle_conn_error(socket.error, socket.error(err, os.strerror(err)))
         else:
-            tcp_conn = TcpConnection(
-                self.sock, self.host, self.port, self._loop
-            )
+            tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
             self.emit('connect', tcp_conn)
 
     def handle_conn_error(self, err_type=None, why=None, close=True):
@@ -388,5 +377,3 @@ if __name__ == "__main__":
         conn.on('data', echo)
     server.on('connect', handle_conn)
     run()
-
-
