@@ -298,9 +298,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._clear_read_timeout()
         if self._input_buffer:
             self.handle_input(b"")
-        if self._input_delimit == CLOSE:
+        if self._input_state == QUIET:
+            pass # nothing to see here
+        elif self._input_delimit == CLOSE:
             self.input_end([])
-        elif self._input_state in [WAITING, QUIET]: # TODO: needs to be tighter
+        elif self._input_state == WAITING:
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
                     self.client.loop.schedule(self.client.retry_delay, self._retry)
