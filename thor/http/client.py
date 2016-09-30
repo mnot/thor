@@ -91,7 +91,6 @@ class HttpClient(object):
     def _release_conn(self, tcp_conn, scheme):
         "Add an idle connection back to the pool."
         tcp_conn.removeListeners('close')
-        tcp_conn.on('close', tcp_conn.handle_close)
         origin = (scheme, tcp_conn.host, tcp_conn.port)
         if tcp_conn.tcp_connected:
             def idle_close():

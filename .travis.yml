@@ -8,6 +8,6 @@ install:
   - pip install nose
 # command to run tests
 script:
-  nosetests -v --with-coverage --cover-package thor
+  nosetests -v --with-coverage --cover-package thor test/test_*.py
 after_success:
   coveralls
