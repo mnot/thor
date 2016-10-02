@@ -15,8 +15,6 @@ import time as systime
 
 from thor.events import EventEmitter
 
-#assert sys.version_info[0] == 2 and sys.version_info[1] >= 6, \
-#    "Please use Python 2.6 or greater"
 
 __all__ = ['run', 'stop', 'schedule', 'time', 'running', 'debug']
 
