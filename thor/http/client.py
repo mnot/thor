@@ -431,15 +431,15 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     @on(x)
     def response_start(status, phrase, headers):
         "Print the response headers."
-        sys.stdout.buffer.write(b"HTTP/%s %s %s\n" % (x.res_version, status, phrase))
-        sys.stdout.buffer.write(b"\n".join([b"%s:%s" % header for header in headers]))
+        out(b"HTTP/%s %s %s\n" % (x.res_version, status, phrase))
+        out(b"\n".join([b"%s:%s" % header for header in headers]))
         print()
         print()
 
     @on(x)
     def error(err_msg):
         if err_msg:
-            err(b"\033[1;31m*** ERROR:\033[0;39m %s (%s)\n" % (err_msg.desc, err_msg.detail))
+            err("\033[1;31m*** ERROR:\033[0;39m %s (%s)\n" % (err_msg.desc, err_msg.detail))
         if not err_msg.client_recoverable:
             stop()
 
