@@ -274,7 +274,7 @@ class HttpMessageHandler(object):
         else:
             trailer_block, rest = self._split_headers(inbytes) # trailers
             if trailer_block != None:
-                self._input_state = WAITING
+                self._input_state = self.default_state
                 trailers = self._parse_fields(trailer_block.splitlines())
                 if trailers is None: # found a problem
                     self._input_state = ERROR # TODO: need an explicit error
