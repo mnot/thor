@@ -1,5 +1,5 @@
 
-python=`which python`
+PYTHON=`which python`
 PY_TESTS=test_*.py
 
 .PHONY: test
@@ -7,7 +7,7 @@ test: $(PY_TESTS)
 
 .PHONY: $(PY_TESTS)
 $(PY_TESTS):
-	PYTHONPATH=.:../ $(python) $@
+	PYTHONPATH=.:../ $(PYTHON) $@
 
 .PHONY: lint
 lint:

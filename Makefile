@@ -17,7 +17,7 @@ dist: test
 
 .PHONY: test
 test:
-	cd test; make
+	cd test; make -e
 
 .PHONY: clean
 clean:
