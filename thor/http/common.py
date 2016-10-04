@@ -104,7 +104,7 @@ class HttpMessageHandler(object):
     def __init__(self):
         self.input_header_length = 0
         self.input_transfer_length = 0
-        self._input_buffer = b""
+        self._input_buffer = []
         self._input_state = self.default_state
         self._input_delimit = None
         self._input_body_left = 0
@@ -169,9 +169,10 @@ class HttpMessageHandler(object):
         Given a bytes representing a chunk of input, figure out what state
         we're in and handle it, making the appropriate calls.
         """
-        if self._input_buffer != b"": # will need to move to a list if writev comes around
-            inbytes = self._input_buffer + inbytes
-            self._input_buffer = b""
+        if self._input_buffer:
+            self._input_buffer.append(inbytes)
+            inbytes = b"".join(self._input_buffer)
+            self._input_buffer = []
         if self._input_state == WAITING:  # waiting for headers or trailers
             headers, rest = self._split_headers(inbytes)
             if headers != None: # found one
@@ -182,7 +183,7 @@ class HttpMessageHandler(object):
                         self.input_error(error.TooManyMsgsError())
                         # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
-                self._input_buffer = inbytes
+                self._input_buffer.append(inbytes)
         elif self._input_state == QUIET:  # shouldn't be getting any data now.
             if inbytes:
                 self.input_error(error.ExtraDataError(inbytes.decode('utf-8', 'replace')))
@@ -231,7 +232,7 @@ class HttpMessageHandler(object):
                 self.input_error(error.ChunkError(inbytes.decode('utf-8', 'replace')))
                 # TODO: need testing around this; catching the right thing?
             else:
-                self._input_buffer += inbytes
+                self._input_buffer.append(inbytes)
             return
         # TODO: do we need to ignore blank lines?
         if b";" in chunk_size: # ignore chunk extensions
@@ -259,7 +260,7 @@ class HttpMessageHandler(object):
             self.input_transfer_length += self._input_body_left + 2
             self._input_body_left = -1
         elif self._input_body_left == got: # corner case
-            self._input_buffer += inbytes
+            self._input_buffer.append(inbytes)
         else: # got partial chunk
             self.input_body(inbytes)
             self.input_transfer_length += got
@@ -283,7 +284,7 @@ class HttpMessageHandler(object):
                     self.input_end(trailers)
                     self.handle_input(rest)
             else: # don't have full trailers yet
-                self._input_buffer = inbytes
+                self._input_buffer.append(inbytes)
 
     def _handle_counted(self, inbytes):
         "Handle input where the body is delimited by the Content-Length."
