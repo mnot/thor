@@ -185,7 +185,7 @@ class HttpMessageHandler(object):
             else: # partial headers; store it and wait for more
                 self._input_buffer.append(inbytes)
         elif self._input_state == QUIET:  # shouldn't be getting any data now.
-            if inbytes:
+            if inbytes.strip():
                 self.input_error(error.ExtraDataError(inbytes.decode('utf-8', 'replace')))
         elif self._input_state == HEADERS_DONE:  # we found a complete header/trailer set
             try:
