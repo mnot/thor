@@ -268,10 +268,11 @@ class HttpMessageHandler(object):
 
     def _handle_chunk_done(self, inbytes):
         "Handle a finished body chunk."
-        if len(inbytes) >= 2 and inbytes[:2] == b"\r\n":
+        if inbytes[:2] == b"\r\n": # no trailer
             self._input_state = self.default_state
             self.input_end([])
-            self.handle_input(inbytes[2:]) # 2 consumes the CRLF
+            if len(inbytes) > 2:
+                self.handle_input(inbytes[2:]) # 2 consumes the CRLF
         else:
             trailer_block, rest = self._split_headers(inbytes) # trailers
             if trailer_block != None:
