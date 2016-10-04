@@ -261,6 +261,22 @@ Transfer-Encoding: chunked
 \r
 """], body)
 
+    def test_chunk_split(self):
+        body = b"aaabbbcccdddeeefffggghhhiii"
+        self.checkSingleMsg([b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+""", b"""\
+%(body_len)x\r
+%(body)s\r
+0""", b"""\
+\r
+Foo: bar\r
+\r
+"""], body)
+
     def test_chunk_exact_offset(self):
         body = b"aaabbbcccdddeeefffggghhhiii"
         self.checkSingleMsg([b"""\
