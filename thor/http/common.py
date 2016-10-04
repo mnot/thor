@@ -464,7 +464,6 @@ class HttpMessageHandler(object):
             [top_line] +
             [b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples] +
             [b"", b""])
-        self._input_state = WAITING
         self.output(out)
         self._output_state = HEADERS_DONE
 

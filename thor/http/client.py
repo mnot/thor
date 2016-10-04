@@ -248,6 +248,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             delimit = CHUNKED
         else:
             delimit = NOBODY
+        self._input_state = WAITING
         self.output_start(b"%s %s HTTP/1.1" % (self.method, self.req_target), req_hdrs, delimit)
 
     def request_body(self, chunk):
