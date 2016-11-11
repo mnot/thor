@@ -122,7 +122,7 @@ class HttpClient(object):
         tcp_client.on('connect', handle_connect)
         tcp_client.on('connect_error', handle_error)
         self._conn_counts[origin] += 1
-        tcp_client.connect(host, port, timeout) # FIXME: encoding?
+        tcp_client.connect(host, port, timeout)
 
     def _dead_conn(self, origin: OriginType) -> None:
         "Notify the client that a connect to origin is dead."
