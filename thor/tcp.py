@@ -102,8 +102,8 @@ class TcpConnection(EventSource):
         self._write_buffer = []   # type: list[bytes]
 
         self.register_fd(sock.fileno())
-        self.on('fd_readable', self.handle_read)
-        self.on('fd_writable', self.handle_write)
+        self.on('fd_readable', self.handle_readable)
+        self.on('fd_writable', self.handle_writable)
         self.on('fd_close', self._handle_close)
 
     def __repr__(self) -> str:
@@ -120,7 +120,7 @@ class TcpConnection(EventSource):
             status.append('%s write buffered' % len(self._write_buffer))
         return "<%s at %#x>" % (", ".join(status), id(self))
 
-    def handle_read(self) -> None:
+    def handle_readable(self) -> None:
         "The connection has data read for reading"
         try:
             data = self.socket.recv(self.read_bufsize)
@@ -137,7 +137,7 @@ class TcpConnection(EventSource):
         else:
             self.emit('data', data)
 
-    def handle_write(self) -> None:
+    def handle_writable(self) -> None:
         "The connection is ready for writing; write any buffered data."
         if len(self._write_buffer) > 0:
             data = b"".join(self._write_buffer)
