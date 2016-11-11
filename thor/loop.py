@@ -4,7 +4,7 @@
 Asynchronous event loops
 
 This is a generic library for building asynchronous event loops, using
-Python 2.6+'s built-in poll / epoll / kqueue support.
+Python's built-in poll / epoll / kqueue support.
 """
 
 from __future__ import absolute_import
@@ -12,6 +12,7 @@ from __future__ import absolute_import
 import select
 import sys
 import time as systime
+from typing import Callable, List, Set, Tuple
 
 from thor.events import EventEmitter
 
@@ -27,13 +28,13 @@ class EventSource(EventEmitter):
     An instance should map to one thing with an interesting file
     descriptor, registered with register_fd.
     """
-    def __init__(self, loop=None):
+    def __init__(self, loop: 'LoopBase'=None) -> None:
         EventEmitter.__init__(self)
         self._loop = loop or _loop
-        self._interesting_events = set()
-        self._fd = None
+        self._interesting_events = set()  # type: set[str]
+        self._fd = None  # type: int
 
-    def register_fd(self, fd, event=None):
+    def register_fd(self, fd: int, event: str=None) -> None:
         """
         Register myself with the loop using file descriptor fd.
         If event is specified, start emitting it.
@@ -42,52 +43,55 @@ class EventSource(EventEmitter):
         self._loop.register_fd(self._fd, [], self)
         self.event_add(event)
 
-    def unregister_fd(self):
+    def unregister_fd(self) -> None:
         "Unregister myself from the loop."
         if self._fd:
             self._loop.unregister_fd(self._fd)
             self._fd = None
 
-    def event_add(self, event):
+    def event_add(self, event: str) -> None:
         "Start emitting the given event."
         if event and event not in self._interesting_events:
             self._interesting_events.add(event)
             self._loop.event_add(self._fd, event)
 
-    def event_del(self, event):
+    def event_del(self, event: str) -> None:
         "Stop emitting the given event."
         if event in self._interesting_events:
             self._interesting_events.remove(event)
             self._loop.event_del(self._fd, event)
+
+    def interesting_events(self) -> Set[str]:
+        return self._interesting_events
 
 
 class LoopBase(EventEmitter):
     """
     Base class for async loops.
     """
-    _event_types = {} # map of event types to names; override.
+    _event_types = {}   # type: Dict[int, str] # map of event types to names; override.
 
-    def __init__(self, precision=None):
+    def __init__(self, precision: float=None) -> None:
         EventEmitter.__init__(self)
         self.precision = precision or .5 # of running scheduled queue (secs)
-        self.running = False # whether or not the loop is running (read-only)
-        self.__sched_events = []
-        self._fd_targets = {}
-        self.__now = None
+        self.running = False      # whether or not the loop is running (read-only)
+        self.__sched_events = []  # type: list[Tuple[float, Callable]]
+        self._fd_targets = {}     # type: dict[int, EventEmitter]
+        self.__now = None         # type: float
         self._eventlookup = dict([(v, k) for (k, v) in self._event_types.items()])
-        self.__event_cache = {}
+        self.__event_cache = {}   # type: dict[int, set[str]]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         name = self.__class__.__name__
         running = self.running and "running" or "not-running"
         events = len(self.__sched_events)
         targets = len(self._fd_targets)
         return "<%s - %s, %i events, %i fd_targets>" % (name, running, events, targets)
 
-    def run(self):
+    def run(self) -> None:
         "Start the loop."
         self.running = True
-        last_event_check = 0
+        last_event_check = 0  # type: float
         self.__now = systime.time()
         self.emit('start')
         while self.running:
@@ -128,11 +132,11 @@ class LoopBase(EventEmitter):
                     else:
                         break
 
-    def _run_fd_events(self):
+    def _run_fd_events(self) -> None:
         "Run loop-specific FD events."
         raise NotImplementedError
 
-    def stop(self):
+    def stop(self) -> None:
         "Stop the loop and unregister all fds."
         self.__sched_events = []
         self.__now = None
@@ -141,37 +145,37 @@ class LoopBase(EventEmitter):
             self.unregister_fd(fd)
         self.emit('stop')
 
-    def register_fd(self, fd, events, target):
+    def register_fd(self, fd: int, events: List[str], target) -> None:
         "emit events on target when they occur on fd."
         raise NotImplementedError
 
-    def unregister_fd(self, fd):
+    def unregister_fd(self, fd: int) -> None:
         "Stop emitting events from fd."
         raise NotImplementedError
 
-    def fd_count(self):
+    def fd_count(self) -> int:
         "Return how many FDs are currently monitored by the loop."
         return len(self._fd_targets)
 
-    def event_add(self, fd, event):
+    def event_add(self, fd: int, event: str) -> None:
         "Start emitting event for fd."
         raise NotImplementedError
 
-    def event_del(self, fd, event):
+    def event_del(self, fd: int, event: str) -> None:
         "Stop emitting event for fd"
         raise NotImplementedError
 
-    def _fd_event(self, event, fd):
+    def _fd_event(self, event: str, fd: int) -> None:
         "An event has occured on an fd."
         if fd in self._fd_targets:
             self._fd_targets[fd].emit(event)
         # TODO: automatic unregister on 'close'?
 
-    def time(self):
+    def time(self) -> float:
         "Return the current time (to avoid a system call)."
         return self.__now or systime.time()
 
-    def schedule(self, delta, callback, *args):
+    def schedule(self, delta: float, callback: Callable, *args) -> 'ScheduledEvent':
         """
         Schedule callable callback to be run in delta seconds with *args.
 
@@ -185,19 +189,16 @@ class LoopBase(EventEmitter):
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
-        class event_holder(object):
-            def __init__(self):
-                self._deleted = False
-            def delete(self):
-                if not self._deleted:
-                    try:
-                        events.remove(new_event)
-                        self._deleted = True
-                    except ValueError: # already gone
-                        pass
-        return event_holder()
+        return ScheduledEvent(self, new_event)
 
-    def _insort(self, a, x, lo=0, hi=None):
+    def schedule_del(self, event):
+        try:
+            self.__sched_events.remove(event)
+        except ValueError: # already gone
+            pass
+
+    @staticmethod
+    def _insort(a, x, lo=0, hi=None):
         if lo < 0:
             raise ValueError('lo must be non-negative')
         if hi is None:
@@ -209,14 +210,14 @@ class LoopBase(EventEmitter):
             else: lo = mid+1
         a.insert(lo, x)
 
-    def _eventmask(self, events):
+    def _eventmask(self, events: List[str]) -> int:
         "Calculate the mask for a list of events."
         eventmask = 0
         for event in events:
             eventmask |= self._eventlookup.get(event, 0)
         return eventmask
 
-    def _filter2events(self, evfilter):
+    def _filter2events(self, evfilter: int) -> Set[str]:
         "Calculate the events implied by a given filter."
         if evfilter not in self.__event_cache:
             events = set()
@@ -227,12 +228,27 @@ class LoopBase(EventEmitter):
         return self.__event_cache[evfilter]
 
 
+class ScheduledEvent(object):
+    """
+    Holds a scheduled event.
+    """
+    def __init__(self, loop: LoopBase, event: Tuple[float, Callable]) -> None:
+        self._loop = loop
+        self._event = event
+        self._deleted = False
+
+    def delete(self) -> None:
+        if not self._deleted:
+            self._loop.schedule_del(self._event)
+            self._deleted = True
+
+
 class PollLoop(LoopBase):
     """
     A poll()-based async loop.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args) -> None:
         # pylint: disable=E1101
         self._event_types = {
             select.POLLIN: 'fd_readable',
@@ -254,11 +270,11 @@ class PollLoop(LoopBase):
         del self._fd_targets[fd]
 
     def event_add(self, fd, event):
-        eventmask = self._eventmask(self._fd_targets[fd]._interesting_events)
+        eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         self._poll.register(fd, eventmask)
 
     def event_del(self, fd, event):
-        eventmask = self._eventmask(self._fd_targets[fd]._interesting_events)
+        eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         self._poll.register(fd, eventmask)
 
     def _run_fd_events(self):
@@ -298,12 +314,12 @@ class EpollLoop(LoopBase):
         del self._fd_targets[fd]
 
     def event_add(self, fd, event):
-        eventmask = self._eventmask(self._fd_targets[fd]._interesting_events)
+        eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         self._epoll.modify(fd, eventmask)
 
     def event_del(self, fd, event):
         try:
-            eventmask = self._eventmask(self._fd_targets[fd]._interesting_events)
+            eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         except KeyError:
             return # no longer interested
         self._epoll.modify(fd, eventmask)
@@ -339,7 +355,7 @@ class KqueueLoop(LoopBase):
             obj = self._fd_targets[fd]
         except KeyError:
             return
-        for event in list(obj._interesting_events):
+        for event in list(obj.interesting_events()):
             obj.event_del(event)
         del self._fd_targets[fd]
 
@@ -374,7 +390,7 @@ class KqueueLoop(LoopBase):
     		#	buffer.
 
 
-def make(precision=None):
+def make(precision=None) -> LoopBase:
     """
     Create and return a named loop that is suitable for the current system. If
     _precision_ is given, it indicates how often scheduled events will be run.
@@ -385,9 +401,9 @@ def make(precision=None):
     if hasattr(select, 'epoll'):
         loop = EpollLoop(precision)
     elif hasattr(select, 'kqueue'):
-        loop = KqueueLoop(precision)
+        loop = KqueueLoop(precision) # type: ignore
     elif hasattr(select, 'poll'):
-        loop = PollLoop(precision)
+        loop = PollLoop(precision)   # type: ignore
     else:
         # TODO: select()-based loop (I suppose)
         raise ImportError("What is this thing, a Windows box?")

@@ -10,6 +10,7 @@ Event utilities, including:
 from __future__ import absolute_import
 
 from collections import defaultdict
+from typing import Any, Callable, Dict, List
 
 
 class EventEmitter(object):
@@ -17,23 +18,23 @@ class EventEmitter(object):
     An event emitter, in the style of Node.JS.
     """
 
-    def __init__(self):
-        self.__events = defaultdict(list)
-        self.__sink = None
+    def __init__(self) -> None:
+        self.__events = defaultdict(list)  # type: Dict[str, List[Callable]]
+        self.__sink = None                 # type: object
 
-    def __getstate__(self):
+    def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
         del state["_EventEmitter__events"]
         return state
 
-    def on(self, event, listener):
+    def on(self, event: str, listener: Callable) -> None:
         """
         Call listener when event is emitted.
         """
         self.__events[event].append(listener)
         self.emit('newListener', event, listener)
 
-    def once(self, event, listener):
+    def once(self, event: str, listener: Callable) -> None:
         """
         Call listener the first time event is emitted.
         """
@@ -42,7 +43,7 @@ class EventEmitter(object):
             self.removeListener(event, mycall)
         self.on(event, mycall)
 
-    def removeListener(self, event, listener):
+    def removeListener(self, event: str, listener: Callable) -> None:
         """
         Remove a specific listener from an event.
 
@@ -51,7 +52,7 @@ class EventEmitter(object):
         """
         self.__events.get(event, [listener]).remove(listener)
 
-    def removeListeners(self, *events):
+    def removeListeners(self, *events: str) -> None:
         """
         Remove all listeners from an event; if no event
         is specified, remove all listeners for all events.
@@ -65,19 +66,19 @@ class EventEmitter(object):
         else:
             self.__events = defaultdict(list)
 
-    def listeners(self, event):
+    def listeners(self, event: str) -> List[Callable]:
         """
         Return a list of listeners for an event.
         """
         return self.__events.get(event, [])
 
-    def events(self):
+    def events(self) -> List[str]:
         """
         Return a list of events being listened for.
         """
         return list(self.__events)
 
-    def emit(self, event, *args):
+    def emit(self, event: str, *args) -> None:
         """
         Emit the event (with any given args) to
         its listeners.
@@ -91,7 +92,7 @@ class EventEmitter(object):
             if sink_event:
                 sink_event(*args)
 
-    def sink(self, sink):
+    def sink(self, sink: object) -> None:
         """
         If no listeners are found for an event, call
         the method that shares the event's name (if present)
@@ -102,7 +103,7 @@ class EventEmitter(object):
     # TODO: event bubbling
 
 
-def on(obj, event=None):
+def on(obj: object, event: str=None) -> Callable:
     """
     Decorator to call a function when an object emits
     the specified event.

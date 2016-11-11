@@ -6,17 +6,20 @@ Thor HTTP Errors
 
 from __future__ import absolute_import
 
+from typing import Tuple
+
+
 class HttpError(Exception):
     desc = u"Unknown Error"
-    server_status = None # status this produces when it occurs in a server
+    server_status = None # type: Tuple[bytes, bytes]  # status this produces in a server
     server_recoverable = False # whether a server can recover the connection
     client_recoverable = False # whether a client can recover the connection
 
-    def __init__(self, detail=None):
+    def __init__(self, detail: str=None) -> None:
         Exception.__init__(self)
         self.detail = detail
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
         return "<%s at %#x>" % (", ".join(status), id(self))
 

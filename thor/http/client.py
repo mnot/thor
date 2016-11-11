@@ -19,17 +19,19 @@ try:
     from urlparse import urlsplit, urlunsplit
 except ImportError:
     from urllib.parse import urlsplit, urlunsplit
+from typing import Callable, List, Union
 
 import thor
 from thor.events import EventEmitter, on
-from thor.tcp import TcpClient
+from thor.loop import LoopBase, ScheduledEvent
+from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
 
 from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, NOBODY, \
     QUIET, WAITING, ERROR, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
-    header_names
+    header_names, RawHeaderListType, OriginType
 from thor.http.error import UrlError, ConnectError, \
     ReadTimeoutError, HttpVersionError, StartLineError
 
@@ -43,26 +45,27 @@ class HttpClient(object):
     tcp_client_class = TcpClient
     tls_client_class = TlsClient
 
-    def __init__(self, loop=None):
+    def __init__(self, loop: LoopBase=None) -> None:
         self.loop = loop or thor.loop._loop
-        self.idle_timeout = 60       # integer seconds
-        self.connect_timeout = None  # integer seconds
-        self.read_timeout = None     # integer seconds
-        self.retry_limit = 2         # integer
-        self.retry_delay = 0.5       # integer seconds
-        self.max_server_conn = 4     # integer
-        self.proxy_tls = False       # boolean
-        self.proxy_host = None       # bytes
-        self.proxy_port = None       # integer
-        self.careful = True          # boolean
-        self._idle_conns = defaultdict(list)
-        self._conn_counts = defaultdict(int)
+        self.idle_timeout = 60       # type: int    # seconds
+        self.connect_timeout = None  # type: int    # seconds
+        self.read_timeout = None     # type: int    # seconds
+        self.retry_limit = 2         # type: int
+        self.retry_delay = 0.5       # type: float  # seconds
+        self.max_server_conn = 4     # type: int
+        self.proxy_tls = False       # type: bool
+        self.proxy_host = None       # type: bytes
+        self.proxy_port = None       # type: int
+        self.careful = True          # type: bool
+        self._idle_conns = defaultdict(list)     # type: dict[OriginType, list[TcpConnection]]
+        self._conn_counts = defaultdict(int)     # type: dict[OriginType, int]
         self.loop.on('stop', self._close_conns)
 
-    def exchange(self):
+    def exchange(self) -> 'HttpClientExchange':
         return HttpClientExchange(self)
 
-    def _attach_conn(self, origin, handle_connect, handle_connect_error, connect_timeout):
+    def attach_conn(self, origin: OriginType, handle_connect: Callable,
+                    handle_connect_error: Callable, connect_timeout: float) -> None:
         "Find an idle connection for origin, or create a new one."
         if self.proxy_host and self.proxy_port:
             # TODO: full form of request-target
@@ -88,7 +91,7 @@ class HttpClient(object):
                 handle_connect(tcp_conn)
                 break
 
-    def _release_conn(self, tcp_conn, scheme):
+    def release_conn(self, tcp_conn: TcpConnection, scheme: bytes) -> None:
         "Add an idle connection back to the pool."
         tcp_conn.removeListeners('close')
         origin = (scheme, tcp_conn.host, tcp_conn.port)
@@ -112,9 +115,11 @@ class HttpClient(object):
         else:
             self._dead_conn(origin)
 
-    def _new_conn(self, origin, handle_connect, handle_error, timeout):
+    def _new_conn(self, origin: OriginType, handle_connect: Callable,
+                  handle_error: Callable, timeout: float) -> None:
         "Create a new connection."
         (scheme, host, port) = origin
+        tcp_client = None  # type: Union[TcpClient, TlsClient]
         if scheme == b'http':
             tcp_client = self.tcp_client_class(self.loop)
         elif scheme == b'https':
@@ -126,11 +131,11 @@ class HttpClient(object):
         self._conn_counts[origin] += 1
         tcp_client.connect(host, port, timeout) # FIXME: encoding?
 
-    def _dead_conn(self, origin):
+    def _dead_conn(self, origin: OriginType) -> None:
         "Notify the client that a connect to origin is dead."
         self._conn_counts[origin] -= 1
 
-    def _close_conns(self):
+    def _close_conns(self) -> None:
         "Close all idle HTTP connections."
         for conn_list in self._idle_conns.values():
             for conn in conn_list:
@@ -145,36 +150,37 @@ class HttpClient(object):
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
     default_state = QUIET
 
-    def __init__(self, client):
+    def __init__(self, client) -> None:
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
         self.client = client
         self.careful = client.careful
-        self.method = None
-        self.uri = None
-        self.req_hdrs = None
-        self.req_target = None
-        self.scheme = None
-        self.authority = None
-        self.res_version = None
-        self.tcp_conn = None
-        self.origin = None
+        self.method = None             # type: bytes
+        self.uri = None                # type: bytes
+        self.req_hdrs = None           # type: RawHeaderListType
+        self.req_target = None         # type: bytes
+        self.scheme = None             # type: bytes
+        self.authority = None          # type: bytes
+        self.res_version = None        # type: bytes
+        self.tcp_conn = None           # type: TcpConnection
+        self.origin = None             # type: OriginType
         self._conn_reusable = False
         self._req_body = False
         self._req_started = False
         self._retries = 0
-        self._read_timeout_ev = None
-        self._output_buffer = []
+        self._read_timeout_ev = None   # type: ScheduledEvent
+        self._output_buffer = []       # type: list[bytes]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append('%s {%s}' % (self.method.encode('utf-8', 'replace') or "-", self.uri or "-"))
+        status.append('%s {%s}' % (self.method.decode('utf-8', 'replace') or "-",
+                                   self.uri.decode('utf-8', 'replace') or "-"))
         if self.tcp_conn:
             status.append(self.tcp_conn.tcp_connected and 'connected' or 'disconnected')
         status.append(HttpMessageHandler.__repr__(self))
         return "<%s at %#x>" % (", ".join(status), id(self))
 
-    def request_start(self, method, uri, req_hdrs):
+    def request_start(self, method: bytes, uri: bytes, req_hdrs: RawHeaderListType) -> None:
         """
         Start a request to uri using method, where req_hdrs is a list of (field_name, field_value)
         for the request headers.
@@ -188,12 +194,12 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.origin = self._parse_uri(self.uri)
         except (TypeError, ValueError):
             return
-        self.client._attach_conn(self.origin, self._handle_connect,
-                                 self._handle_connect_error, self.client.connect_timeout)
+        self.client.attach_conn(self.origin, self._handle_connect,
+                                self._handle_connect_error, self.client.connect_timeout)
     # TODO: if we sent Expect: 100-continue, don't wait forever
     # (i.e., schedule something)
 
-    def _parse_uri(self, uri):
+    def _parse_uri(self, uri: bytes) -> OriginType:
         """
         Given a bytes, parse out the host, port, authority and request target.
         Returns None if there is an error, otherwise the origin.
@@ -230,7 +236,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.req_target = urlunsplit((b'', b'', path, query, b''))
         return scheme, host, port
 
-    def _req_start(self):
+    def _req_start(self) -> None:
         """
         Queue the request headers for sending.
         """
@@ -251,7 +257,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._input_state = WAITING
         self.output_start(b"%s %s HTTP/1.1" % (self.method, self.req_target), req_hdrs, delimit)
 
-    def request_body(self, chunk):
+    def request_body(self, chunk) -> None:
         "Send part of the request body. May be called zero to many times."
         if self._input_state == ERROR:
             return
@@ -260,7 +266,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._req_start()
         self.output_body(chunk)
 
-    def request_done(self, trailers):
+    def request_done(self, trailers: RawHeaderListType) -> None:
         """
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
@@ -271,14 +277,14 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._req_start()
         self.output_end(trailers)
 
-    def res_body_pause(self, paused):
+    def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
         if self.tcp_conn and self.tcp_conn.tcp_connected:
             self.tcp_conn.pause(paused)
 
     # Methods called by tcp
 
-    def _handle_connect(self, tcp_conn):
+    def _handle_connect(self, tcp_conn: TcpConnection) -> None:
         "The connection has succeeded."
         self.tcp_conn = tcp_conn
         self._set_read_timeout('connect')
@@ -289,11 +295,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.output(b"") # kick the output buffer
         self.tcp_conn.pause(False)
 
-    def _handle_connect_error(self, err_type, err_id, err_str):
+    def _handle_connect_error(self, err_type, err_id, err_str) -> None:
         "The connection has failed."
         self.input_error(ConnectError(err_str))
 
-    def _conn_closed(self):
+    def _conn_closed(self) -> None:
         "The server closed the connection."
         self._clear_read_timeout()
         if self._input_buffer:
@@ -316,7 +322,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.input_error(ConnectError(
                 "Server dropped connection before the response was complete."))
 
-    def _retry(self):
+    def _retry(self) -> None:
         "Retry the request."
         self._clear_read_timeout()
         self._retries += 1
@@ -324,16 +330,18 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             origin = self._parse_uri(self.uri)
         except (TypeError, ValueError):
             return
-        self.client._attach_conn(origin, self._handle_connect,
-                                 self._handle_connect_error, self.client.connect_timeout)
+        self.client.attach_conn(origin, self._handle_connect,
+                                self._handle_connect_error, self.client.connect_timeout)
 
-    def _req_body_pause(self, paused):
+    def _req_body_pause(self, paused: bool) -> None:
         "The client needs the application to pause/unpause the request body."
         self.emit('pause', paused)
 
     # Methods called by common.HttpMessageHandler
 
-    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
+    def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
+                    conn_tokens: List[bytes], transfer_codes: List[bytes],
+                    content_length: int) -> bool:
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
@@ -362,25 +370,25 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         allows_body = (res_code not in no_body_status) and (self.method != b"HEAD")
         return allows_body
 
-    def input_body(self, chunk):
+    def input_body(self, chunk: bytes) -> None:
         "Process a response body chunk from the wire."
         self._clear_read_timeout()
         self.emit('response_body', chunk)
         self._set_read_timeout('body')
 
-    def input_end(self, trailers):
+    def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the response body is complete."
         self._clear_read_timeout()
         if self.tcp_conn:
             if self.tcp_conn.tcp_connected and self._conn_reusable:
-                self.client._release_conn(self.tcp_conn, self.scheme)
+                self.client.release_conn(self.tcp_conn, self.scheme)
             else:
                 self.tcp_conn.close()
         self._dead_conn()
         self.tcp_conn = None
         self.emit('response_done', trailers)
 
-    def input_error(self, err):
+    def input_error(self, err) -> None:
         "Indicate an error state."
         if err.client_recoverable and not self.careful:
             # This error isn't absolutely fatal, and we want to see the rest.
@@ -396,11 +404,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.tcp_conn = None
         self.emit('error', err)
 
-    def _dead_conn(self):
+    def _dead_conn(self) -> None:
         "Inform the client that the connection is dead."
         self.client._dead_conn(self.origin)
 
-    def output(self, chunk):
+    def output(self, chunk: bytes) -> None:
         self._output_buffer.append(chunk)
         if self.tcp_conn and self.tcp_conn.tcp_connected:
             self.tcp_conn.write(b"".join(self._output_buffer))
@@ -408,13 +416,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     # misc
 
-    def _set_read_timeout(self, kind):
+    def _set_read_timeout(self, kind) -> None:
         "Set the read timeout."
         if self.client.read_timeout:
             self._read_timeout_ev = self.client.loop.schedule(
                 self.client.read_timeout, self.input_error, ReadTimeoutError(kind))
 
-    def _clear_read_timeout(self):
+    def _clear_read_timeout(self) -> None:
         "Clear the read timeout."
         if self._read_timeout_ev:
             self._read_timeout_ev.delete()

@@ -16,17 +16,20 @@ from __future__ import print_function
 
 import os
 import sys
+from typing import List
 
 from thor import schedule
 from thor.events import EventEmitter, on
-from thor.tcp import TcpServer
+from thor.loop import LoopBase
+from thor.tcp import TcpServer, TcpConnection
 
 from thor.http.common import HttpMessageHandler, \
     CLOSE, COUNTED, CHUNKED, \
     WAITING, ERROR, \
     hop_by_hop_hdrs, \
-    get_header, header_names
-from thor.http.error import HttpVersionError, HostRequiredError, TransferCodeError, StartLineError
+    get_header, header_names, \
+    RawHeaderListType
+from thor.http.error import HttpVersionError, HostRequiredError, TransferCodeError
 
 
 class HttpServer(EventEmitter):
@@ -35,20 +38,20 @@ class HttpServer(EventEmitter):
     tcp_server_class = TcpServer
     idle_timeout = 60 # in seconds
 
-    def __init__(self, host, port, loop=None):
+    def __init__(self, host: bytes, port: int, loop: LoopBase=None) -> None:
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
         self.tcp_server.on('connect', self.handle_conn)
         schedule(0, self.emit, 'start')
 
-    def handle_conn(self, tcp_conn):
+    def handle_conn(self, tcp_conn: TcpConnection) -> None:
         http_conn = HttpServerConnection(tcp_conn, self)
         tcp_conn.on('data', http_conn.handle_input)
         tcp_conn.on('close', http_conn.conn_closed)
         tcp_conn.on('pause', http_conn.res_body_pause)
         tcp_conn.pause(False)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         "Stop the server"
         # TODO: Finish outstanding requests w/ timeout?
         self.tcp_server.shutdown()
@@ -59,15 +62,15 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
     default_state = WAITING
 
-    def __init__(self, tcp_conn, server):
+    def __init__(self, tcp_conn: TcpConnection, server: HttpServer) -> None:
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
         self.tcp_conn = tcp_conn
         self.server = server
-        self.ex_queue = [] # queue of exchanges
+        self.ex_queue = []  # type: list[HttpServerExchange] # queue of exchanges
         self.output_paused = False
 
-    def req_body_pause(self, paused):
+    def req_body_pause(self, paused: bool) -> None:
         """
         Indicate that the server should pause (True) or unpause (False) the
         request.
@@ -76,14 +79,14 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     # Methods called by tcp
 
-    def res_body_pause(self, paused):
+    def res_body_pause(self, paused: bool) -> None:
         "Pause/unpause sending the response body."
         self.output_paused = paused
         self.emit('pause', paused)
         if not paused:
             self.drain_exchange_queue()
 
-    def conn_closed(self):
+    def conn_closed(self) -> None:
         "The server connection has closed."
 #        for exchange in self.ex_queue:
 #            exchange.pause() # FIXME - maybe a connclosed err?
@@ -92,10 +95,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     # Methods called by common.HttpRequestHandler
 
-    def output(self, data):
+    def output(self, data: bytes) -> None:
         self.tcp_conn.write(data)
 
-    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
+    def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
+                    conn_tokens: List[bytes], transfer_codes: List[bytes],
+                    content_length: int) -> bool:
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
@@ -123,18 +128,18 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # we only start new requests if we have some output buffer
             # available.
             exchange.request_start()
-        allows_body = (content_length and content_length > 0) or (transfer_codes != [])
+        allows_body = bool(content_length and content_length > 0) or (transfer_codes != [])
         return allows_body
 
-    def input_body(self, chunk):
+    def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."
         self.ex_queue[-1].emit('request_body', chunk)
 
-    def input_end(self, trailers):
+    def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the request body is complete."
         self.ex_queue[-1].emit('request_done', trailers)
 
-    def input_error(self, err):
+    def input_error(self, err) -> None:
         """
         Indicate a parsing problem with the request body (which
         hasn't been queued as an exchange yet).
@@ -163,7 +168,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 # TODO: if in mid-request, we need to send an error event and clean up.
 #        self.ex_queue[-1].emit('error', err)
 
-    def drain_exchange_queue(self):
+    def drain_exchange_queue(self) -> None:
         """
         Walk through the exchange queue and kick off unstarted requests
         until we run out of output buffer.
@@ -180,7 +185,8 @@ class HttpServerExchange(EventEmitter):
     A request/response interaction on an HTTP server.
     """
 
-    def __init__(self, http_conn, method, uri, req_hdrs, req_version):
+    def __init__(self, http_conn, method: bytes, uri: bytes, req_hdrs: RawHeaderListType,
+                 req_version: bytes) -> None:
         EventEmitter.__init__(self)
         self.http_conn = http_conn
         self.method = method
@@ -189,16 +195,17 @@ class HttpServerExchange(EventEmitter):
         self.req_version = req_version
         self.started = False
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
         status.append('%s {%s}' % (self.method or "-", self.uri or "-"))
         return "<%s at %#x>" % (", ".join(status), id(self))
 
-    def request_start(self):
+    def request_start(self) -> None:
         self.started = True
         self.emit('request_start', self.method, self.uri, self.req_hdrs)
 
-    def response_start(self, status_code, status_phrase, res_hdrs):
+    def response_start(self, status_code: bytes, status_phrase: bytes,
+                       res_hdrs: RawHeaderListType) -> None:
         "Start a response. Must only be called once per response."
         res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
         try:
@@ -218,11 +225,11 @@ class HttpServerExchange(EventEmitter):
         self.http_conn.output_start(
             b"HTTP/1.1 %s %s" % (status_code, status_phrase), res_hdrs, delimit)
 
-    def response_body(self, chunk):
+    def response_body(self, chunk: bytes) -> None:
         "Send part of the response body. May be called zero to many times."
         self.http_conn.output_body(chunk)
 
-    def response_done(self, trailers):
+    def response_done(self, trailers: RawHeaderListType) -> None:
         """
         Signal the end of the response, whether or not there was a body. MUST
         be called exactly once for each response.
@@ -250,7 +257,7 @@ def test_handler(x): # pragma: no cover
 if __name__ == "__main__":
     from thor.loop import run
     sys.stderr.write("PID: %s\n" % os.getpid())
-    h, p = '127.0.0.1', int(sys.argv[1])
+    h, p = b'127.0.0.1', int(sys.argv[1])
     demo_server = HttpServer(h, p)
     demo_server.on('exchange', test_handler)
     run()
