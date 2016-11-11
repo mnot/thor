@@ -80,7 +80,7 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
     # TODO: support quoted strings
     if hdr_tuples and isinstance(hdr_tuples[0][1], bytes):
         splitter = b','
-    else: # python 2
+    else:
         splitter = ',' # type: ignore
     return [v.strip() for v in sum(
         [l.split(splitter) for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]

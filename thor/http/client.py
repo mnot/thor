@@ -80,7 +80,7 @@ class HttpClient(object):
                 tcp_conn.removeListeners('data', 'pause', 'close')
                 tcp_conn.pause(True)
                 if hasattr(tcp_conn, "_idler"):
-                    tcp_conn._idler.delete()
+                    tcp_conn._idler.delete() # type: ignore
                 handle_connect(tcp_conn)
                 break
 
@@ -100,7 +100,8 @@ class HttpClient(object):
                     pass
             tcp_conn.on('close', idle_close)
             if self.idle_timeout > 0:
-                tcp_conn._idler = self.loop.schedule(self.idle_timeout, tcp_conn.close)
+                tcp_conn._idler = self.loop.schedule(self.idle_timeout, # type: ignore
+                                                     tcp_conn.close)
             else:
                 tcp_conn.close()
                 self._dead_conn(origin)
