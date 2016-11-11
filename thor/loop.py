@@ -403,7 +403,6 @@ def make(precision=None) -> LoopBase:
     elif hasattr(select, 'poll'):
         loop = PollLoop(precision)   # type: ignore
     else:
-        # TODO: select()-based loop (I suppose)
         raise ImportError("What is this thing, a Windows box?")
     return loop
 
