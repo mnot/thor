@@ -34,5 +34,6 @@ typecheck:
 
 .PHONY: clean
 clean:
+	rm -rf build dist MANIFEST
 	find . -type f -name \*.pyc -exec rm {} \;
 	find . -d -type d -name __pycache__ -exec rm -rf {} \;
