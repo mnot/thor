@@ -15,7 +15,7 @@ import errno
 import os
 import sys
 import socket
-from typing import Tuple
+from typing import Tuple # pylint: disable=unused-import
 
 from thor.loop import EventSource, LoopBase, schedule, ScheduledEvent
 

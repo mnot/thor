@@ -13,7 +13,7 @@ will block the entire client.
 
 from collections import defaultdict
 from urllib.parse import urlsplit, urlunsplit
-from typing import Callable, List, Union
+from typing import Callable, List, Union # pylint: disable=unused-import
 
 import thor
 from thor.events import EventEmitter, on

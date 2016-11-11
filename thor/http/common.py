@@ -9,7 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 from collections import defaultdict
 from enum import Enum
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable, Dict, List, Set, Tuple # pylint: disable=unused-import
 
 from thor.http import error
 
