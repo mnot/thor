@@ -11,14 +11,8 @@ will block the entire client.
 
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 from collections import defaultdict
-try:
-    from urlparse import urlsplit, urlunsplit
-except ImportError:
-    from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 from typing import Callable, List, Union
 
 import thor
@@ -28,8 +22,7 @@ from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
 
 from thor.http.common import HttpMessageHandler, \
-    CLOSE, COUNTED, CHUNKED, NOBODY, \
-    QUIET, WAITING, ERROR, \
+    States, Delimiters, \
     idempotent_methods, no_body_status, hop_by_hop_hdrs, \
     header_names, RawHeaderListType, OriginType
 from thor.http.error import UrlError, ConnectError, \
@@ -148,7 +141,7 @@ class HttpClient(object):
 
 
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
-    default_state = QUIET
+    default_state = States.QUIET
 
     def __init__(self, client) -> None:
         HttpMessageHandler.__init__(self)
@@ -248,18 +241,18 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         else:
             req_hdrs.append((b"Connection", b"close"))
         if b"content-length" in header_names(req_hdrs):
-            delimit = COUNTED
+            delimit = Delimiters.COUNTED
         elif self._req_body:
             req_hdrs.append((b"Transfer-Encoding", b"chunked"))
-            delimit = CHUNKED
+            delimit = Delimiters.CHUNKED
         else:
-            delimit = NOBODY
-        self._input_state = WAITING
+            delimit = Delimiters.NOBODY
+        self._input_state = States.WAITING
         self.output_start(b"%s %s HTTP/1.1" % (self.method, self.req_target), req_hdrs, delimit)
 
     def request_body(self, chunk) -> None:
         "Send part of the request body. May be called zero to many times."
-        if self._input_state == ERROR:
+        if self._input_state == States.ERROR:
             return
         if not self._req_started:
             self._req_body = True
@@ -271,7 +264,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
         """
-        if self._input_state == ERROR:
+        if self._input_state == States.ERROR:
             return
         if not self._req_started:
             self._req_start()
@@ -304,11 +297,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._clear_read_timeout()
         if self._input_buffer:
             self.handle_input(b"")
-        if self._input_state == QUIET:
+        if self._input_state == States.QUIET:
             pass # nothing to see here
-        elif self._input_delimit == CLOSE:
+        elif self._input_delimit == Delimiters.CLOSE:
             self.input_end([])
-        elif self._input_state == WAITING:
+        elif self._input_state == States.WAITING:
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
                     self.client.loop.schedule(self.client.retry_delay, self._retry)
@@ -396,7 +389,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._conn_reusable = False
         else:
             # It really is a fatal error.
-            self._input_state = ERROR
+            self._input_state = States.ERROR
             self._clear_read_timeout()
             self._dead_conn()
             if self.tcp_conn and self.tcp_conn.tcp_connected:

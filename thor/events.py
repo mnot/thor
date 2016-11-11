@@ -7,8 +7,6 @@ Event utilities, including:
 * on - a decorator for making functions and methods listen to events.
 """
 
-from __future__ import absolute_import
-
 from collections import defaultdict
 from typing import Any, Callable, Dict, List
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from __future__ import absolute_import
 import sys
 import unittest
 
 from framework import DummyHttpParser
+from thor.http.common import Delimiters
 
 import thor.http.error as error
 
@@ -32,7 +32,7 @@ class TestHttpParser(unittest.TestCase):
             self.assertTrue(states.count('START') == 1, states)
             self.assertTrue(states.index('START') < states.index('BODY'))
             if close:
-                self.assertEqual(self.parser._input_delimit, "close")
+                self.assertEqual(self.parser._input_delimit, Delimiters.CLOSE)
             else:
                 self.assertTrue(states.index('END') + 1 == len(states))
             self.assertEqual(body, self.parser.test_body, "%s not equal to %s" % (body[:20], self.parser.test_body[:20]))

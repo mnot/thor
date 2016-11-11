@@ -7,8 +7,6 @@ This is a generic library for building asynchronous event loops, using
 Python's built-in poll / epoll / kqueue support.
 """
 
-from __future__ import absolute_import
-
 import select
 import sys
 import time as systime

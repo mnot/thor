@@ -7,9 +7,8 @@ This module contains utility functions and a base class
 for the parsing portions of the HTTP client and server.
 """
 
-from __future__ import absolute_import
-
 from collections import defaultdict
+from enum import Enum
 from typing import Callable, Dict, List, Set, Tuple
 
 from thor.http import error
@@ -18,18 +17,20 @@ linesep = b"\r\n"
 RawHeaderListType = List[Tuple[bytes, bytes]]
 OriginType = Tuple[bytes, bytes, int]
 
-if b"0"[0] == 48:  # python 3
-    NEWLINE = ord("\n")
-    RETURN = ord("\r")
-else:  # python 2
-    NEWLINE = b"\n" # type: ignore
-    RETURN = b"\r"  # type: ignore
+NEWLINE = ord("\n")
+RETURN = ord("\r")
 
-# conn_modes
-CLOSE, COUNTED, CHUNKED, NOBODY = 'close', 'counted', 'chunked', 'nobody'
+class Delimiters(Enum):
+    CLOSE = 'close'
+    COUNTED = 'counted'
+    CHUNKED = 'chunked'
+    NOBODY = 'nobody'
 
-# states
-WAITING, HEADERS_DONE, ERROR, QUIET = 1, 2, 3, 4
+class States(Enum):
+    WAITING = 1
+    HEADERS_DONE = 2
+    ERROR = 3
+    QUIET = 4
 
 idempotent_methods = [b'GET', b'HEAD', b'PUT', b'DELETE', b'OPTIONS', b'TRACE']
 safe_methods = [b'GET', b'HEAD', b'OPTIONS', b'TRACE']
@@ -102,17 +103,17 @@ class HttpMessageHandler(object):
     """
 
     careful = True # if False, don't fail on errors, but preserve them.
-    default_state = None # type: int  # QUIET or WAITING
+    default_state = None # type: States  # QUIET or WAITING
 
     def __init__(self) -> None:
         self.input_header_length = 0
         self.input_transfer_length = 0
         self._input_buffer = []  # type: list[bytes]
         self._input_state = self.default_state
-        self._input_delimit = None  # type: str
+        self._input_delimit = None  # type: Delimiters
         self._input_body_left = 0
-        self._output_state = WAITING
-        self._output_delimit = None  # type: int
+        self._output_state = States.WAITING
+        self._output_delimit = None  # type: Delimiters
 
     def __repr__(self) -> str:
         return "input %s output %s" % (self._input_state, self._output_state)
@@ -176,7 +177,7 @@ class HttpMessageHandler(object):
             self._input_buffer.append(inbytes)
             inbytes = b"".join(self._input_buffer)
             self._input_buffer = []
-        if self._input_state == WAITING:  # waiting for headers or trailers
+        if self._input_state == States.WAITING:  # waiting for headers or trailers
             headers, rest = self._split_headers(inbytes)
             if headers != None: # found one
                 if self._parse_headers(headers):
@@ -187,17 +188,17 @@ class HttpMessageHandler(object):
                         # we can't recover from this, so we bail.
             else: # partial headers; store it and wait for more
                 self._input_buffer.append(inbytes)
-        elif self._input_state == QUIET:  # shouldn't be getting any data now.
+        elif self._input_state == States.QUIET:  # shouldn't be getting any data now.
             if inbytes.strip():
                 self.input_error(error.ExtraDataError(inbytes.decode('utf-8', 'replace')))
-        elif self._input_state == HEADERS_DONE:  # we found a complete header/trailer set
+        elif self._input_state == States.HEADERS_DONE:  # we found a complete header/trailer set
             try:
-                body_handler = getattr(self, '_handle_%s' % self._input_delimit)
+                body_handler = getattr(self, '_handle_%s' % self._input_delimit.value)
             except AttributeError:
                 raise Exception("Unknown input delimiter %s" % \
                                  self._input_delimit)
             body_handler(inbytes)
-        elif self._input_state == ERROR:  # something bad happened.
+        elif self._input_state == States.ERROR:  # something bad happened.
             pass # I'm silently ignoring input that I don't understand.
         else:
             raise Exception("Unknown state %s" % self._input_state)
@@ -284,7 +285,7 @@ class HttpMessageHandler(object):
                 self._input_state = self.default_state
                 trailers = self._parse_fields(trailer_block.splitlines())
                 if trailers is None: # found a problem
-                    self._input_state = ERROR # TODO: need an explicit error
+                    self._input_state = States.ERROR # TODO: need an explicit error
                     return
                 else:
                     self.input_end(trailers)
@@ -438,20 +439,20 @@ class HttpMessageHandler(object):
         except ValueError: # fatal parsing error of some kind; abort.
             return False # throw away the rest
 
-        self._input_state = HEADERS_DONE
+        self._input_state = States.HEADERS_DONE
         if not allows_body:
-            self._input_delimit = NOBODY
+            self._input_delimit = Delimiters.NOBODY
         elif len(transfer_codes) > 0:
             if transfer_codes[-1] == b'chunked':
-                self._input_delimit = CHUNKED
+                self._input_delimit = Delimiters.CHUNKED
                 self._input_body_left = -1 # flag that we don't know
             else:
-                self._input_delimit = CLOSE
+                self._input_delimit = Delimiters.CLOSE
         elif content_length != None:
-            self._input_delimit = COUNTED
+            self._input_delimit = Delimiters.COUNTED
             self._input_body_left = content_length
         else:
-            self._input_delimit = CLOSE
+            self._input_delimit = Delimiters.CLOSE
         return True
 
     ### output-related methods
@@ -462,7 +463,7 @@ class HttpMessageHandler(object):
         """
         raise NotImplementedError
 
-    def output_start(self, top_line: bytes, hdr_tuples: RawHeaderListType, delimit: str):
+    def output_start(self, top_line: bytes, hdr_tuples: RawHeaderListType, delimit: Delimiters):
         """
         Start outputting a HTTP message.
         """
@@ -471,7 +472,7 @@ class HttpMessageHandler(object):
         out.extend([b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples])
         out.extend([b"", b""])
         self.output(linesep.join(out))
-        self._output_state = HEADERS_DONE
+        self._output_state = States.HEADERS_DONE
 
     def output_body(self, chunk: bytes) -> None:
         """
@@ -479,7 +480,7 @@ class HttpMessageHandler(object):
         """
         if not chunk or self._output_delimit is None:
             return
-        if self._output_delimit == CHUNKED:
+        if self._output_delimit == Delimiters.CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode('ascii'), chunk)
         self.output(chunk)
         # TODO: body counting
@@ -491,19 +492,18 @@ class HttpMessageHandler(object):
         """
         Finish outputting a HTTP message, including trailers if appropriate.
         """
-        if self._output_delimit == NOBODY:
+        if self._output_delimit == Delimiters.NOBODY:
             pass # didn't have a body at all.
-        elif self._output_delimit == CHUNKED:
+        elif self._output_delimit == Delimiters.CHUNKED:
             self.output(b"0\r\n%s\r\n" % b"\r\n".join([
                 b"%s: %s" % (k.strip(), v) for k, v in trailers
             ]))
-        elif self._output_delimit == COUNTED:
+        elif self._output_delimit == Delimiters.COUNTED:
             pass # TODO: double-check the length
-        elif self._output_delimit == CLOSE:
+        elif self._output_delimit == Delimiters.CLOSE:
             self.tcp_conn.close() # type: ignore  pylint: disable=E1101
         elif self._output_delimit is None:
             pass # encountered an error before we found a delmiter
         else:
-            raise AssertionError("Unknown request delimiter %s" % \
-                                  self._output_delimit)
-        self._output_state = WAITING
+            raise AssertionError("Unknown request delimiter %s" % self._output_delimit)
+        self._output_state = States.WAITING

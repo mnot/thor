@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-from __future__ import absolute_import
-
 try:
     import SocketServer
 except ImportError:

@@ -11,9 +11,6 @@ will block the entire server.
 
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import os
 import sys
 from typing import List
@@ -24,8 +21,7 @@ from thor.loop import LoopBase
 from thor.tcp import TcpServer, TcpConnection
 
 from thor.http.common import HttpMessageHandler, \
-    CLOSE, COUNTED, CHUNKED, \
-    WAITING, ERROR, \
+    States, Delimiters, \
     hop_by_hop_hdrs, \
     get_header, header_names, \
     RawHeaderListType
@@ -60,7 +56,7 @@ class HttpServer(EventEmitter):
 
 class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
-    default_state = WAITING
+    default_state = States.WAITING
 
     def __init__(self, tcp_conn: TcpConnection, server: HttpServer) -> None:
         HttpMessageHandler.__init__(self)
@@ -147,7 +143,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if err.server_recoverable:
             self.emit('error', err)
         else:
-            self._input_state = ERROR
+            self._input_state = States.ERROR
             status_code, status_phrase = err.server_status or (b"500", b'Internal Server Error')
             hdrs = [(b'Content-Type', b'text/plain'),]
             body = err.desc.encode("utf-8")
@@ -213,13 +209,13 @@ class HttpServerExchange(EventEmitter):
         except (IndexError, ValueError):
             body_len = None
         if body_len is not None:
-            delimit = COUNTED
+            delimit = Delimiters.COUNTED
             res_hdrs.append((b"Connection", b"keep-alive"))
         elif self.req_version == b"1.1":
-            delimit = CHUNKED
+            delimit = Delimiters.CHUNKED
             res_hdrs.append((b"Transfer-Encoding", b"chunked"))
         else:
-            delimit = CLOSE
+            delimit = Delimiters.CLOSE
             res_hdrs.append((b"Connection", b"close"))
 
         self.http_conn.output_start(

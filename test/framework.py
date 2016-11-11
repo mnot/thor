@@ -5,15 +5,13 @@ Framework for testing clients and servers, moving one of them into
 a separate thread.
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
 import os
 import sys
 import threading
 import unittest
 
 import thor
-from thor.http.common import HttpMessageHandler, WAITING
+from thor.http.common import HttpMessageHandler, States
 
 test_host = b"127.0.0.1"
 test_port = 8001
@@ -68,7 +66,7 @@ class ClientServerTestCase(unittest.TestCase):
 
 
 class DummyHttpParser(HttpMessageHandler):
-    default_state = WAITING
+    default_state = States.WAITING
 
     def __init__(self, *args, **kw):
         HttpMessageHandler.__init__(self, *args, **kw)

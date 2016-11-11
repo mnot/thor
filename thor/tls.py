@@ -8,9 +8,6 @@ This is a generic library for building event-based / asynchronous
 SSL/TLS servers and clients.
 """
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import errno
 import os
 import socket

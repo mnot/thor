@@ -7,8 +7,6 @@ This is a generic library for building event-based / asynchronous
 UDP servers and clients.
 """
 
-from __future__ import absolute_import
-
 import errno
 import socket
 
@@ -28,9 +26,7 @@ class UdpEndpoint(EventSource):
     > s.on('datagram', datagram_handler)
     """
     recv_buffer = 8192
-    _block_errs = set([
-        errno.EAGAIN, errno.EWOULDBLOCK
-    ])
+    _block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK])
 
     def __init__(self, loop: LoopBase=None) -> None:
         EventSource.__init__(self, loop)

@@ -33,7 +33,7 @@ arriving soon, along with a framework for intermediation.
 Requirements
 ------------
 
-Thor just needs Python 2.7 or 3.5; see `http://python.org/`_.
+Thor just needs Python 3.5; see `http://python.org/`_.
 
 Currently, it will run on most Posix platforms; specifically, those that
 offer one of poll, epoll or kqueue.

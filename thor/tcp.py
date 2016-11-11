@@ -11,8 +11,6 @@ you (using a 'data' event), and you push data to the network connection
 (using the write method).
 """
 
-from __future__ import absolute_import
-
 import errno
 import os
 import sys
