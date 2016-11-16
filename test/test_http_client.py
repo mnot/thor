@@ -175,6 +175,50 @@ Transfer-Encoding: chunked
         self.go([server_side], [client_side])
 
 
+    def test_1xx(self):
+        req_body = b"54321"
+        def client_side(client):
+            self.nonfinal_seen = False
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': b"1.1",
+                'status': b"200",
+                'phrase': b'OK',
+                'body': b"12345"
+            })
+            @on(exchange)
+            def response_nonfinal(status_code, status_phrase, headers):
+                self.nonfinal_seen = True
+            @on(exchange)
+            def response_done(trailers):
+                self.assertTrue(self.nonfinal_seen)
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/chunked_request" % (test_host, test_port)
+            exchange.request_start(b"POST", req_uri, [])
+            exchange.request_body(req_body)
+            exchange.request_body(req_body)
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.send(b"""\
+HTTP/1.1 110 Whatever
+This: that
+
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+5\r
+12345\r
+0\r
+\r
+""")
+            # TODO: check server-side recv
+            conn.request.close()
+        self.go([server_side], [client_side])
+
+
     def test_multiconn(self):
         self.test_req_count = 0
         def check_done(trailers):

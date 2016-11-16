@@ -13,7 +13,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import List
+from typing import List, Tuple
 
 from thor import schedule
 from thor.events import EventEmitter, on
@@ -96,7 +96,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],
-                    content_length: int) -> bool:
+                    content_length: int) -> Tuple[bool, bool]:
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
@@ -125,7 +125,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # available.
             exchange.request_start()
         allows_body = bool(content_length and content_length > 0) or (transfer_codes != [])
-        return allows_body
+        return allows_body, True
 
     def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."

@@ -13,7 +13,7 @@ will block the entire client.
 
 from collections import defaultdict
 from urllib.parse import urlsplit, urlunsplit
-from typing import Callable, List, Union # pylint: disable=unused-import
+from typing import Callable, List, Tuple, Union # pylint: disable=unused-import
 
 import thor
 from thor.events import EventEmitter, on
@@ -335,7 +335,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],
-                    content_length: int) -> bool:
+                    content_length: int) -> Tuple[bool, bool]:
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
@@ -360,9 +360,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
               or self.res_version in [b"1.1"]:
                 self._conn_reusable = True
         self._set_read_timeout('start')
-        self.emit('response_start', res_code, res_phrase, hdr_tuples)
-        allows_body = (res_code not in no_body_status) and (self.method != b"HEAD")
-        return allows_body
+        is_final = not res_code.startswith(b"1")
+        allows_body = is_final and (res_code not in no_body_status) and (self.method != b"HEAD")
+        if is_final:
+            self.emit('response_start', res_code, res_phrase, hdr_tuples)
+        else:
+            self.emit('response_nonfinal', res_code, res_phrase, hdr_tuples)
+        return allows_body, is_final
 
     def input_body(self, chunk: bytes) -> None:
         "Process a response body chunk from the wire."

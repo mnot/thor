@@ -34,7 +34,7 @@ class States(Enum):
 
 idempotent_methods = [b'GET', b'HEAD', b'PUT', b'DELETE', b'OPTIONS', b'TRACE']
 safe_methods = [b'GET', b'HEAD', b'OPTIONS', b'TRACE']
-no_body_status = [b'100', b'101', b'204', b'304']
+no_body_status = [b'204', b'304']
 hop_by_hop_hdrs = [b'connection', b'keep-alive', b'proxy-authenticate',
                    b'proxy-authorization', b'te', b'trailers',
                    b'transfer-encoding', b'upgrade', b'proxy-connection']
@@ -120,7 +120,9 @@ class HttpMessageHandler(object):
 
     # input-related methods
 
-    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
+    def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
+                    conn_tokens: List[bytes], transfer_codes: List[bytes],
+                    content_length: int) -> Tuple[bool, bool]:
         """
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
@@ -135,8 +137,8 @@ class HttpMessageHandler(object):
 
         content_length is an integer representing the Content-Length header.
 
-        Returns boolean allows_body to indicate whether the message allows a
-        body.
+        Returns booleans (allows_body, is_final) to indicate whether the message allows a
+        body, and whether it's the final message (respectively).
 
         Can raise ValueError to indicate that there's a problem and parsing
         cannot continue.
@@ -434,12 +436,15 @@ class HttpMessageHandler(object):
             content_length = None
 
         try:
-            allows_body = self.input_start(top_line, hdr_tuples, conn_tokens,
-                                           transfer_codes, content_length)
+            allows_body, is_final = self.input_start(top_line, hdr_tuples, conn_tokens,
+                                                     transfer_codes, content_length)
         except ValueError: # fatal parsing error of some kind; abort.
             return False # throw away the rest
 
-        self._input_state = States.HEADERS_DONE
+        if not is_final:
+            self._input_state = States.WAITING
+        else:
+            self._input_state = States.HEADERS_DONE
         if not allows_body:
             self._input_delimit = Delimiters.NOBODY
         elif len(transfer_codes) > 0:

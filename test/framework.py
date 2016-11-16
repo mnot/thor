@@ -81,7 +81,7 @@ class DummyHttpParser(HttpMessageHandler):
         self.test_states.append("START")
         self.test_top_line = top_line
         self.test_hdrs = hdr_tuples
-        return bool
+        return True, True
 
     def input_body(self, chunk):
         self.test_states.append("BODY")
