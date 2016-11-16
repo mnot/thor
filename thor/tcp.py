@@ -335,7 +335,7 @@ class TcpClient(EventSource):
             tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
             self.emit('connect', tcp_conn)
 
-    def handle_conn_error(self, err_type, why=None, close: bool=True) -> None:
+    def handle_conn_error(self, err_type=None, why=None, close: bool=True) -> None:
         """
         Handle a connect error.
 
