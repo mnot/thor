@@ -10,7 +10,7 @@ Python's built-in poll / epoll / kqueue support.
 import select
 import sys
 import time as systime
-from typing import Callable, List, Set, Tuple
+from typing import Callable, List, Dict, Set, Iterable, Tuple, Any # pylint: disable=unused-import
 
 from thor.events import EventEmitter
 
@@ -29,7 +29,7 @@ class EventSource(EventEmitter):
     def __init__(self, loop: 'LoopBase' = None) -> None:
         EventEmitter.__init__(self)
         self._loop = loop or _loop
-        self._interesting_events = set()  # type: set[str]
+        self._interesting_events = set()  # type: Set[str]
         self._fd = None  # type: int
 
     def register_fd(self, fd: int, event: str = None) -> None:
@@ -73,11 +73,11 @@ class LoopBase(EventEmitter):
         EventEmitter.__init__(self)
         self.precision = precision or .5 # of running scheduled queue (secs)
         self.running = False      # whether or not the loop is running (read-only)
-        self.__sched_events = []  # type: list[Tuple[float, Callable]]
-        self._fd_targets = {}     # type: dict[int, EventEmitter]
+        self.__sched_events = []  # type: List[Tuple[float, Callable]]
+        self._fd_targets = {}     # type: Dict[int, EventSource]
         self.__now = None         # type: float
         self._eventlookup = dict([(v, k) for (k, v) in self._event_types.items()])
-        self.__event_cache = {}   # type: dict[int, set[str]]
+        self.__event_cache = {}   # type: Dict[int, Set[str]]
 
     def __repr__(self) -> str:
         name = self.__class__.__name__
@@ -143,7 +143,7 @@ class LoopBase(EventEmitter):
             self.unregister_fd(fd)
         self.emit('stop')
 
-    def register_fd(self, fd: int, events: List[str], target) -> None:
+    def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         "emit events on target when they occur on fd."
         raise NotImplementedError
 
@@ -173,14 +173,14 @@ class LoopBase(EventEmitter):
         "Return the current time (to avoid a system call)."
         return self.__now or systime.time()
 
-    def schedule(self, delta: float, callback: Callable, *args) -> 'ScheduledEvent':
+    def schedule(self, delta: float, callback: Callable, *args: Any) -> 'ScheduledEvent':
         """
         Schedule callable callback to be run in delta seconds with *args.
 
         Returns an object which can be used to later remove the event, by
         calling its delete() method.
         """
-        def cb(): # FIXME: can't compare functions in py3. Suck.
+        def cb() -> None: # FIXME: can't compare functions in py3. Suck.
             if callback:
                 callback(*args)
         cb.__name__ = callback.__name__
@@ -189,14 +189,14 @@ class LoopBase(EventEmitter):
         self._insort(events, new_event)
         return ScheduledEvent(self, new_event)
 
-    def schedule_del(self, event):
+    def schedule_del(self, event: Tuple[float, Callable]) -> None:
         try:
             self.__sched_events.remove(event)
         except ValueError: # already gone
             pass
 
     @staticmethod
-    def _insort(a, x, lo=0, hi=None):
+    def _insort(a: List, x: Any, lo: int = 0, hi: int = None) -> None:
         if lo < 0:
             raise ValueError('lo must be non-negative')
         if hi is None:
@@ -208,7 +208,7 @@ class LoopBase(EventEmitter):
             else: lo = mid+1
         a.insert(lo, x)
 
-    def _eventmask(self, events: List[str]) -> int:
+    def _eventmask(self, events: Iterable[str]) -> int:
         "Calculate the mask for a list of events."
         eventmask = 0
         for event in events:
@@ -246,7 +246,7 @@ class PollLoop(LoopBase):
     A poll()-based async loop.
     """
 
-    def __init__(self, *args) -> None:
+    def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
             select.POLLIN: 'fd_readable',
@@ -259,23 +259,23 @@ class PollLoop(LoopBase):
         self._poll = select.poll()
         # pylint: enable=E1101
 
-    def register_fd(self, fd, events, target):
+    def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         self._fd_targets[fd] = target
         self._poll.register(fd, self._eventmask(events))
 
-    def unregister_fd(self, fd):
+    def unregister_fd(self, fd: int) -> None:
         self._poll.unregister(fd)
         del self._fd_targets[fd]
 
-    def event_add(self, fd, event):
+    def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         self._poll.register(fd, eventmask)
 
-    def event_del(self, fd, event):
+    def event_del(self, fd: int, event: str) -> None:
         eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         self._poll.register(fd, eventmask)
 
-    def _run_fd_events(self):
+    def _run_fd_events(self) -> None:
         event_list = self._poll.poll(self.precision)
         for fileno, eventmask in event_list:
             for event in self._filter2events(eventmask):
@@ -287,7 +287,7 @@ class EpollLoop(LoopBase):
     An epoll()-based async loop.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
             select.EPOLLIN: 'fd_readable',
@@ -299,7 +299,7 @@ class EpollLoop(LoopBase):
         self._epoll = select.epoll()
         # pylint: enable=E1101
 
-    def register_fd(self, fd, events, target):
+    def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         eventmask = self._eventmask(events)
         if fd in self._fd_targets:
             self._epoll.modify(fd, eventmask)
@@ -307,22 +307,22 @@ class EpollLoop(LoopBase):
             self._fd_targets[fd] = target
             self._epoll.register(fd, eventmask)
 
-    def unregister_fd(self, fd):
+    def unregister_fd(self, fd: int) -> None:
         self._epoll.unregister(fd)
         del self._fd_targets[fd]
 
-    def event_add(self, fd, event):
+    def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         self._epoll.modify(fd, eventmask)
 
-    def event_del(self, fd, event):
+    def event_del(self, fd: int, event: str) -> None:
         try:
             eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         except KeyError:
             return # no longer interested
         self._epoll.modify(fd, eventmask)
 
-    def _run_fd_events(self):
+    def _run_fd_events(self) -> None:
         event_list = self._epoll.poll(self.precision)
         for fileno, eventmask in event_list:
             for event in self._filter2events(eventmask):
@@ -333,7 +333,7 @@ class KqueueLoop(LoopBase):
     """
     A kqueue()-based async loop.
     """
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         self._event_types = {
             select.KQ_FILTER_READ: 'fd_readable',
             select.KQ_FILTER_WRITE: 'fd_writable'}
@@ -343,12 +343,12 @@ class KqueueLoop(LoopBase):
 
     # TODO: override schedule() to use kqueue event scheduling.
 
-    def register_fd(self, fd, events, target):
+    def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         self._fd_targets[fd] = target
         for event in events:
             self.event_add(fd, event)
 
-    def unregister_fd(self, fd):
+    def unregister_fd(self, fd: int) -> None:
         try:
             obj = self._fd_targets[fd]
         except KeyError:
@@ -357,19 +357,19 @@ class KqueueLoop(LoopBase):
             obj.event_del(event)
         del self._fd_targets[fd]
 
-    def event_add(self, fd, event):
+    def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
             ev = select.kevent(fd, eventmask, select.KQ_EV_ADD | select.KQ_EV_ENABLE)
             self._kq.control([ev], 0, 0)
 
-    def event_del(self, fd, event):
+    def event_del(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
             ev = select.kevent(fd, eventmask, select.KQ_EV_DELETE)
             self._kq.control([ev], 0, 0)
 
-    def _run_fd_events(self):
+    def _run_fd_events(self) -> None:
         events = self._kq.control([], self.max_ev, self.precision)
         for e in events:
             event_types = self._filter2events(e.filter)
@@ -388,7 +388,7 @@ class KqueueLoop(LoopBase):
     		#	buffer.
 
 
-def make(precision=None) -> LoopBase:
+def make(precision: float = None) -> LoopBase:
     """
     Create and return a named loop that is suitable for the current system. If
     _precision_ is given, it indicates how often scheduled events will be run.

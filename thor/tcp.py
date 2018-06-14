@@ -15,9 +15,11 @@ import errno
 import os
 import sys
 import socket
-from typing import Tuple # pylint: disable=unused-import
+from typing import Tuple, List, Union, Type # pylint: disable=unused-import
+import ssl as sys_ssl # pylint: disable=unused-import
 
 from thor.loop import EventSource, LoopBase, schedule
+from thor.loop import ScheduledEvent # pylint: disable=unused-import
 
 
 class TcpConnection(EventSource):
@@ -99,7 +101,7 @@ class TcpConnection(EventSource):
         self._input_paused = True # we start with input paused
         self._output_paused = False
         self._closing = False
-        self._write_buffer = []   # type: list[bytes]
+        self._write_buffer = []   # type: List[bytes]
 
         self.register_fd(sock.fileno())
         self.on('fd_readable', self.handle_readable)
@@ -335,7 +337,12 @@ class TcpClient(EventSource):
             tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
             self.emit('connect', tcp_conn)
 
-    def handle_conn_error(self, err_type=None, why=None, close: bool = True) -> None:
+    def handle_conn_error(self,
+                          err_type: Union[Type[socket.gaierror], Type[socket.error],
+                                          Type[sys_ssl.SSLError]]=None,
+                          why: Union[socket.gaierror, socket.error, sys_ssl.SSLError,
+                                     Tuple[int, str]]=None,
+                          close: bool = True) -> None:
         """
         Handle a connect error.
 
@@ -369,13 +376,13 @@ if __name__ == "__main__":
     # quick demo server
     from thor.loop import run, stop
     server = TcpServer(b'localhost', int(sys.argv[-1]))
-    def handle_conn(conn):
+    def handle_conn(conn: TcpConnection) -> None:
         conn.pause(False)
-        def echo(chunk):
+        def echo(chunk: bytes) -> None:
             if chunk.strip().lower() in ['quit', 'stop']:
                 stop()
             else:
-                conn.write("-> %s" % chunk)
+                conn.write(b"-> %s" % chunk)
         conn.on('data', echo)
     server.on('connect', handle_conn)
     run()

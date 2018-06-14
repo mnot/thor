@@ -13,7 +13,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from thor import schedule
 from thor.events import EventEmitter, on
@@ -23,10 +23,10 @@ from thor.tcp import TcpServer, TcpConnection
 from thor.http.common import HttpMessageHandler, \
     States, Delimiters, \
     hop_by_hop_hdrs, \
-    get_header, header_names, \
-    RawHeaderListType
-from thor.http.error import HttpVersionError, HostRequiredError, TransferCodeError
+    get_header, header_names
+from thor.http.error import HttpError, HttpVersionError, HostRequiredError, TransferCodeError
 
+RawHeaderListType = List[Tuple[bytes, bytes]]
 
 class HttpServer(EventEmitter):
     "An asynchronous HTTP server."
@@ -63,7 +63,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         EventEmitter.__init__(self)
         self.tcp_conn = tcp_conn
         self.server = server
-        self.ex_queue = []          # type: list[HttpServerExchange] # queue of exchanges
+        self.ex_queue = []          # type: List[HttpServerExchange] # queue of exchanges
         self.output_paused = False
 
     def req_body_pause(self, paused: bool) -> None:
@@ -136,7 +136,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         "Indicate that the request body is complete."
         self.ex_queue[-1].emit('request_done', trailers)
 
-    def input_error(self, err) -> None:
+    def input_error(self, err: HttpError) -> None:
         """
         Indicate a parsing problem with the request body (which
         hasn't been queued as an exchange yet).
@@ -156,11 +156,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             ex.response_done([])
             self.ex_queue.append(ex)
 
-# FIXME: connection?
-
-#        if self.tcp_conn and not err.server_recoverable:
-#            self.tcp_conn.close()
-#            self.tcp_conn = None
+            if self.tcp_conn:
+                self.tcp_conn.close()
+                self.tcp_conn = None
 
 # TODO: if in mid-request, we need to send an error event and clean up.
 #        self.ex_queue[-1].emit('error', err)
@@ -182,8 +180,8 @@ class HttpServerExchange(EventEmitter):
     A request/response interaction on an HTTP server.
     """
 
-    def __init__(self, http_conn, method: bytes, uri: bytes, req_hdrs: RawHeaderListType,
-                 req_version: bytes) -> None:
+    def __init__(self, http_conn: HttpServerConnection, method: bytes, uri: bytes,
+                 req_hdrs: RawHeaderListType, req_version: bytes) -> None:
         EventEmitter.__init__(self)
         self.http_conn = http_conn
         self.method = method
@@ -231,23 +229,25 @@ class HttpServerExchange(EventEmitter):
         Signal the end of the response, whether or not there was a body. MUST
         be called exactly once for each response.
         """
-        self.http_conn.output_end(trailers)
+        close = self.http_conn.output_end(trailers)
+        if close and self.http_conn.tcp_conn:
+            self.http_conn.tcp_conn.close()
 
 
-def test_handler(x): # pragma: no cover
+def test_handler(x: HttpServerExchange) -> None: # pragma: no cover
     @on(x, 'request_start')
-    def go(*args):
+    def go(*args: Any) -> None:
         print("start: %s on %s" % (str(args[1]), id(x.http_conn)))
         x.response_start(b'200', b"OK", [])
         x.response_body(b'foo!')
         x.response_done([])
 
     @on(x, 'request_body')
-    def body(chunk):
+    def body(chunk: bytes) -> None:
         print("body: %s" % chunk)
 
     @on(x, 'request_done')
-    def done(trailers):
+    def done(trailers: RawHeaderListType) -> None:
         print("done: %s" % str(trailers))
 
 

@@ -121,11 +121,10 @@ if __name__ == "__main__":
     def out(outbytes: bytes) -> None:
         sys.stdout.write(outbytes.decode('utf-8', 'replace'))
 
-    def go(conn):
+    def go(conn: TcpConnection) -> None:
         conn.on('data', out)
         conn.write(b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
         conn.pause(False)
-        print(conn.socket.cipher())
 
     c = TlsClient()
     c.on('connect', go)

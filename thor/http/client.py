@@ -13,11 +13,12 @@ will block the entire client.
 
 from collections import defaultdict
 from urllib.parse import urlsplit, urlunsplit
-from typing import Callable, List, Tuple, Union # pylint: disable=unused-import
+from typing import Callable, List, Dict, Tuple, Union # pylint: disable=unused-import
 
 import thor
 from thor.events import EventEmitter, on
 from thor.loop import LoopBase
+from thor.loop import ScheduledEvent  # pylint: disable=unused-import
 from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
 
@@ -27,6 +28,7 @@ from thor.http.common import HttpMessageHandler, \
     header_names, RawHeaderListType, OriginType
 from thor.http.error import UrlError, ConnectError, \
     ReadTimeoutError, HttpVersionError, StartLineError
+from thor.http.error import HttpError # pylint: disable=unused-import
 
 req_rm_hdrs = hop_by_hop_hdrs + [b'host']
 
@@ -50,8 +52,8 @@ class HttpClient(object):
         self.proxy_host = None       # type: bytes
         self.proxy_port = None       # type: int
         self.careful = True          # type: bool
-        self._idle_conns = defaultdict(list)     # type: dict[OriginType, list[TcpConnection]]
-        self._conn_counts = defaultdict(int)     # type: dict[OriginType, int]
+        self._idle_conns = defaultdict(list)     # type: Dict[OriginType, List[TcpConnection]]
+        self._conn_counts = defaultdict(int)     # type: Dict[OriginType, int]
         self.loop.on('stop', self._close_conns)
 
     def exchange(self) -> 'HttpClientExchange':
@@ -89,7 +91,7 @@ class HttpClient(object):
         tcp_conn.removeListeners('close')
         origin = (scheme, tcp_conn.host, tcp_conn.port)
         if tcp_conn.tcp_connected:
-            def idle_close():
+            def idle_close() -> None:
                 "Remove the connection from the pool when it closes."
                 if hasattr(tcp_conn, "_idler"):
                     tcp_conn._idler.delete()
@@ -144,7 +146,7 @@ class HttpClient(object):
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
     default_state = States.QUIET
 
-    def __init__(self, client) -> None:
+    def __init__(self, client: HttpClient) -> None:
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
         self.client = client
@@ -163,7 +165,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._req_started = False
         self._retries = 0
         self._read_timeout_ev = None   # type: ScheduledEvent
-        self._output_buffer = []       # type: list[bytes]
+        self._output_buffer = []       # type: List[bytes]
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -211,12 +213,12 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         if b"@" in authority:
             authority = authority.split(b"@", 1)[1]
         if b":" in authority:
-            host, port = authority.rsplit(b":", 1)
+            host, portb = authority.rsplit(b":", 1)
             try:
-                port = int(port)
+                port = int(portb.decode('utf-8', 'replace'))
             except ValueError:
                 self.input_error(UrlError("Non-integer port '%s' in URL" % \
-                                          port.decode('utf-8', 'replace')))
+                                          portb.decode('utf-8', 'replace')))
                 raise
             if not 1 <= port <= 65535:
                 self.input_error(UrlError("URL port %i out of range" % port))
@@ -251,7 +253,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._input_state = States.WAITING
         self.output_start(b"%s %s HTTP/1.1" % (self.method, self.req_target), req_hdrs, delimit)
 
-    def request_body(self, chunk) -> None:
+    def request_body(self, chunk: bytes) -> None:
         "Send part of the request body. May be called zero to many times."
         if self._input_state == States.ERROR:
             return
@@ -269,7 +271,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             return
         if not self._req_started:
             self._req_start()
-        self.output_end(trailers)
+        close = self.output_end(trailers)
+        if close and self.tcp_conn:
+            self.tcp_conn.close()
+
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
@@ -289,7 +294,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.output(b"") # kick the output buffer
         self.tcp_conn.pause(False)
 
-    def _handle_connect_error(self, err_type, err_id, err_str) -> None:
+    def _handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."
         self.input_error(ConnectError(err_str))
 
@@ -386,7 +391,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.tcp_conn = None
         self.emit('response_done', trailers)
 
-    def input_error(self, err) -> None:
+    def input_error(self, err: HttpError) -> None:
         "Indicate an error state."
         if err.client_recoverable and not self.careful:
             # This error isn't absolutely fatal, and we want to see the rest.
@@ -414,7 +419,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     # misc
 
-    def _set_read_timeout(self, kind) -> None:
+    def _set_read_timeout(self, kind: str) -> None:
         "Set the read timeout."
         if self.client.read_timeout:
             self._read_timeout_ev = self.client.loop.schedule(
@@ -426,7 +431,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._read_timeout_ev.delete()
 
 
-def test_client(request_uri, out, err):  # pragma: no coverage
+def test_client(request_uri: bytes, out: Callable, err: Callable) -> None:  # pragma: no coverage
     "A simple demonstration of a client."
     from thor.loop import stop, run
 
@@ -436,7 +441,7 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     x = c.exchange()
 
     @on(x)
-    def response_start(status, phrase, headers):
+    def response_start(status: bytes, phrase: bytes, headers: RawHeaderListType) -> None:
         "Print the response headers."
         out(b"HTTP/%s %s %s\n" % (x.res_version, status, phrase))
         out(b"\n".join([b"%s:%s" % header for header in headers]))
@@ -444,7 +449,7 @@ def test_client(request_uri, out, err):  # pragma: no coverage
         print()
 
     @on(x)
-    def error(err_msg):
+    def error(err_msg: HttpError) -> None:
         if err_msg:
             err("\033[1;31m*** ERROR:\033[0;39m %s (%s)\n" % (err_msg.desc, err_msg.detail))
         if not err_msg.client_recoverable:
@@ -453,7 +458,7 @@ def test_client(request_uri, out, err):  # pragma: no coverage
     x.on('response_body', out)
 
     @on(x)
-    def response_done(trailers):
+    def response_done(trailers: RawHeaderListType) -> None:
         thor.schedule(1, stop)
 
     x.request_start(b"GET", request_uri, [])

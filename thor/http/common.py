@@ -9,7 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 from collections import defaultdict
 from enum import Enum
-from typing import Callable, Dict, List, Set, Tuple # pylint: disable=unused-import
+from typing import Callable, Dict, List, Set, Tuple  # pylint: disable=unused-import
 
 from thor.http import error
 
@@ -56,7 +56,7 @@ def header_dict(hdr_tuples: RawHeaderListType,
     If omit is defined, each header listed (by lower-cased name) will not be
     returned in the dictionary.
     """
-    out = defaultdict(list)  # type: dict[bytes, list[bytes]]
+    out = defaultdict(list)  # type: Dict[bytes, List[bytes]]
     for (n, v) in hdr_tuples:
         n = n.lower()
         if n in (omit or []):
@@ -109,7 +109,7 @@ class HttpMessageHandler(object):
     def __init__(self) -> None:
         self.input_header_length = 0
         self.input_transfer_length = 0
-        self._input_buffer = []  # type: list[bytes]
+        self._input_buffer = []  # type: List[bytes]
         self._input_state = self.default_state
         self._input_delimit = None  # type: Delimiters
         self._input_body_left = 0
@@ -286,8 +286,9 @@ class HttpMessageHandler(object):
             trailer_block, rest = self._split_headers(inbytes) # trailers
             if trailer_block != None:
                 self._input_state = self.default_state
-                trailers = self._parse_fields(trailer_block.splitlines())
-                if trailers is None: # found a problem
+                try:
+                    trailers = self._parse_fields(trailer_block.splitlines())[0]
+                except ValueError:
                     self._input_state = States.ERROR # TODO: need an explicit error
                     return
                 else:
@@ -310,15 +311,16 @@ class HttpMessageHandler(object):
             self.input_transfer_length += len(inbytes)
             self._input_body_left -= len(inbytes)
 
-    def _parse_fields(self, header_lines: List[bytes], gather_conn_info: bool = False):
+    def _parse_fields(self, header_lines: List[bytes], gather_conn_info: bool = False) -> \
+                      Tuple[RawHeaderListType, List[bytes], List[bytes], int]:
         """
         Given a list of raw header lines (without the top line,
         and without the trailing CRLFCRLF), return its header tuples.
         """
 
         hdr_tuples = []        # type: RawHeaderListType
-        conn_tokens = []       # type: list[bytes]
-        transfer_codes = []    # type: list[bytes]
+        conn_tokens = []       # type: List[bytes]
+        transfer_codes = []    # type: List[bytes]
         content_length = None  # type: int
 
         for line in header_lines:
@@ -332,7 +334,7 @@ class HttpMessageHandler(object):
                 else: # top header starts with whitespace
                     self.input_error(error.TopLineSpaceError(line.decode('utf-8', 'replace')))
                     if self.careful:
-                        return []
+                        raise ValueError
             try:
                 fn, fv = line.split(b":", 1)
             except ValueError:
@@ -341,7 +343,7 @@ class HttpMessageHandler(object):
             if fn[-1:] in [b" ", b"\t"]:
                 self.input_error(error.HeaderSpaceError(fn.decode('utf-8', 'replace')))
                 if self.careful:
-                    return []
+                    raise ValueError
             hdr_tuples.append((fn, fv))
 
             if gather_conn_info:
@@ -366,19 +368,16 @@ class HttpMessageHandler(object):
                             pass
                         self.input_error(error.DuplicateCLError())
                         if self.careful:
-                            return []
+                            raise ValueError
                     try:
                         content_length = int(f_val)
                         assert content_length >= 0
                     except (ValueError, AssertionError):
                         self.input_error(error.MalformedCLError(f_val.decode('utf-8', 'replace')))
                         if self.careful:
-                            return []
+                            raise ValueError
 
-        # yes, this is a horrible hack.
-        if gather_conn_info:
-            return hdr_tuples, conn_tokens, transfer_codes, content_length
-        return hdr_tuples
+        return hdr_tuples, conn_tokens, transfer_codes, content_length
 
     @staticmethod
     def _split_headers(inbytes: bytes) -> Tuple[bytes, bytes]:
@@ -469,7 +468,8 @@ class HttpMessageHandler(object):
         """
         raise NotImplementedError
 
-    def output_start(self, top_line: bytes, hdr_tuples: RawHeaderListType, delimit: Delimiters):
+    def output_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
+                     delimit: Delimiters) -> None:
         """
         Start outputting a HTTP message.
         """
@@ -494,9 +494,10 @@ class HttpMessageHandler(object):
 #        assert self._output_body_sent <= self._output_content_length, \
 #            "Too many body bytes sent"
 
-    def output_end(self, trailers: RawHeaderListType) -> None:
+    def output_end(self, trailers: RawHeaderListType) -> bool:
         """
         Finish outputting a HTTP message, including trailers if appropriate.
+        Return value incicates whether the connection should be closed.
         """
         if self._output_delimit == Delimiters.NOBODY:
             pass # didn't have a body at all.
@@ -507,9 +508,10 @@ class HttpMessageHandler(object):
         elif self._output_delimit == Delimiters.COUNTED:
             pass # TODO: double-check the length
         elif self._output_delimit == Delimiters.CLOSE:
-            self.tcp_conn.close() # type: ignore  pylint: disable=E1101
+            return True
         elif self._output_delimit is None:
-            pass # encountered an error before we found a delmiter
+            return True # encountered an error before we found a delimiter
         else:
             raise AssertionError("Unknown request delimiter %s" % self._output_delimit)
         self._output_state = States.WAITING
+        return False

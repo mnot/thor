@@ -36,7 +36,7 @@ class EventEmitter(object):
         """
         Call listener the first time event is emitted.
         """
-        def mycall(*args):
+        def mycall(*args: Any) -> None:
             listener(*args)
             self.removeListener(event, mycall)
         self.on(event, mycall)
@@ -76,7 +76,7 @@ class EventEmitter(object):
         """
         return list(self.__events)
 
-    def emit(self, event: str, *args) -> None:
+    def emit(self, event: str, *args: Any) -> None:
         """
         Emit the event (with any given args) to
         its listeners.
@@ -101,12 +101,12 @@ class EventEmitter(object):
     # TODO: event bubbling
 
 
-def on(obj: object, event: str = None) -> Callable:
+def on(obj: EventEmitter, event: str = None) -> Callable:
     """
     Decorator to call a function when an object emits
     the specified event.
     """
-    def wrap(funk):
+    def wrap(funk: Callable) -> Callable:
         obj.on(event or funk.__name__, funk)
         return funk
     return wrap
