@@ -4,7 +4,7 @@ Thor - Easy Evented Intermediation
 .. image:: https://secure.travis-ci.org/mnot/thor.png?branch=master
    :alt: build status
    :target: http://travis-ci.org/mnot/thor
-.. image:: https://coveralls.io/repos/mnot/thor/badge.svg 
+.. image:: https://coveralls.io/repos/mnot/thor/badge.svg
    :alt: coverage status
    :target: https://coveralls.io/r/mnot/thor
 
@@ -106,7 +106,7 @@ gets sick if we give him any milk, though.
 License
 =======
 
-Copyright (c) 2005–2016 Mark Nottingham
+Copyright (c) 2005–2018 Mark Nottingham
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
