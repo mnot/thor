@@ -4,3 +4,4 @@ dist/
 MANIFEST
 .coverage
 __pycache__
+.mypy_cache
