@@ -63,7 +63,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         EventEmitter.__init__(self)
         self.tcp_conn = tcp_conn
         self.server = server
-        self.ex_queue = []  # type: list[HttpServerExchange] # queue of exchanges
+        self.ex_queue = []          # type: list[HttpServerExchange] # queue of exchanges
         self.output_paused = False
 
     def req_body_pause(self, paused: bool) -> None:
@@ -92,7 +92,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     # Methods called by common.HttpRequestHandler
 
     def output(self, data: bytes) -> None:
-        self.tcp_conn.write(data)
+        if self.tcp_conn and self.tcp_conn.tcp_connected:
+            self.tcp_conn.write(chunk)
 
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],
