@@ -9,7 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 from collections import defaultdict
 from enum import Enum
-from typing import Callable, Dict, List, Set, Tuple  # pylint: disable=unused-import
+from typing import Callable, Dict, List, Set, Tuple, Union  # pylint: disable=unused-import
 
 from thor.http import error
 
@@ -61,11 +61,7 @@ def header_dict(hdr_tuples: RawHeaderListType,
         n = n.lower()
         if n in (omit or []):
             continue
-        if isinstance(v, bytes):
-            splitter = b','
-        else:
-            splitter = ',' # type: ignore
-        out[n].extend([i.strip() for i in v.split(splitter)])
+        out[n].extend([i.strip() for i in v.split(b",")])
     return out
 
 def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
@@ -79,12 +75,8 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
     Set-Cookie, or any value with a quoted string).
     """
     # TODO: support quoted strings
-    if hdr_tuples and isinstance(hdr_tuples[0][1], bytes):
-        splitter = b','
-    else:
-        splitter = ',' # type: ignore
     return [v.strip() for v in sum(
-        [l.split(splitter) for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]
+        [l.split(b",") for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]
 
 
 class HttpMessageHandler(object):

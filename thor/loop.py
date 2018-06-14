@@ -396,12 +396,13 @@ def make(precision: float = None) -> LoopBase:
     Returned loop instances have all of the methods and instance variables
     that *thor.loop* has.
     """
+    loop = None # type: LoopBase
     if hasattr(select, 'epoll'):
         loop = EpollLoop(precision)
     elif hasattr(select, 'kqueue'):
-        loop = KqueueLoop(precision) # type: ignore
+        loop = KqueueLoop(precision)
     elif hasattr(select, 'poll'):
-        loop = PollLoop(precision)   # type: ignore
+        loop = PollLoop(precision)
     else:
         raise ImportError("What is this thing, a Windows box?")
     return loop

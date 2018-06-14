@@ -94,7 +94,7 @@ class HttpClient(object):
             def idle_close() -> None:
                 "Remove the connection from the pool when it closes."
                 if hasattr(tcp_conn, "_idler"):
-                    tcp_conn._idler.delete()
+                    tcp_conn._idler.delete()  # type: ignore
                 self._dead_conn(origin)
                 try:
                     self._idle_conns[origin].remove(tcp_conn)
