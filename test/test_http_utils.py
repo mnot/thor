@@ -38,40 +38,5 @@ class TestHttpUtilsBytes(unittest.TestCase):
         self.assertEqual(get_header(self.hdrs, b'b'), [b'b1', b'b2'])
         self.assertEqual(get_header(self.hdrs, b'c'), [b'c1'])
 
-
-class TestHttpUtilsStrings(unittest.TestCase):
-    hdrs = [
-        ('A', 'a1'),
-        ('B', 'b1'),
-        ('a', 'a2'),
-        ('C', 'c1'),
-        ('b', 'b2'),
-        ('A', 'a3, a4'),
-        ('D', '"d1, d1"'),
-    ]
-
-    def test_header_names(self):
-        hdrs_n = header_names(self.hdrs)
-        self.assertEqual(hdrs_n, set(['a', 'b', 'c', 'd']))
-
-    def test_header_dict(self):
-        hdrs_d = header_dict(self.hdrs)
-        self.assertEqual(hdrs_d['a'], ['a1', 'a2', 'a3', 'a4'])
-        self.assertEqual(hdrs_d['b'], ['b1', 'b2'])
-        self.assertEqual(hdrs_d['c'], ['c1'])
-
-    def test_header_dict_omit(self):
-        hdrs_d = header_dict(self.hdrs, 'b')
-        self.assertEqual(hdrs_d['a'], ['a1', 'a2', 'a3', 'a4'])
-        self.assertTrue('b' not in list(hdrs_d))
-        self.assertTrue('B' not in list(hdrs_d))
-        self.assertEqual(hdrs_d['c'], ['c1'])
-
-    def test_get_header(self):
-        self.assertEqual(get_header(self.hdrs, 'a'), ['a1', 'a2', 'a3', 'a4'])
-        self.assertEqual(get_header(self.hdrs, 'b'), ['b1', 'b2'])
-        self.assertEqual(get_header(self.hdrs, 'c'), ['c1'])
-
-
 if __name__ == '__main__':
     unittest.main()
