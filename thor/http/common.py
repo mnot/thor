@@ -47,7 +47,8 @@ def header_names(hdr_tuples: RawHeaderListType)-> Set[bytes]:
     """
     return set([n.lower() for n, v in hdr_tuples])
 
-def header_dict(hdr_tuples: RawHeaderListType, omit: List[bytes]=None) -> Dict[bytes, List[bytes]]:
+def header_dict(hdr_tuples: RawHeaderListType,
+                omit: List[bytes] = None) -> Dict[bytes, List[bytes]]:
     """
     Given a list of header tuples, return a dictionary keyed upon the
     lower-cased header names.
@@ -309,7 +310,7 @@ class HttpMessageHandler(object):
             self.input_transfer_length += len(inbytes)
             self._input_body_left -= len(inbytes)
 
-    def _parse_fields(self, header_lines: List[bytes], gather_conn_info: bool=False):
+    def _parse_fields(self, header_lines: List[bytes], gather_conn_info: bool = False):
         """
         Given a list of raw header lines (without the top line,
         and without the trailing CRLFCRLF), return its header tuples.
@@ -322,7 +323,7 @@ class HttpMessageHandler(object):
 
         for line in header_lines:
             if line[:1] in [b" ", b"\t"]: # Fold LWS
-                if len(hdr_tuples):
+                if hdr_tuples:
                     hdr_tuples[-1] = (
                         hdr_tuples[-1][0],
                         b"%s %s" % (hdr_tuples[-1][1], line.lstrip())
@@ -331,7 +332,7 @@ class HttpMessageHandler(object):
                 else: # top header starts with whitespace
                     self.input_error(error.TopLineSpaceError(line.decode('utf-8', 'replace')))
                     if self.careful:
-                        return
+                        return []
             try:
                 fn, fv = line.split(b":", 1)
             except ValueError:
@@ -340,7 +341,7 @@ class HttpMessageHandler(object):
             if fn[-1:] in [b" ", b"\t"]:
                 self.input_error(error.HeaderSpaceError(fn.decode('utf-8', 'replace')))
                 if self.careful:
-                    return
+                    return []
             hdr_tuples.append((fn, fv))
 
             if gather_conn_info:
@@ -365,22 +366,22 @@ class HttpMessageHandler(object):
                             pass
                         self.input_error(error.DuplicateCLError())
                         if self.careful:
-                            return
+                            return []
                     try:
                         content_length = int(f_val)
                         assert content_length >= 0
                     except (ValueError, AssertionError):
                         self.input_error(error.MalformedCLError(f_val.decode('utf-8', 'replace')))
                         if self.careful:
-                            return
+                            return []
 
         # yes, this is a horrible hack.
         if gather_conn_info:
             return hdr_tuples, conn_tokens, transfer_codes, content_length
-        else:
-            return hdr_tuples
+        return hdr_tuples
 
-    def _split_headers(self, inbytes: bytes) -> Tuple[bytes, bytes]:
+    @staticmethod
+    def _split_headers(inbytes: bytes) -> Tuple[bytes, bytes]:
         """
         Given a bytes, split out and return (headers, rest),
         consuming the whitespace between them.
@@ -428,7 +429,7 @@ class HttpMessageHandler(object):
         try:
             hdr_tuples, conn_tokens, transfer_codes, content_length \
                 = self._parse_fields(header_lines, True)
-        except TypeError: # returned None because there was an error
+        except ValueError: # returned empty because there was an error
             return False # throw away the rest
 
         # ignore content-length if transfer-encoding is present
@@ -447,7 +448,7 @@ class HttpMessageHandler(object):
             self._input_state = States.HEADERS_DONE
         if not allows_body:
             self._input_delimit = Delimiters.NOBODY
-        elif len(transfer_codes) > 0:
+        elif transfer_codes:
             if transfer_codes[-1] == b'chunked':
                 self._input_delimit = Delimiters.CHUNKED
                 self._input_body_left = -1 # flag that we don't know
@@ -462,7 +463,7 @@ class HttpMessageHandler(object):
 
     ### output-related methods
 
-    def output(self, out: bytes) -> None:
+    def output(self, data: bytes) -> None:
         """
         Write something to whatever we're talking to. Should be overridden.
         """

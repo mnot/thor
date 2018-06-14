@@ -44,7 +44,7 @@ class TlsClient(TcpClient):
     conn_handler will be called with the tcp_conn as the argument
     when the connection is made.
     """
-    def __init__(self, loop: LoopBase=None) -> None:
+    def __init__(self, loop: LoopBase = None) -> None:
         TcpClient.__init__(self, loop)
         try:
             self.tls_context = sys_ssl.SSLContext(sys_ssl.PROTOCOL_SSLv23)
@@ -69,7 +69,7 @@ class TlsClient(TcpClient):
             self.handle_conn_error(socket.error, why)
 
     # TODO: refactor into tcp.py
-    def connect(self, host: bytes, port: int, connect_timeout: float=None) -> None:
+    def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
         """
         Connect to host:port (with an optional connect timeout)
         and emit 'connect' when connected, or 'connect_error' in

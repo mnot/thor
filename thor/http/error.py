@@ -13,7 +13,7 @@ class HttpError(Exception):
     server_recoverable = False # whether a server can recover the connection
     client_recoverable = False # whether a client can recover the connection
 
-    def __init__(self, detail: str=None) -> None:
+    def __init__(self, detail: str = None) -> None:
         Exception.__init__(self)
         self.detail = detail
 

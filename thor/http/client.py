@@ -17,7 +17,7 @@ from typing import Callable, List, Tuple, Union # pylint: disable=unused-import
 
 import thor
 from thor.events import EventEmitter, on
-from thor.loop import LoopBase, ScheduledEvent
+from thor.loop import LoopBase
 from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
 
@@ -38,7 +38,7 @@ class HttpClient(object):
     tcp_client_class = TcpClient
     tls_client_class = TlsClient
 
-    def __init__(self, loop: LoopBase=None) -> None:
+    def __init__(self, loop: LoopBase = None) -> None:
         self.loop = loop or thor.loop._loop
         self.idle_timeout = 60       # type: int    # seconds
         self.connect_timeout = None  # type: int    # seconds
@@ -209,7 +209,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                                       scheme.decode('utf-8', 'replace')))
             raise ValueError
         if b"@" in authority:
-            userinfo, authority = authority.split(b"@", 1)
+            authority = authority.split(b"@", 1)[1]
         if b":" in authority:
             host, port = authority.rsplit(b":", 1)
             try:
@@ -406,8 +406,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "Inform the client that the connection is dead."
         self.client._dead_conn(self.origin)
 
-    def output(self, chunk: bytes) -> None:
-        self._output_buffer.append(chunk)
+    def output(self, data: bytes) -> None:
+        self._output_buffer.append(data)
         if self.tcp_conn and self.tcp_conn.tcp_connected:
             self.tcp_conn.write(b"".join(self._output_buffer))
             self._output_buffer = []

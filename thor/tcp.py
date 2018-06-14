@@ -17,7 +17,7 @@ import sys
 import socket
 from typing import Tuple # pylint: disable=unused-import
 
-from thor.loop import EventSource, LoopBase, schedule, ScheduledEvent
+from thor.loop import EventSource, LoopBase, schedule
 
 
 class TcpConnection(EventSource):
@@ -90,7 +90,7 @@ class TcpConnection(EventSource):
         errno.ECONNABORTED, errno.ECONNREFUSED,
         errno.ENOTCONN, errno.EPIPE])
 
-    def __init__(self, sock: socket.socket, host: bytes, port: int, loop: LoopBase=None) -> None:
+    def __init__(self, sock: socket.socket, host: bytes, port: int, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
         self.socket = sock
         self.host = host
@@ -139,7 +139,7 @@ class TcpConnection(EventSource):
 
     def handle_writable(self) -> None:
         "The connection is ready for writing; write any buffered data."
-        if len(self._write_buffer) > 0:
+        if self._write_buffer:
             data = b"".join(self._write_buffer)
             try:
                 sent = self.socket.send(data)
@@ -160,7 +160,7 @@ class TcpConnection(EventSource):
             self.emit('pause', False)
         if self._closing:
             self._close()
-        if len(self._write_buffer) == 0:
+        if not self._write_buffer:
             self.event_del('fd_writable')
 
     def write(self, data: bytes) -> None:
@@ -185,7 +185,7 @@ class TcpConnection(EventSource):
     def close(self) -> None:
         "Flush buffered data (if any) and close the connection."
         self.pause(True)
-        if len(self._write_buffer) > 0:
+        if self._write_buffer:
             self._closing = True
         else:
             self._close()
@@ -218,8 +218,8 @@ class TcpServer(EventSource):
 
     conn_handler is called every time a new client connects.
     """
-    def __init__(self, host: bytes, port: int, sock: socket.socket=None,
-                 loop: LoopBase=None) -> None:
+    def __init__(self, host: bytes, port: int, sock: socket.socket = None,
+                 loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
         self.host = host
         self.port = port
@@ -249,7 +249,7 @@ class TcpServer(EventSource):
         # TODO: emit close?
 
 
-def server_listen(host: bytes, port: int, backlog: int=None) -> socket.socket:
+def server_listen(host: bytes, port: int, backlog: int = None) -> socket.socket:
     "Return a socket listening to host:port."
     # TODO: IPV6
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -281,7 +281,7 @@ class TcpClient(EventSource):
     conn_handler will be called with the tcp_conn as the argument
     when the connection is made.
     """
-    def __init__(self, loop: LoopBase=None) -> None:
+    def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
         self.host = None  # type: bytes
         self.port = None  # type: int
@@ -293,7 +293,7 @@ class TcpClient(EventSource):
         self.register_fd(self.sock.fileno(), 'fd_writable')
         self.event_add('fd_error')
 
-    def connect(self, host: bytes, port: int, connect_timeout: float=None) -> None:
+    def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
         """
         Connect to host:port (with an optional connect timeout)
         and emit 'connect' when connected, or 'connect_error' in
@@ -335,7 +335,7 @@ class TcpClient(EventSource):
             tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
             self.emit('connect', tcp_conn)
 
-    def handle_conn_error(self, err_type=None, why=None, close: bool=True) -> None:
+    def handle_conn_error(self, err_type=None, why=None, close: bool = True) -> None:
         """
         Handle a connect error.
 

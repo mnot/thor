@@ -34,7 +34,7 @@ class HttpServer(EventEmitter):
     tcp_server_class = TcpServer
     idle_timeout = 60 # in seconds
 
-    def __init__(self, host: bytes, port: int, loop: LoopBase=None) -> None:
+    def __init__(self, host: bytes, port: int, loop: LoopBase = None) -> None:
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
         self.tcp_server.on('connect', self.handle_conn)
@@ -93,7 +93,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def output(self, data: bytes) -> None:
         if self.tcp_conn and self.tcp_conn.tcp_connected:
-            self.tcp_conn.write(chunk)
+            self.tcp_conn.write(data)
 
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],

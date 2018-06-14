@@ -26,13 +26,13 @@ class EventSource(EventEmitter):
     An instance should map to one thing with an interesting file
     descriptor, registered with register_fd.
     """
-    def __init__(self, loop: 'LoopBase'=None) -> None:
+    def __init__(self, loop: 'LoopBase' = None) -> None:
         EventEmitter.__init__(self)
         self._loop = loop or _loop
         self._interesting_events = set()  # type: set[str]
         self._fd = None  # type: int
 
-    def register_fd(self, fd: int, event: str=None) -> None:
+    def register_fd(self, fd: int, event: str = None) -> None:
         """
         Register myself with the loop using file descriptor fd.
         If event is specified, start emitting it.
@@ -69,7 +69,7 @@ class LoopBase(EventEmitter):
     """
     _event_types = {}   # type: Dict[int, str] # map of event types to names; override.
 
-    def __init__(self, precision: float=None) -> None:
+    def __init__(self, precision: float = None) -> None:
         EventEmitter.__init__(self)
         self.precision = precision or .5 # of running scheduled queue (secs)
         self.running = False      # whether or not the loop is running (read-only)
@@ -81,10 +81,10 @@ class LoopBase(EventEmitter):
 
     def __repr__(self) -> str:
         name = self.__class__.__name__
-        running = self.running and "running" or "not-running"
+        is_running = 'running' if self.running else 'not-running'
         events = len(self.__sched_events)
         targets = len(self._fd_targets)
-        return "<%s - %s, %i events, %i fd_targets>" % (name, running, events, targets)
+        return "<%s - %s, %i events, %i fd_targets>" % (name, is_running, events, targets)
 
     def run(self) -> None:
         "Start the loop."

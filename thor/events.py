@@ -82,7 +82,7 @@ class EventEmitter(object):
         its listeners.
         """
         events = self.__events.get(event, [])
-        if len(events):
+        if events:
             for e in events:
                 e(*args)
         else:
@@ -101,7 +101,7 @@ class EventEmitter(object):
     # TODO: event bubbling
 
 
-def on(obj: object, event: str=None) -> Callable:
+def on(obj: object, event: str = None) -> Callable:
     """
     Decorator to call a function when an object emits
     the specified event.

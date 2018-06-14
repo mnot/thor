@@ -28,7 +28,7 @@ class UdpEndpoint(EventSource):
     recv_buffer = 8192
     _block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK])
 
-    def __init__(self, loop: LoopBase=None) -> None:
+    def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
