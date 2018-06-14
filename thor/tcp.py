@@ -345,10 +345,6 @@ class TcpClient(EventSource):
                           close: bool = True) -> None:
         """
         Handle a connect error.
-
-        @err_type - e.g., socket.error; defaults to socket.error
-        @why - tuple of [err_id, err_str]
-        @close - whether the error means the socket should be closed
         """
         if self._timeout_ev:
             self._timeout_ev.delete()

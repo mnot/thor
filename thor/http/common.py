@@ -96,11 +96,6 @@ class HttpMessageHandler(object):
     input_end, and call handle_input when you get bytes from the network.
 
     For serialising, it expects you to override output.
-
-    Headers (and trailers) are represented as a list of (name, value) tuples,
-    each being bytes.
-
-    Body chunks are bytes.
     """
 
     careful = True # if False, don't fail on errors, but preserve them.
@@ -128,16 +123,6 @@ class HttpMessageHandler(object):
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
 
-        top_line is a bytes that contains the first line.
-
-        hdr_tuples is a list of (bytes, bytes) tuples, one for each header line.
-
-        conn_tokens is a list of bytes, one for each Connection token.
-
-        transfer_codes is a list of bytes, one for each transfer coding.
-
-        content_length is an integer representing the Content-Length header.
-
         Returns booleans (allows_body, is_final) to indicate whether the message allows a
         body, and whether it's the final message (respectively).
 
@@ -158,16 +143,12 @@ class HttpMessageHandler(object):
         """
         Indicate that the response body is complete. Optionally can contain
         trailers.
-
-        Trailers are a list of (bytes, bytes) tuples, just like headers in _input_start.
         """
         raise NotImplementedError
 
     def input_error(self, err: error.HttpError) -> None:
         """
         Indicate an unrecoverable parsing problem with the input stream.
-
-        err is an instance of thor.http.error.*.
         """
         raise NotImplementedError
 
