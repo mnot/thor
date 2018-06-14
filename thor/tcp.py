@@ -269,8 +269,8 @@ class TcpClient(EventSource):
     Emits:
       - connect (tcp_conn): upon connection
       - connect_error (err_type, err_id, err_str): if there's a problem
-        before getting a connection. err_type is socket.error or
-        socket.gaierror; err_id is the specific error encountered, and
+        before getting a connection. err_type is 'socket' or
+        'gai'; err_id is the specific error encountered, and
         err_str is its textual description.
 
     To connect to a server:
@@ -291,7 +291,7 @@ class TcpClient(EventSource):
         self._error_sent = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setblocking(False)
-        self.on('fd_error', self.handle_conn_error)
+        self.on('fd_error', self.handle_fd_error)
         self.register_fd(self.sock.fileno(), 'fd_writable')
         self.event_add('fd_error')
 
@@ -308,21 +308,20 @@ class TcpClient(EventSource):
         try:
             err = self.sock.connect_ex((host, port))
         except socket.gaierror as why:
-            self.handle_conn_error(socket.gaierror, why)
+            self.handle_socket_error(why, 'gai')
             return
         except socket.error as why:
-            self.handle_conn_error(socket.error, why)
+            self.handle_socket_error(why)
             return
         if err != errno.EINPROGRESS:
-            self.handle_conn_error(socket.error, socket.error(err, os.strerror(err)))
+            self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
-                self.handle_conn_error,
-                socket.error,
-                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
-                True)
+                self.handle_socket_error,
+                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
+            )
 
     def handle_connect(self) -> None:
         self.unregister_fd()
@@ -332,16 +331,23 @@ class TcpClient(EventSource):
             return
         err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err:
-            self.handle_conn_error(socket.error, (err, os.strerror(err)))
+            self.handle_socket_error(socket.error(err, os.strerror(err)))
         else:
             tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
             self.emit('connect', tcp_conn)
 
-    def handle_conn_error(self,
-                          err_type: Union[Type[socket.gaierror], Type[socket.error],
-                                          Type[sys_ssl.SSLError]]=None,
-                          why: Union[socket.gaierror, socket.error, sys_ssl.SSLError,
-                                     Tuple[int, str]]=None,
+    def handle_fd_error(self) -> None:
+        err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+        err_str = os.strerror(err_id)
+        self.handle_conn_error('socket', err_id, err_str)
+
+    def handle_socket_error(self, why: Union[socket.error, socket.gaierror, sys_ssl.SSLError],
+                            err_type: str = "socket") -> None:
+        err_id = why.args[0]
+        err_str = why.args[1]
+        self.handle_conn_error(err_type, err_id, err_str)
+
+    def handle_conn_error(self, err_type: str, err_id: int, err_str: str,
                           close: bool = True) -> None:
         """
         Handle a connect error.
@@ -350,17 +356,6 @@ class TcpClient(EventSource):
             self._timeout_ev.delete()
         if self._error_sent:
             return
-        if err_type is None:
-            err_type = socket.error
-            err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-            err_str = os.strerror(err_id)
-        else:
-            if hasattr(why, 'args'):
-                args = why.args
-            else:
-                args = why
-            err_id = args[0]
-            err_str = args[1]
         self._error_sent = True
         self.unregister_fd()
         self.emit('connect_error', err_type, err_id, err_str)

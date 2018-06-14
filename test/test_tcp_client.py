@@ -81,7 +81,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, socket.error)
+        self.assertEqual(self.last_error_type, 'socket')
         self.assertEqual(self.last_error, errno.ECONNREFUSED)
         self.assertEqual(self.timeout_hit, False)
 
@@ -91,7 +91,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, socket.gaierror)
+        self.assertEqual(self.last_error_type, 'gai')
         self.assertEqual(self.last_error, socket.EAI_NONAME)
         self.assertEqual(self.timeout_hit, False)
 
@@ -101,8 +101,8 @@ class TestTcpClientConnect(unittest.TestCase):
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, socket.error)
-        self.assertEqual(self.last_error, errno.ETIMEDOUT, 
+        self.assertEqual(self.last_error_type, 'socket')
+        self.assertEqual(self.last_error, errno.ETIMEDOUT,
                          errno.errorcode.get(self.last_error, self.last_error))
         self.assertEqual(self.timeout_hit, False)
 

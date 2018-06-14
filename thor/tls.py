@@ -64,9 +64,9 @@ class TlsClient(TcpClient):
             elif isinstance(why, sys_ssl.SSLWantWriteError):
                 self.once('fd_writable', self.handshake)
             else:
-                self.handle_conn_error(sys_ssl.SSLError, why)
+                self.handle_socket_error(why, 'ssl')
         except socket.error as why:
-            self.handle_conn_error(socket.error, why)
+            self.handle_socket_error(why, 'ssl')
 
     # TODO: refactor into tcp.py
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
@@ -95,21 +95,19 @@ class TlsClient(TcpClient):
         try:
             err = self.sock.connect_ex((host, port))
         except socket.gaierror as why:
-            self.handle_conn_error(socket.gaierror, why)
+            self.handle_socket_error(why, 'gai')
             return
         except socket.error as why:
-            self.handle_conn_error(socket.error, why)
+            self.handle_socket_error(why)
             return
         if err != errno.EINPROGRESS:
-            self.handle_conn_error(socket.error, [err, os.strerror(err)])
+            self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
-                self.handle_conn_error,
-                socket.error,
-                [errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)],
-                True
+                self.handle_socket_error,
+                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
             )
 
 
