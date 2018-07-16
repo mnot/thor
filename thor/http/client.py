@@ -296,7 +296,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."
-        self.input_error(ConnectError(err_str))
+        self._clear_read_timeout()
+        if self._retries < self.client.retry_limit:
+            self.client.loop.schedule(self.client.retry_delay, self._retry)
+        else:
+            self.input_error(ConnectError(err_str))
 
     def _conn_closed(self) -> None:
         "The server closed the connection."
@@ -323,7 +327,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _retry(self) -> None:
         "Retry the request."
-        self._clear_read_timeout()
         self._retries += 1
         try:
             origin = self._parse_uri(self.uri)
