@@ -11,7 +11,7 @@ from collections import defaultdict
 from typing import Any, Callable, Dict, List
 
 
-class EventEmitter(object):
+class EventEmitter:
     """
     An event emitter, in the style of Node.JS.
     """

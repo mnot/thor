@@ -226,7 +226,7 @@ class LoopBase(EventEmitter):
         return self.__event_cache[evfilter]
 
 
-class ScheduledEvent(object):
+class ScheduledEvent:
     """
     Holds a scheduled event.
     """

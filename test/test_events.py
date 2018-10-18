@@ -85,7 +85,7 @@ class TestEventEmitter(unittest.TestCase):
         self.t.emit('baz')
 
     def test_sink(self):
-        class TestSink(object):
+        class TestSink:
             def __init__(self):
                 self.bam_count = 0
             def bam(self):

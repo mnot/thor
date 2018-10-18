@@ -34,7 +34,7 @@ req_rm_hdrs = hop_by_hop_hdrs + [b'host']
 
 # TODO: next-hop version cache for Expect/Continue, etc.
 
-class HttpClient(object):
+class HttpClient:
     "An asynchronous HTTP client."
 
     tcp_client_class = TcpClient
@@ -100,14 +100,13 @@ class HttpClient(object):
                     self._idle_conns[origin].remove(tcp_conn)
                 except (KeyError, ValueError):
                     pass
-            tcp_conn.on('close', idle_close)
             if self.idle_timeout > 0:
-                tcp_conn._idler = self.loop.schedule(self.idle_timeout, # type: ignore
-                                                     tcp_conn.close)
+                tcp_conn.on('close', idle_close)
+                tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
+                self._idle_conns[origin].append(tcp_conn)
             else:
                 tcp_conn.close()
                 self._dead_conn(origin)
-            self._idle_conns[origin].append(tcp_conn)
         else:
             self._dead_conn(origin)
 

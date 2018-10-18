@@ -79,7 +79,7 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
         [l.split(b",") for l in [i[1] for i in hdr_tuples if i[0].lower() == name]], [])]
 
 
-class HttpMessageHandler(object):
+class HttpMessageHandler:
     """
     This is a base class for something that has to parse and/or serialise
     HTTP messages, request or response.
