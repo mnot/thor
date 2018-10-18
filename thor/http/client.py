@@ -390,7 +390,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                 self.client.release_conn(self.tcp_conn, self.scheme)
             else:
                 self.tcp_conn.close()
-        self._dead_conn()
         self.tcp_conn = None
         self.emit('response_done', trailers)
 
@@ -404,15 +403,10 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             # It really is a fatal error.
             self._input_state = States.ERROR
             self._clear_read_timeout()
-            self._dead_conn()
             if self.tcp_conn and self.tcp_conn.tcp_connected:
                 self.tcp_conn.close()
             self.tcp_conn = None
         self.emit('error', err)
-
-    def _dead_conn(self) -> None:
-        "Inform the client that the connection is dead."
-        self.client._dead_conn(self.origin)
 
     def output(self, data: bytes) -> None:
         self._output_buffer.append(data)
