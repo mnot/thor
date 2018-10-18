@@ -129,11 +129,10 @@ class TcpConnection(EventSource):
         except (socket.error, OSError) as why:
             if why.args[0] in self.block_errs:
                 return
-            elif why.args[0] in self.close_errs:
+            if why.args[0] in self.close_errs:
                 self._handle_close()
                 return
-            else:
-                raise
+            raise
         if data == b"":
             self._handle_close()
         else:
@@ -148,11 +147,10 @@ class TcpConnection(EventSource):
             except (socket.error, OSError) as why:
                 if why.args[0] in self.block_errs:
                     return
-                elif why.args[0] in self.close_errs:
+                if why.args[0] in self.close_errs:
                     self._handle_close()
                     return
-                else:
-                    raise
+                raise
             if sent < len(data):
                 self._write_buffer = [data[sent:]]
             else:

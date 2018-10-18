@@ -155,7 +155,7 @@ class HttpMessageHandler:
             self._input_buffer = []
         if self._input_state == States.WAITING:  # waiting for headers or trailers
             headers, rest = self._split_headers(inbytes)
-            if headers != None: # found one
+            if headers is not None: # found one
                 if self._parse_headers(headers):
                     try:
                         self.handle_input(rest)
@@ -235,7 +235,7 @@ class HttpMessageHandler:
             self.input_transfer_length += this_chunk + 2
             self._input_body_left = -1
             return inbytes[this_chunk + 2:] # +2 consumes the trailing CRLF
-        elif self._input_body_left + 2 == got:
+        if self._input_body_left + 2 == got:
             # got the whole chunk exactly (including CRLF)
             self.input_body(inbytes[:-2])
             self.input_transfer_length += self._input_body_left + 2
@@ -257,7 +257,7 @@ class HttpMessageHandler:
                 self.handle_input(inbytes[2:]) # 2 consumes the CRLF
         else:
             trailer_block, rest = self._split_headers(inbytes) # trailers
-            if trailer_block != None:
+            if trailer_block is not None:
                 self._input_state = self.default_state
                 try:
                     trailers = self._parse_fields(trailer_block.splitlines())[0]
@@ -332,7 +332,7 @@ class HttpMessageHandler:
                     transfer_codes += [v.strip().lower() for \
                                        v in f_val.split(b',')]
                 elif f_name == b"content-length":
-                    if content_length != None:
+                    if content_length is not None:
                         try:
                             if int(f_val) == content_length:
                                 # we have a duplicate, non-conflicting c-l.
@@ -405,7 +405,7 @@ class HttpMessageHandler:
             return False # throw away the rest
 
         # ignore content-length if transfer-encoding is present
-        if transfer_codes != [] and content_length != None:
+        if transfer_codes != [] and content_length is not None:
             content_length = None
 
         try:
@@ -426,7 +426,7 @@ class HttpMessageHandler:
                 self._input_body_left = -1 # flag that we don't know
             else:
                 self._input_delimit = Delimiters.CLOSE
-        elif content_length != None:
+        elif content_length is not None:
             self._input_delimit = Delimiters.COUNTED
             self._input_body_left = content_length
         else:
