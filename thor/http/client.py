@@ -130,6 +130,8 @@ class HttpClient(object):
     def _dead_conn(self, origin: OriginType) -> None:
         "Notify the client that a connect to origin is dead."
         self._conn_counts[origin] -= 1
+        if self._conn_counts[origin] == 0:
+            del self._conn_counts[origin]
 
     def _close_conns(self) -> None:
         "Close all idle HTTP connections."
