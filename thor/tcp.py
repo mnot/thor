@@ -200,7 +200,7 @@ class TcpConnection(EventSource):
 
     def _close(self) -> None:
         self.tcp_connected = False
-        self.removeListeners('fd_readable', 'fd_writable', 'fd_close')
+        self.removeListeners()
         self.unregister_fd()
         if self.socket:
             self.socket.close()
