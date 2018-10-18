@@ -76,6 +76,7 @@ class HttpClient:
             try:
                 tcp_conn = self._idle_conns[origin].pop()
             except IndexError:
+                del self._idle_conns[origin]
                 self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
                 break
             if tcp_conn.tcp_connected:
@@ -98,6 +99,8 @@ class HttpClient:
                 self._dead_conn(origin)
                 try:
                     self._idle_conns[origin].remove(tcp_conn)
+                    if not self._idle_conns[origin]:
+                        del self._idle_conns[origin]
                 except (KeyError, ValueError):
                     pass
             if self.idle_timeout > 0:
