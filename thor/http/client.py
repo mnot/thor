@@ -103,6 +103,8 @@ class HttpClient:
                         del self._idle_conns[origin]
                 except (KeyError, ValueError):
                     pass
+                if tcp_conn.tcp_connected:
+                    tcp_conn.close()
             if self.idle_timeout > 0:
                 tcp_conn.on('close', idle_close)
                 tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
