@@ -34,7 +34,7 @@ THE SOFTWARE.
 """
 __version__ = "0.6.4"
 
-from thor.loop import run, stop, time, schedule, running
+from thor.loop import run, stop, time, schedule, running, debug
 from thor.tcp import TcpClient, TcpServer
 from thor.udp import UdpEndpoint
 from thor.events import on
