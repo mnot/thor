@@ -15,7 +15,7 @@ version:
 	@echo $(version)
 
 .PHONY: dist
-dist: typecheck test
+dist: clean typecheck test
 	git tag thor-$(version)
 	git push
 	git push --tags origin
