@@ -108,7 +108,7 @@ class HttpClient:
                     pass
             if self._req_q[origin]:
                 (handle_connect, handle_connect_error, connect_timeout) = self._req_q[origin].pop(0)
-                self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
+                handle_connect(tcp_conn)
             elif self.idle_timeout > 0:
                 tcp_conn.on('close', idle_close)
                 tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
