@@ -449,7 +449,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
 def test_client(request_uri: bytes, out: Callable, err: Callable) -> None:  # pragma: no coverage
     "A simple demonstration of a client."
-    from thor.loop import stop, run
+    from thor.loop import stop, run, schedule
 
     c = HttpClient()
     c.connect_timeout = 5
@@ -475,7 +475,7 @@ def test_client(request_uri: bytes, out: Callable, err: Callable) -> None:  # pr
 
     @on(x)
     def response_done(trailers: RawHeaderListType) -> None:
-        thor.schedule(1, stop)
+        schedule(1, stop)
 
     x.request_start(b"GET", request_uri, [])
     x.request_done([])

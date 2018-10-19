@@ -15,7 +15,6 @@ import os
 import sys
 from typing import List, Tuple, Any
 
-from thor import schedule
 from thor.events import EventEmitter, on
 from thor.loop import LoopBase, ScheduledEvent
 from thor.tcp import TcpServer, TcpConnection
@@ -36,10 +35,11 @@ class HttpServer(EventEmitter):
 
     def __init__(self, host: bytes, port: int, loop: LoopBase = None) -> None:
         EventEmitter.__init__(self)
+        self.loop = loop
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
         self.loop = self.tcp_server._loop
         self.tcp_server.on('connect', self.handle_conn)
-        schedule(0, self.emit, 'start')
+        loop.schedule(0, self.emit, 'start')
 
     def handle_conn(self, tcp_conn: TcpConnection) -> None:
         http_conn = HttpServerConnection(tcp_conn, self)
@@ -98,7 +98,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.tcp_conn.write(data)
 
     def output_done(self) -> None:
-        self._idler = schedule(self.server.idle_timeout, self.tcp_conn.close)
+        self._idler = self.server.loop.schedule(self.server.idle_timeout, self.tcp_conn.close)
 
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],
