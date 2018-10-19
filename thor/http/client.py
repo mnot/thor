@@ -430,6 +430,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.tcp_conn.write(b"".join(self._output_buffer))
             self._output_buffer = []
 
+    def output_done(self) -> None:
+        pass
+
     # misc
 
     def _set_read_timeout(self, kind: str) -> None:

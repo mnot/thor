@@ -17,7 +17,7 @@ from typing import List, Tuple, Any
 
 from thor import schedule
 from thor.events import EventEmitter, on
-from thor.loop import LoopBase
+from thor.loop import LoopBase, ScheduledEvent
 from thor.tcp import TcpServer, TcpConnection
 
 from thor.http.common import HttpMessageHandler, \
@@ -37,6 +37,7 @@ class HttpServer(EventEmitter):
     def __init__(self, host: bytes, port: int, loop: LoopBase = None) -> None:
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
+        self.loop = self.tcp_server._loop
         self.tcp_server.on('connect', self.handle_conn)
         schedule(0, self.emit, 'start')
 
@@ -65,6 +66,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.server = server
         self.ex_queue = []          # type: List[HttpServerExchange] # queue of exchanges
         self.output_paused = False
+        self._idler = None          # type: ScheduledEvent
 
     def req_body_pause(self, paused: bool) -> None:
         """
@@ -95,6 +97,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if self.tcp_conn and self.tcp_conn.tcp_connected:
             self.tcp_conn.write(data)
 
+    def output_done(self) -> None:
+        self._idler = schedule(self.server.idle_timeout, self.tcp_conn.close)
+
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],
                     content_length: int) -> Tuple[bool, bool]:
@@ -102,6 +107,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
         """
+        if self._idler:
+            self._idler.delete()
+            self._idler = None
         try:
             method, req_line = top_line.split(None, 1)
             uri, req_version = req_line.rsplit(None, 1)

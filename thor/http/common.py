@@ -441,6 +441,12 @@ class HttpMessageHandler:
         """
         raise NotImplementedError
 
+    def output_done(self) -> None:
+        """
+        The exchange won't output any more on the channel.
+        """
+        raise NotImplementedError
+
     def output_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                      delimit: Delimiters) -> None:
         """
@@ -487,4 +493,5 @@ class HttpMessageHandler:
         else:
             raise AssertionError("Unknown request delimiter %s" % self._output_delimit)
         self._output_state = States.WAITING
+        self.output_done()
         return False
