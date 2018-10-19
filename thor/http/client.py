@@ -47,13 +47,14 @@ class HttpClient:
         self.read_timeout = None     # type: int    # seconds
         self.retry_limit = 2         # type: int
         self.retry_delay = 0.5       # type: float  # seconds
-        self.max_server_conn = 4     # type: int
+        self.max_server_conn = 6     # type: int
         self.proxy_tls = False       # type: bool
         self.proxy_host = None       # type: bytes
         self.proxy_port = None       # type: int
         self.careful = True          # type: bool
         self._idle_conns = defaultdict(list)     # type: Dict[OriginType, List[TcpConnection]]
         self._conn_counts = defaultdict(int)     # type: Dict[OriginType, int]
+        self._req_q = defaultdict(list)   # type: Dict[OriginType, List[Tuple[Callable, Callable, float]]]
         self.loop.on('stop', self._close_conns)
 
     def exchange(self) -> 'HttpClientExchange':
@@ -75,7 +76,7 @@ class HttpClient:
         while True:
             try:
                 tcp_conn = self._idle_conns[origin].pop()
-            except IndexError:
+            except IndexError: # No idle conns available.
                 del self._idle_conns[origin]
                 self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
                 break
@@ -105,7 +106,10 @@ class HttpClient:
                     pass
                 if tcp_conn.tcp_connected:
                     tcp_conn.close()
-            if self.idle_timeout > 0:
+            if self._req_q[origin]:
+                (handle_connect, handle_connect_error, connect_timeout) = self._req_q[origin].pop(0)
+                self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
+            elif self.idle_timeout > 0:
                 tcp_conn.on('close', idle_close)
                 tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
                 self._idle_conns[origin].append(tcp_conn)
@@ -118,6 +122,9 @@ class HttpClient:
     def _new_conn(self, origin: OriginType, handle_connect: Callable,
                   handle_error: Callable, timeout: float) -> None:
         "Create a new connection."
+        if self._conn_counts[origin] > self.max_server_conn:
+            self._req_q[origin].append((handle_connect, handle_error, timeout))
+            return
         (scheme, host, port) = origin
         tcp_client = None  # type: Union[TcpClient, TlsClient]
         if scheme == b'http':
@@ -136,6 +143,9 @@ class HttpClient:
         self._conn_counts[origin] -= 1
         if self._conn_counts[origin] == 0:
             del self._conn_counts[origin]
+            if self._req_q[origin]:
+                (handle_connect, handle_connect_error, connect_timeout) = self._req_q[origin].pop(0)
+                self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
 
     def _close_conns(self) -> None:
         "Close all idle HTTP connections."
