@@ -97,15 +97,13 @@ class HttpClient:
                 "Remove the connection from the pool when it closes."
                 if hasattr(tcp_conn, "_idler"):
                     tcp_conn._idler.delete()  # type: ignore
-                self.dead_conn(origin)
+                self.dead_conn(origin, tcp_conn)
                 try:
                     self._idle_conns[origin].remove(tcp_conn)
                     if not self._idle_conns[origin]:
                         del self._idle_conns[origin]
                 except (KeyError, ValueError):
                     pass
-                if tcp_conn.tcp_connected:
-                    tcp_conn.close()
             if self._req_q[origin]:
                 (handle_connect, handle_connect_error, connect_timeout) = self._req_q[origin].pop(0)
                 self._new_conn(origin, handle_connect, handle_connect_error, connect_timeout)
@@ -114,13 +112,14 @@ class HttpClient:
                 tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
                 self._idle_conns[origin].append(tcp_conn)
             else:
-                tcp_conn.close()
-                self.dead_conn(origin)
+                self.dead_conn(origin, tcp_conn)
         else:
-            self.dead_conn(origin)
+            self.dead_conn(origin, tcp_conn)
 
-    def dead_conn(self, origin: OriginType) -> None:
-        "Notify the client that a connect to origin is dead."
+    def dead_conn(self, origin: OriginType, tcp_conn: TcpConnection) -> None:
+        "Notify the client that a connection is dead."
+        if tcp_conn and tcp_conn.tcp_connected:
+            tcp_conn.close()
         self._conn_counts[origin] -= 1
         if self._conn_counts[origin] == 0:
             del self._conn_counts[origin]
@@ -289,8 +288,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._req_start()
         close = self.output_end(trailers)
         if close and self.tcp_conn:
-            self.tcp_conn.close()
-            self.client.dead_conn(self.origin)
+            self.client.dead_conn(self.origin, self.tcp_conn)
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
@@ -313,7 +311,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def _handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."
         self._clear_read_timeout()
-        self.client.dead_conn(self.origin)
+        self.client.dead_conn(self.origin, self.tcp_conn)
         if self._retries < self.client.retry_limit:
             self.client.loop.schedule(self.client.retry_delay, self._retry)
         else:
@@ -322,7 +320,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def _conn_closed(self) -> None:
         "The server closed the connection."
         self._clear_read_timeout()
-        self.client.dead_conn(self.origin)
+        self.client.dead_conn(self.origin, self.tcp_conn)
         if self._input_buffer:
             self.handle_input(b"")
         if self._input_state == States.QUIET:
@@ -407,8 +405,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             if self.tcp_conn.tcp_connected and self._conn_reusable:
                 self.client.release_conn(self.tcp_conn, self.scheme)
             else:
-                self.tcp_conn.close()
-                self.client.dead_conn(self.origin)
+                self.client.dead_conn(self.origin, self.tcp_conn)
         self.tcp_conn = None
         self.emit('response_done', trailers)
 
@@ -423,8 +420,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self._input_state = States.ERROR
             self._clear_read_timeout()
             if self.tcp_conn and self.tcp_conn.tcp_connected:
-                self.tcp_conn.close()
-                self.client.dead_conn(self.origin)
+                self.client.dead_conn(self.origin, self.tcp_conn)
             self.tcp_conn = None
         self.emit('error', err)
 
