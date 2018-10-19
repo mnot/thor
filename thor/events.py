@@ -37,8 +37,8 @@ class EventEmitter:
         Call listener the first time event is emitted.
         """
         def mycall(*args: Any) -> None:
-            listener(*args)
             self.removeListener(event, mycall)
+            listener(*args)
         self.on(event, mycall)
 
     def removeListener(self, event: str, listener: Callable) -> None:
