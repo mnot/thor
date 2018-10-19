@@ -19,6 +19,7 @@ dist: typecheck test
 	git tag thor-$(version)
 	git push
 	git push --tags origin
+	$(PYTHON) setup.py sdist
 	$(PYTHON) -m twine upload dist/*
 
 .PHONY: lint
