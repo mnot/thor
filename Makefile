@@ -1,6 +1,6 @@
 PYTHON=python3
 PYTHONPATH=./
-version=$(shell python -c "import thor; print thor.__version__")
+version=$(shell PYTHONPATH=$(PYTHONPATH) $(PYTHON) -c "import thor; print(thor.__version__)")
 PY_TESTS=test/test_*.py
 
 all:
@@ -9,6 +9,10 @@ all:
 # for running from IDEs (e.g., TextMate)
 .PHONY: run
 run: test
+
+.PHONY: version
+version:
+	@echo $(version)
 
 .PHONY: dist
 dist: typecheck test
