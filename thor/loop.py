@@ -84,7 +84,7 @@ class LoopBase(EventEmitter):
         is_running = 'running' if self.running else 'not-running'
         events = len(self.__sched_events)
         targets = len(self._fd_targets)
-        return "<%s - %s, %i events, %i fd_targets>" % (name, is_running, events, targets)
+        return "<%s - %s, %i sched_events, %i fd_targets>" % (name, is_running, events, targets)
 
     def run(self) -> None:
         "Start the loop."
