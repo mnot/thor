@@ -126,7 +126,7 @@ class LoopBase(EventEmitter):
                             delay = systime.time() - ev_start
                             if delay > self.precision * 2:
                                 sys.stderr.write("WARNING: long event delay (%.2f): %s\n" % \
-                                                 (delay, repr(what)))
+                                                 (delay, what.__name__))
                     else:
                         break
 
