@@ -290,7 +290,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         close = self.output_end(trailers)
         if close and self.tcp_conn:
             self.tcp_conn.close()
-
+            self.client.dead_conn(self.origin)
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
