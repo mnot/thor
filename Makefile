@@ -11,7 +11,7 @@ all:
 run: test
 
 .PHONY: dist
-dist: test
+dist: typecheck test
 	git tag thor-$(version)
 	git push
 	git push --tags origin
