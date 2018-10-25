@@ -384,11 +384,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
     def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the response body is complete."
         self._clear_read_timeout()
-        self.emit('response_done', trailers)
         if self._conn_reusable:
             self.client.release_conn(self)
         else:
             self.client.dead_conn(self)
+        self.emit('response_done', trailers)
 
     def input_error(self, err: HttpError, close: bool = True) -> None:
         "Indicate an error state."
