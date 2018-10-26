@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import absolute_import
-from distutils.core import setup
+from setuptools import setup, find_packages
 import thor
 
 setup(
@@ -11,11 +11,11 @@ setup(
   author = 'Mark Nottingham',
   author_email = 'mnot@mnot.net',
   url = 'http://github.com/mnot/thor/',
-  download_url = \
-    'http://github.com/mnot/thor/tarball/thor-%s' % thor.__version__,
-  packages = ['thor', 'thor.http'],
+  download_url = 'http://github.com/mnot/thor/tarball/thor-%s' % thor.__version__,
+  packages = find_packages(),
   provides = ['thor'],
-  long_description=open("README.rst").read(),
+  long_description=open("README.md").read(),
+  long_description_content_type="text/markdown",
   license = "MIT",
   classifiers = [
     'Development Status :: 4 - Beta',
