@@ -14,6 +14,11 @@ setup(
   download_url = 'http://github.com/mnot/thor/tarball/thor-%s' % thor.__version__,
   packages = find_packages(),
   provides = ['thor'],
+  extras_require={
+      'dev': [
+          'mypy'
+      ]
+  },
   long_description=open("README.md").read(),
   long_description_content_type="text/markdown",
   license = "MIT",
