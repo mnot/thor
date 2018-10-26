@@ -7,8 +7,11 @@ setup(
   name = 'thor',
   version = thor.__version__,
   description = 'Simple Event-Driven IO for Python',
+  long_description=open("README.md").read(),
+  long_description_content_type="text/markdown",
   author = 'Mark Nottingham',
   author_email = 'mnot@mnot.net',
+  license = "MIT",
   url = 'http://github.com/mnot/thor/',
   download_url = 'http://github.com/mnot/thor/tarball/thor-%s' % thor.__version__,
   packages = find_packages(),
@@ -19,9 +22,6 @@ setup(
           'mypy'
       ]
   },
-  long_description=open("README.md").read(),
-  long_description_content_type="text/markdown",
-  license = "MIT",
   classifiers = [
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
