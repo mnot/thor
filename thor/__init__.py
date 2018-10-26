@@ -12,7 +12,7 @@ from __future__ import absolute_import
 
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
-Copyright (c) 2005-2016 Mark Nottingham
+Copyright (c) 2005-2018 Mark Nottingham
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
