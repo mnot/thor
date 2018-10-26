@@ -84,4 +84,4 @@ Python in [redbot](http://redbot.org/).
 Thor (the cat) now rules our house with a firm but benevolent paw. He gets sick if we give him any
 milk, though.
 
-![Thor, the cat](https://www.mnot.net/lib/thor.jpg)]
+![Thor, the cat](https://www.mnot.net/lib/thor.jpg)
