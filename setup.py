@@ -13,6 +13,7 @@ setup(
   download_url = 'http://github.com/mnot/thor/tarball/thor-%s' % thor.__version__,
   packages = find_packages(),
   provides = ['thor'],
+  python_requires=">=3.5",
   extras_require={
       'dev': [
           'mypy'
