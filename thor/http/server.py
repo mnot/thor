@@ -74,6 +74,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         """
         self.tcp_conn.pause(paused)
 
+    def close_conn(self) -> None:
+        "Close the connection."
+        if self.tcp_conn and self.tcp_conn.tcp_connected:
+            self.tcp_conn.close()
+            self.tcp_conn = None
+
     # Methods called by tcp
 
     def res_body_pause(self, paused: bool) -> None:
@@ -97,7 +103,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.tcp_conn.write(data)
 
     def output_done(self) -> None:
-        self._idler = self.server.loop.schedule(self.server.idle_timeout, self.tcp_conn.close)
+        self._idler = self.server.loop.schedule(self.server.idle_timeout, self.close_conn)
 
     def input_start(self, top_line: bytes, hdr_tuples: RawHeaderListType,
                     conn_tokens: List[bytes], transfer_codes: List[bytes],
@@ -162,10 +168,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             ex.response_body(body)
             ex.response_done([])
             self.ex_queue.append(ex)
-
-            if self.tcp_conn:
-                self.tcp_conn.close()
-                self.tcp_conn = None
+            self.close_conn()
 
 # TODO: if in mid-request, we need to send an error event and clean up.
 #        self.ex_queue[-1].emit('error', err)
@@ -238,7 +241,7 @@ class HttpServerExchange(EventEmitter):
         """
         close = self.http_conn.output_end(trailers)
         if close and self.http_conn.tcp_conn:
-            self.http_conn.tcp_conn.close()
+            self.http_conn.close_conn()
 
 
 def test_handler(x: HttpServerExchange) -> None: # pragma: no cover
