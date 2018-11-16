@@ -13,6 +13,7 @@ will block the entire client.
 
 from collections import defaultdict
 from urllib.parse import urlsplit, urlunsplit
+from string import ascii_letters, digits
 from typing import Callable, List, Dict, Tuple, Union # pylint: disable=unused-import
 
 import thor
@@ -124,16 +125,16 @@ class HttpClient:
             return
         (scheme, host, port) = origin
         tcp_client = None  # type: Union[TcpClient, TlsClient]
-        if scheme == b'http':
+        if scheme == 'http':
             tcp_client = self.tcp_client_class(self.loop)
-        elif scheme == b'https':
+        elif scheme == 'https':
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError(u'unknown scheme %s' % scheme.decode('utf-8', 'replace'))
+            raise ValueError(u'unknown scheme %s' % scheme)
         tcp_client.once('connect', handle_connect)
         tcp_client.once('connect_error', handle_error)
         self._conn_counts[origin] += 1
-        tcp_client.connect(host, port, timeout)
+        tcp_client.connect(host.encode('ascii'), port, timeout)
 
     def _close_conns(self) -> None:
         "Close all idle HTTP connections."
@@ -183,8 +184,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         Start a request to uri using method, where req_hdrs is a list of (field_name, field_value)
         for the request headers.
-
-        All values are bytes.
         """
         self.method = method
         self.uri = uri
@@ -200,23 +199,33 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def _parse_uri(self, uri: bytes) -> OriginType:
         """
-        Given a bytes, parse out the host, port, authority and request target.
+        Given a uri, parse out the host, port, authority and request target.
         Returns None if there is an error, otherwise the origin.
         """
-        (scheme, authority, path, query, fragment) = urlsplit(uri)
-        scheme = scheme.lower()
-        if scheme == b'http':
+        try:
+            (schemeb, authority, path, query, fragment) = urlsplit(uri)
+        except UnicodeDecodeError:
+            self.input_error(UrlError("URL has non-ascii characters"), False)
+            raise ValueError
+        except ValueError as why:
+            self.input_error(UrlError(why), False)
+            raise
+        try:
+            scheme = schemeb.decode('utf-8').lower()
+        except UnicodeDecodeError:
+            self.input_error(UrlError("URL scheme has non-ascii characters"), False)
+            raise ValueError
+        if scheme == 'http':
             default_port = 80
-        elif scheme == b'https':
+        elif scheme == 'https':
             default_port = 443
         else:
-            self.input_error(UrlError("Unsupported URL scheme '%s'" % \
-                                      scheme.decode('utf-8', 'replace')), False)
+            self.input_error(UrlError("Unsupported URL scheme '%s'" % scheme), False)
             raise ValueError
         if b"@" in authority:
             authority = authority.split(b"@", 1)[1]
         if b":" in authority:
-            host, portb = authority.rsplit(b":", 1)
+            hostb, portb = authority.rsplit(b":", 1)
             try:
                 port = int(portb.decode('utf-8', 'replace'))
             except ValueError:
@@ -227,7 +236,28 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                 self.input_error(UrlError("URL port %i out of range" % port), False)
                 raise ValueError
         else:
-            host, port = authority, default_port
+            hostb, port = authority, default_port
+        try:
+            host = hostb.decode("ascii", "strict")
+        except UnicodeDecodeError:
+            self.input_error(UrlError("URL host has non-ascii characters"), False)
+            raise ValueError
+        if not all(c in ascii_letters + digits + '.-' for c in host):
+            self.input_error(UrlError("URL hostname has disallowed character"), False)
+            raise ValueError
+        if len(host) > 255:
+            self.input_error(UrlError("URL hostname greater than 255 characters"), False)
+            raise ValueError
+        labels = host.split(".")
+        if any(len(l) == 0 for l in labels):
+            self.input_error(UrlError("URL hostname has empty label"), False)
+            raise ValueError
+        if any(len(l) > 63 for l in labels):
+            self.input_error(UrlError("URL hostname label greater than 63 characters"), False)
+            raise ValueError
+#        if any(l[0].isdigit() for l in labels):
+#            self.input_error(UrlError("URL hostname label starts with digit"), False)
+#            raise ValueError
         if path == b"":
             path = b"/"
         self.authority = authority
@@ -238,6 +268,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         Queue the request headers for sending.
         """
+        if self._req_started:
+            return
         self._req_started = True
         req_hdrs = [i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs]
         req_hdrs.append((b"Host", self.authority))
@@ -259,9 +291,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "Send part of the request body. May be called zero to many times."
         if self._input_state == States.ERROR:
             return
-        if not self._req_started:
-            self._req_body = True
-            self._req_start()
+        self._req_body = True
+        self._req_start()
         self.output_body(chunk)
 
     def request_done(self, trailers: RawHeaderListType) -> None:
@@ -271,8 +302,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         """
         if self._input_state == States.ERROR:
             return
-        if not self._req_started:
-            self._req_start()
+        self._req_start()
         close = self.output_end(trailers)
         if close: # if there was a problem and we didn't ever assign a request delimiter.
             self.client.dead_conn(self)

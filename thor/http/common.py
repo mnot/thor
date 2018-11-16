@@ -15,7 +15,7 @@ from thor.http import error
 
 linesep = b"\r\n"
 RawHeaderListType = List[Tuple[bytes, bytes]]
-OriginType = Tuple[bytes, bytes, int]
+OriginType = Tuple[str, str, int]
 
 NEWLINE = ord("\n")
 RETURN = ord("\r")

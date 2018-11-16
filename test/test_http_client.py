@@ -291,8 +291,7 @@ Connection: close
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
-
-    def test_url_err(self):
+    def test_url_unsupported_scheme(self):
         client = HttpClient(loop=self.loop)
         exchange = client.exchange()
         @on(exchange)
@@ -300,10 +299,33 @@ Connection: close
             self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
             self.loop.stop()
 
-        req_uri = b"foo://%s:%i/url_err" % (test_host, test_port)
+        req_uri = b"notascheme://www.example.com:80000/"
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
+    def test_url_nonascii_scheme(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = "httpü://www.example.com:80000/".encode("utf-8")
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_unbalanced_brackets(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = "http://[www.example.com:80000/".encode("utf-8")
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
 
     def test_url_port_err(self):
         client = HttpClient(loop=self.loop)
@@ -330,6 +352,101 @@ Connection: close
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
+    def test_url_empty_host(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://:80000/"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_dot_host(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://.example.com:80000/"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_nonascii_host(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = "http://www.ü.example.com:80000/".encode("utf-8")
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_percent_host(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://foo%.example.com:80000/"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_star_host(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://example*.com:80000/"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_startingdigit_label(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://www.5test.example.com:80000/"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_long_label(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://%s:80000/" % (b"t" * 256)
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+
+    def test_url_long_hostname(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+        @on(exchange)
+        def error(err_msg):
+            self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
+            self.loop.stop()
+
+        req_uri = b"http://wwww.%s.example.com:80000/" % (b"t" * 64)
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
 
     def test_http_version_err(self):
         def client_side(client):
