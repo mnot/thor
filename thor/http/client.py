@@ -208,7 +208,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             self.input_error(UrlError("URL has non-ascii characters"), False)
             raise ValueError
         except ValueError as why:
-            self.input_error(UrlError(why), False)
+            self.input_error(UrlError(why.args[0]), False)
             raise
         try:
             scheme = schemeb.decode('utf-8').lower()
