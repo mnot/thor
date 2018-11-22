@@ -79,30 +79,31 @@ class HttpClient:
     def release_conn(self, exchange: 'HttpClientExchange') -> None:
         "Add an idle connection back to the pool."
         tcp_conn = exchange.tcp_conn
-        tcp_conn.removeListeners('data', 'pause', 'close')
-        exchange.tcp_conn = None
-        origin = exchange.origin
-        if tcp_conn.tcp_connected:
-            def idle_close() -> None:
-                "Remove the connection from the pool when it closes."
-                if hasattr(tcp_conn, "_idler"):
-                    tcp_conn._idler.delete()  # type: ignore
-                self.dead_conn(exchange)
-                try:
-                    self._idle_conns[origin].remove(tcp_conn)
-                    if not self._idle_conns[origin]:
-                        del self._idle_conns[origin]
-                except (KeyError, ValueError):
-                    pass
-            if self._req_q[origin]:
-                (handle_connect, handle_connect_error, connect_timeout) = self._req_q[origin].pop(0)
-                handle_connect(tcp_conn)
-            elif self.idle_timeout > 0:
-                tcp_conn.once('close', idle_close)
-                tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
-                self._idle_conns[origin].append(tcp_conn)
-            else:
-                self.dead_conn(exchange)
+        if tcp_conn:
+            tcp_conn.removeListeners('data', 'pause', 'close')
+            exchange.tcp_conn = None
+            if tcp_conn.tcp_connected:
+                origin = exchange.origin
+                def idle_close() -> None:
+                    "Remove the connection from the pool when it closes."
+                    if hasattr(tcp_conn, "_idler"):
+                        tcp_conn._idler.delete()  # type: ignore
+                    self.dead_conn(exchange)
+                    try:
+                        self._idle_conns[origin].remove(tcp_conn)
+                        if not self._idle_conns[origin]:
+                            del self._idle_conns[origin]
+                    except (KeyError, ValueError):
+                        pass
+                if self._req_q[origin]:
+                    handle_connect = self._req_q[origin].pop(0)[0]
+                    h_connect(tcp_conn)
+                elif self.idle_timeout > 0:
+                    tcp_conn.once('close', idle_close)
+                    tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close) # type: ignore
+                    self._idle_conns[origin].append(tcp_conn)
+                else:
+                    self.dead_conn(exchange)
 
     def dead_conn(self, exchange: 'HttpClientExchange') -> None:
         "Notify the client that a connection is dead."
