@@ -38,3 +38,11 @@ jobs:
       - run:
           name: test
           command: nosetests -v --with-coverage --cover-package thor test/test_*.py
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - "Python 3.5"
+      - "Python 3.6"
+      - "Python 3.7"
