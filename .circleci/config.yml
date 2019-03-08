@@ -1,0 +1,40 @@
+version: 2
+jobs:
+  "Python 3.5":
+    working_directory: ~/thor
+    docker:
+      - image: circleci/python:3.5.6
+    steps:
+      - checkout
+      - run:
+          name: install-requirements
+          command: pip install --user coveralls nose
+      - run:
+          name: test
+          command: nosetests -v --with-coverage --cover-package thor test/test_*.py
+
+  "Python 3.6":
+    working_directory: ~/thor
+    docker:
+      - image: circleci/python:3.6
+    steps:
+      - checkout
+      - run:
+          name: install-requirements
+          command: pip install --user coveralls nose
+      - run:
+          name: test
+          command: nosetests -v --with-coverage --cover-package thor test/test_*.py
+
+  "Python 3.7":
+    working_directory: ~/thor
+    docker:
+      - image: circleci/python:3.7
+    steps:
+      - checkout
+      - run:
+          name: install-requirements
+          command: pip install --user coveralls nose
+      - run:
+          name: test
+          command: nosetests -v --with-coverage --cover-package thor test/test_*.py
