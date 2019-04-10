@@ -274,9 +274,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self._req_started = True
         req_hdrs = [i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs]
         req_hdrs.append((b"Host", self.authority))
-        if self.client.idle_timeout > 0:
-            req_hdrs.append((b"Connection", b"keep-alive"))
-        else:
+        if self.client.idle_timeout == 0:
             req_hdrs.append((b"Connection", b"close"))
         if b"content-length" in header_names(req_hdrs):
             delimit = Delimiters.COUNTED
