@@ -4,9 +4,7 @@ from multiprocessing.pool import ThreadPool
 import socket
 from typing import Callable, Union
 
-timeout = 3
-pool_size = 5
-
+pool_size = 10
 
 def lookup(host: bytes, cb: Callable[..., None]) -> None:
 #    try:
