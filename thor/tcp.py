@@ -98,7 +98,6 @@ class TcpConnection(EventSource):
         self.socket = sock
         self.host = host
         self.port = port
-        self.connect_timeout = None # type: int
         self.tcp_connected = True # we assume a connected socket
         self._input_paused = True # we start with input paused
         self._output_paused = False
@@ -303,7 +302,12 @@ class TcpClient(EventSource):
         """
         self.host = host
         self.port = port
-        self.connect_timeout = connect_timeout
+        if connect_timeout:
+            self._timeout_ev = self._loop.schedule(
+                connect_timeout,
+                self.handle_socket_error,
+                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
+            )
         lookup(host, self._continue_connect)
 
     def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
@@ -322,12 +326,6 @@ class TcpClient(EventSource):
         if err != errno.EINPROGRESS:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
-        if self.connect_timeout:
-            self._timeout_ev = self._loop.schedule(
-                self.connect_timeout,
-                self.handle_socket_error,
-                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
-            )
 
     def handle_connect(self) -> None:
         self.unregister_fd()
