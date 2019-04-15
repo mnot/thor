@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from multiprocessing import Pool
+from multiprocessing.pool import ThreadPool
 import socket
 from typing import Callable, Union
 
@@ -20,4 +20,4 @@ def _lookup(host: bytes) -> str:
     return socket.gethostbyname(host.decode('idna'))
 
 
-_pool = Pool(processes=pool_size)
+_pool = ThreadPool(processes=pool_size)
