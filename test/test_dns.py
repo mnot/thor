@@ -32,5 +32,18 @@ class TestDns(unittest.TestCase):
         lookup(b'www.google.com', self.check_success)
         self.loop.run()
 
+    def test_lots(self):
+        lookup(b'www.google.com', self.check_success)
+        lookup(b'www.facebook.com', self.check_success)
+        lookup(b'www.example.com', self.check_success)
+        lookup(b'www.ietf.org', self.check_success)
+        lookup(b'www.github.com', self.check_success)
+        lookup(b'www.twitter.com', self.check_success)
+        lookup(b'www.abc.net.au', self.check_success)
+        lookup(b'www.mnot.net', self.check_success)
+        lookup(b'www.eff.org', self.check_success)
+        lookup(b'www.aclu.org', self.check_success)
+        self.loop.run()
+
 if __name__ == '__main__':
     unittest.main()
