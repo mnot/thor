@@ -10,8 +10,8 @@ from thor import loop
 from thor.tls import TlsClient
 
 # TODO: set up ssl servers for testing, don't use these.
-test_host = b"www.google.com"
-test_host2 = b"www.mnot.net"
+test_host = b"www.mnot.net"
+test_host2 = b"www.google.com"
 test_port = 443
 
 # TODO: update with framework
