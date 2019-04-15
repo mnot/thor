@@ -9,14 +9,11 @@ pool_size = 5
 
 
 def lookup(host: bytes, cb: Callable[..., None]) -> None:
-    def _error(details: BaseException) -> None:
-        cb(details)
-
-    try:
-        cb(_lookup(host))
-    except Exception as why:
-        _error(why)
-#    _pool.apply_async(_lookup, (host,), callback=cb, error_callback=_error)
+#    try:
+#        cb(_lookup(host))
+#    except Exception as why:
+#        _error(why)
+    _pool.apply_async(_lookup, (host,), callback=cb, error_callback=cb)
 
 
 def _lookup(host: bytes) -> str:
