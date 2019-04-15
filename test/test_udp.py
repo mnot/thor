@@ -10,7 +10,7 @@ import unittest
 from thor import loop
 from thor.udp import UdpEndpoint
 
-test_host = "127.0.0.1"
+test_host = b"127.0.0.1"
 test_port = 9002
 
 

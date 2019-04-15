@@ -9,7 +9,9 @@ UDP servers and clients.
 
 import errno
 import socket
+from typing import Union
 
+from thor.dns import lookup
 from thor.loop import EventSource, LoopBase
 
 
@@ -30,6 +32,8 @@ class UdpEndpoint(EventSource):
 
     def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
+        self.host = None  # type: bytes
+        self.port = None  # type: int
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
         self.max_dgram = min((2**16 - 40), self.sock.getsockopt(
@@ -42,7 +46,7 @@ class UdpEndpoint(EventSource):
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
         return "<%s at %#x>" % (", ".join(status), id(self))
 
-    def bind(self, host: str, port: int) -> None:
+    def bind(self, host: bytes, port: int) -> None:
         """
         Bind the socket bound to host:port. If called, must be before
         sending or receiving.
@@ -50,8 +54,13 @@ class UdpEndpoint(EventSource):
         Can raise socket.error if binding fails.
         """
         # TODO: IPV6
+        self.host = host
+        self.port = port
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((host, port))
+        lookup(host, self._continue_bind)
+
+    def _continue_bind(self, dns_result: Union[str, OSError]) -> None:
+        self.sock.bind((dns_result, self.port))
 
     def shutdown(self) -> None:
         "Close the listening socket."

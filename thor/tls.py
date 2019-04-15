@@ -12,7 +12,9 @@ import errno
 import os
 import socket
 import ssl as sys_ssl
+from typing import Union
 
+from thor.dns import lookup
 from thor.loop import LoopBase
 from thor.tcp import TcpClient, TcpConnection
 
@@ -77,6 +79,7 @@ class TlsClient(TcpClient):
         """
         self.host = host
         self.port = port
+        self.connect_timeout = connect_timeout
         self.once('fd_writable', self.handshake)
         # FIXME: CAs
         if self.tls_context:
@@ -91,21 +94,26 @@ class TlsClient(TcpClient):
                 cert_reqs=sys_ssl.CERT_NONE,
                 do_handshake_on_connect=False
             )
-        # TODO: use socket.getaddrinfo(); needs to be non-blocking.
-        try:
-            err = self.sock.connect_ex((host, port))
-        except socket.gaierror as why:
-            self.handle_socket_error(why, 'gai')
+        lookup(host, self._continue_connect)
+
+    def _continue_connect(self, dns_result: Union[str, OSError]) -> None:
+        """
+        Continue connecting after DNS results a result.
+        """
+        if isinstance(dns_result, OSError):
+            self.handle_socket_error(dns_result, 'gai')
             return
+        try:
+            err = self.sock.connect_ex((dns_result, self.port))
         except socket.error as why:
             self.handle_socket_error(why)
             return
         if err != errno.EINPROGRESS:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
-        if connect_timeout:
+        if self.connect_timeout:
             self._timeout_ev = self._loop.schedule(
-                connect_timeout,
+                self.connect_timeout,
                 self.handle_socket_error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
             )

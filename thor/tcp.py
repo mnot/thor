@@ -18,6 +18,7 @@ import socket
 from typing import Tuple, List, Union, Type # pylint: disable=unused-import
 import ssl as sys_ssl # pylint: disable=unused-import
 
+from thor.dns import lookup
 from thor.loop import EventSource, LoopBase, schedule
 from thor.loop import ScheduledEvent # pylint: disable=unused-import
 
@@ -97,6 +98,7 @@ class TcpConnection(EventSource):
         self.socket = sock
         self.host = host
         self.port = port
+        self.connect_timeout = None # type: int
         self.tcp_connected = True # we assume a connected socket
         self._input_paused = True # we start with input paused
         self._output_paused = False
@@ -301,22 +303,28 @@ class TcpClient(EventSource):
         """
         self.host = host
         self.port = port
-        self.on('fd_writable', self.handle_connect)
-        # TODO: use socket.getaddrinfo(); needs to be non-blocking.
-        try:
-            err = self.sock.connect_ex((host, port))
-        except socket.gaierror as why:
-            self.handle_socket_error(why, 'gai')
+        self.connect_timeout = connect_timeout
+        lookup(host, self._continue_connect)
+
+    def _continue_connect(self, dns_result: Union[str, OSError]) -> None:
+        """
+        Continue connecting after DNS results a result.
+        """
+        if isinstance(dns_result, OSError):
+            self.handle_socket_error(dns_result, 'gai')
             return
+        self.on('fd_writable', self.handle_connect)
+        try:
+            err = self.sock.connect_ex((dns_result, self.port))
         except socket.error as why:
             self.handle_socket_error(why)
             return
         if err != errno.EINPROGRESS:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
-        if connect_timeout:
+        if self.connect_timeout:
             self._timeout_ev = self._loop.schedule(
-                connect_timeout,
+                self.connect_timeout,
                 self.handle_socket_error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
             )
@@ -339,7 +347,7 @@ class TcpClient(EventSource):
         err_str = os.strerror(err_id)
         self.handle_conn_error('socket', err_id, err_str)
 
-    def handle_socket_error(self, why: Union[socket.error, socket.gaierror, sys_ssl.SSLError],
+    def handle_socket_error(self, why: Union[socket.error, OSError, sys_ssl.SSLError],
                             err_type: str = "socket") -> None:
         err_id = why.args[0]
         err_str = why.args[1]
