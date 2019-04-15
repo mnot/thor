@@ -28,6 +28,9 @@ class TestDns(unittest.TestCase):
     def check_success(self, results):
         self.assertTrue(type(results) is str, results)
 
+    def check_gai_error(self, results):
+        self.assertTrue(isinstance(results, socket.gaierror), results)
+
     def test_basic(self):
         lookup(b'www.google.com', self.check_success)
         self.loop.run()
@@ -44,6 +47,10 @@ class TestDns(unittest.TestCase):
         lookup(b'www.eff.org', self.check_success)
         lookup(b'www.aclu.org', self.check_success)
         self.loop.run()
+
+    def test_gai(self):
+        lookup(b'foo.foo', self.check_gai_error)
+        lookup(b'bar.bar', self.check_gai_error)
 
 if __name__ == '__main__':
     unittest.main()
