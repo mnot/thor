@@ -80,20 +80,6 @@ class TlsClient(TcpClient):
         self.host = host
         self.port = port
         self.connect_timeout = connect_timeout
-        self.once('fd_writable', self.handshake)
-        # FIXME: CAs
-        if self.tls_context:
-            self.sock = self.tls_context.wrap_socket( # type: ignore
-                self.sock,
-                do_handshake_on_connect=False,
-                server_hostname=self.host
-            )
-        else: # server_hostname requires 2.7.9
-            self.sock = sys_ssl.wrap_socket(
-                self.sock,
-                cert_reqs=sys_ssl.CERT_NONE,
-                do_handshake_on_connect=False
-            )
         lookup(host, self._continue_connect)
 
     def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
@@ -103,6 +89,13 @@ class TlsClient(TcpClient):
         if isinstance(dns_result, Exception):
             self.handle_socket_error(dns_result, 'gai')
             return
+        self.once('fd_writable', self.handshake)
+        # FIXME: CAs
+        self.sock = self.tls_context.wrap_socket( # type: ignore
+            self.sock,
+            do_handshake_on_connect=False,
+            server_hostname=self.host
+        )
         try:
             err = self.sock.connect_ex((dns_result, self.port))
         except socket.error as why:
