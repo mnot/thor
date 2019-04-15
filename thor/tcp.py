@@ -308,7 +308,7 @@ class TcpClient(EventSource):
 
     def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
         """
-        Continue connecting after DNS results a result.
+        Continue connecting after DNS returns a result.
         """
         if isinstance(dns_result, Exception):
             self.handle_socket_error(dns_result, 'gai')
