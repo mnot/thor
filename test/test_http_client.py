@@ -163,13 +163,10 @@ Transfer-Encoding: chunked
             conn.request.send(b"""\
 HTTP/1.1 200 OK
 Content-Type: text/plain
-Transfer-Encoding: chunked
+Content-Length: 5
+Connection: close
 
-5\r
-12345\r
-0\r
-\r
-""")
+12345""")
             # TODO: check server-side recv
             conn.request.close()
         self.go([server_side], [client_side])
