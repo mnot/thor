@@ -7,10 +7,6 @@ from typing import Callable, Union
 pool_size = 10
 
 def lookup(host: bytes, cb: Callable[..., None]) -> None:
-#    try:
-#        cb(_lookup(host))
-#    except Exception as why:
-#        _error(why)
     _pool.apply_async(_lookup, (host,), callback=cb, error_callback=cb)
 
 
