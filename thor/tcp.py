@@ -306,11 +306,11 @@ class TcpClient(EventSource):
         self.connect_timeout = connect_timeout
         lookup(host, self._continue_connect)
 
-    def _continue_connect(self, dns_result: Union[str, OSError]) -> None:
+    def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
         """
         Continue connecting after DNS results a result.
         """
-        if isinstance(dns_result, OSError):
+        if isinstance(dns_result, Exception):
             self.handle_socket_error(dns_result, 'gai')
             return
         self.on('fd_writable', self.handle_connect)
@@ -347,8 +347,7 @@ class TcpClient(EventSource):
         err_str = os.strerror(err_id)
         self.handle_conn_error('socket', err_id, err_str)
 
-    def handle_socket_error(self, why: Union[socket.error, OSError, sys_ssl.SSLError],
-                            err_type: str = "socket") -> None:
+    def handle_socket_error(self, why: Exception, err_type: str = "socket") -> None:
         err_id = why.args[0]
         err_str = why.args[1]
         self.handle_conn_error(err_type, err_id, err_str)

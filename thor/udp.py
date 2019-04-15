@@ -59,7 +59,7 @@ class UdpEndpoint(EventSource):
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         lookup(host, self._continue_bind)
 
-    def _continue_bind(self, dns_result: Union[str, OSError]) -> None:
+    def _continue_bind(self, dns_result: Union[str, Exception]) -> None:
         self.sock.bind((dns_result, self.port))
 
     def shutdown(self) -> None:

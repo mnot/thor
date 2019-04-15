@@ -96,11 +96,11 @@ class TlsClient(TcpClient):
             )
         lookup(host, self._continue_connect)
 
-    def _continue_connect(self, dns_result: Union[str, OSError]) -> None:
+    def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
         """
         Continue connecting after DNS results a result.
         """
-        if isinstance(dns_result, OSError):
+        if isinstance(dns_result, Exception):
             self.handle_socket_error(dns_result, 'gai')
             return
         try:
