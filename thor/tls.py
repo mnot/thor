@@ -53,23 +53,6 @@ class TlsClient(TcpClient):
         except AttributeError:
             self.tls_context = None
 
-    def handshake(self) -> None:
-        try:
-            self.sock.do_handshake() # type: ignore
-            self.once('fd_writable', self.handle_connect)
-        except sys_ssl.SSLError as why:
-            if isinstance(why, sys_ssl.SSLWantReadError):
-#            if why == sys_ssl.SSL_ERROR_WANT_READ:
-#                self.once('fd_readable', self.handshake)
-                self.once('fd_writable', self.handshake) # Oh, Linux...
-#            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
-            elif isinstance(why, sys_ssl.SSLWantWriteError):
-                self.once('fd_writable', self.handshake)
-            else:
-                self.handle_socket_error(why, 'ssl')
-        except socket.error as why:
-            self.handle_socket_error(why, 'ssl')
-
     # TODO: refactor into tcp.py
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
         """
@@ -109,6 +92,23 @@ class TlsClient(TcpClient):
         if err != errno.EINPROGRESS:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
+
+    def handshake(self) -> None:
+        try:
+            self.sock.do_handshake() # type: ignore
+            self.once('fd_writable', self.handle_connect)
+        except sys_ssl.SSLError as why:
+            if isinstance(why, sys_ssl.SSLWantReadError):
+#            if why == sys_ssl.SSL_ERROR_WANT_READ:
+#                self.once('fd_readable', self.handshake)
+                self.once('fd_writable', self.handshake) # Oh, Linux...
+#            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
+            elif isinstance(why, sys_ssl.SSLWantWriteError):
+                self.once('fd_writable', self.handshake)
+            else:
+                self.handle_socket_error(why, 'ssl')
+        except socket.error as why:
+            self.handle_socket_error(why, 'ssl')
 
 
 if __name__ == "__main__":
