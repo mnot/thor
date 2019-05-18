@@ -18,7 +18,7 @@ class EventEmitter:
 
     def __init__(self) -> None:
         self.__events = defaultdict(list)  # type: Dict[str, List[Callable]]
-        self.__sink = None                 # type: object
+        self.__sink = None  # type: object
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
@@ -30,15 +30,17 @@ class EventEmitter:
         Call listener when event is emitted.
         """
         self.__events[event].append(listener)
-        self.emit('newListener', event, listener)
+        self.emit("newListener", event, listener)
 
     def once(self, event: str, listener: Callable) -> None:
         """
         Call listener the first time event is emitted.
         """
+
         def mycall(*args: Any) -> None:
             self.removeListener(event, mycall)
             listener(*args)
+
         self.on(event, mycall)
 
     def removeListener(self, event: str, listener: Callable) -> None:
@@ -106,7 +108,9 @@ def on(obj: EventEmitter, event: str = None) -> Callable:
     Decorator to call a function when an object emits
     the specified event.
     """
+
     def wrap(funk: Callable) -> Callable:
         obj.on(event or funk.__name__, funk)
         return funk
+
     return wrap

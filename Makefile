@@ -22,6 +22,10 @@ dist: clean typecheck test
 	$(PYTHON) setup.py sdist
 	$(PYTHON) -m twine upload dist/*
 
+.PHONY: tidy
+tidy:
+	black thor
+
 .PHONY: lint
 lint:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pylint --rcfile=test/pylintrc thor

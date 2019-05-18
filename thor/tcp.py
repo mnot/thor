@@ -15,12 +15,12 @@ import errno
 import os
 import sys
 import socket
-from typing import Tuple, List, Union, Type # pylint: disable=unused-import
-import ssl as sys_ssl # pylint: disable=unused-import
+from typing import Tuple, List, Union, Type  # pylint: disable=unused-import
+import ssl as sys_ssl  # pylint: disable=unused-import
 
 from thor.dns import lookup
 from thor.loop import EventSource, LoopBase, schedule
-from thor.loop import ScheduledEvent # pylint: disable=unused-import
+from thor.loop import ScheduledEvent  # pylint: disable=unused-import
 
 
 class TcpConnection(EventSource):
@@ -88,39 +88,48 @@ class TcpConnection(EventSource):
     read_bufsize = 1024 * 16
 
     block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT])
-    close_errs = set([
-        errno.EBADF, errno.ECONNRESET, errno.ESHUTDOWN,
-        errno.ECONNABORTED, errno.ECONNREFUSED,
-        errno.ENOTCONN, errno.EPIPE])
+    close_errs = set(
+        [
+            errno.EBADF,
+            errno.ECONNRESET,
+            errno.ESHUTDOWN,
+            errno.ECONNABORTED,
+            errno.ECONNREFUSED,
+            errno.ENOTCONN,
+            errno.EPIPE,
+        ]
+    )
 
-    def __init__(self, sock: socket.socket, host: bytes, port: int, loop: LoopBase = None) -> None:
+    def __init__(
+        self, sock: socket.socket, host: bytes, port: int, loop: LoopBase = None
+    ) -> None:
         EventSource.__init__(self, loop)
         self.socket = sock
         self.host = host
         self.port = port
-        self.tcp_connected = True # we assume a connected socket
-        self._input_paused = True # we start with input paused
+        self.tcp_connected = True  # we assume a connected socket
+        self._input_paused = True  # we start with input paused
         self._output_paused = False
         self._closing = False
-        self._write_buffer = []   # type: List[bytes]
+        self._write_buffer = []  # type: List[bytes]
 
         self.register_fd(sock.fileno())
-        self.on('fd_readable', self.handle_readable)
-        self.on('fd_writable', self.handle_writable)
-        self.on('fd_close', self._handle_close)
+        self.on("fd_readable", self.handle_readable)
+        self.on("fd_writable", self.handle_writable)
+        self.on("fd_close", self._handle_close)
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append(self.tcp_connected and 'connected' or 'disconnected')
-        status.append('%s:%s' % (self.host, self.port))
+        status.append(self.tcp_connected and "connected" or "disconnected")
+        status.append("%s:%s" % (self.host, self.port))
         if self._input_paused:
-            status.append('input paused')
+            status.append("input paused")
         if self._output_paused:
-            status.append('output paused')
+            status.append("output paused")
         if self._closing:
-            status.append('closing')
+            status.append("closing")
         if self._write_buffer:
-            status.append('%s write buffered' % len(self._write_buffer))
+            status.append("%s write buffered" % len(self._write_buffer))
         return "<%s at %#x>" % (", ".join(status), id(self))
 
     def handle_readable(self) -> None:
@@ -137,7 +146,7 @@ class TcpConnection(EventSource):
         if data == b"":
             self._handle_close()
         else:
-            self.emit('data', data)
+            self.emit("data", data)
 
     def handle_writable(self) -> None:
         "The connection is ready for writing; write any buffered data."
@@ -158,19 +167,19 @@ class TcpConnection(EventSource):
                 self._write_buffer = []
         if self._output_paused and len(self._write_buffer) < self.write_bufsize:
             self._output_paused = False
-            self.emit('pause', False)
+            self.emit("pause", False)
         if self._closing:
             self._close()
         if not self._write_buffer:
-            self.event_del('fd_writable')
+            self.event_del("fd_writable")
 
     def write(self, data: bytes) -> None:
         "Write data to the connection."
         self._write_buffer.append(data)
         if len(self._write_buffer) > self.write_bufsize:
             self._output_paused = True
-            self.emit('pause', True)
-        self.event_add('fd_writable')
+            self.emit("pause", True)
+        self.event_add("fd_writable")
 
     def pause(self, paused: bool) -> None:
         """
@@ -178,9 +187,9 @@ class TcpConnection(EventSource):
         it to the app.
         """
         if paused:
-            self.event_del('fd_readable')
+            self.event_del("fd_readable")
         else:
-            self.event_add('fd_readable')
+            self.event_add("fd_readable")
         self._input_paused = paused
 
     def close(self) -> None:
@@ -195,11 +204,11 @@ class TcpConnection(EventSource):
     def _handle_close(self) -> None:
         "The connection has been closed by the other side."
         self._close()
-        self.emit('close')
+        self.emit("close")
 
     def _close(self) -> None:
         self.tcp_connected = False
-        self.removeListeners('fd_readable', 'fd_writable', 'fd_close')
+        self.removeListeners("fd_readable", "fd_writable", "fd_close")
         self.unregister_fd()
         if self.socket:
             self.socket.close()
@@ -219,15 +228,17 @@ class TcpServer(EventSource):
 
     conn_handler is called every time a new client connects.
     """
-    def __init__(self, host: bytes, port: int, sock: socket.socket = None,
-                 loop: LoopBase = None) -> None:
+
+    def __init__(
+        self, host: bytes, port: int, sock: socket.socket = None, loop: LoopBase = None
+    ) -> None:
         EventSource.__init__(self, loop)
         self.host = host
         self.port = port
         self.sock = sock or server_listen(host, port)
-        self.on('fd_readable', self.handle_accept)
-        self.register_fd(self.sock.fileno(), 'fd_readable')
-        schedule(0, self.emit, 'start')
+        self.on("fd_readable", self.handle_accept)
+        self.register_fd(self.sock.fileno(), "fd_readable")
+        schedule(0, self.emit, "start")
 
     def handle_accept(self) -> None:
         try:
@@ -238,15 +249,15 @@ class TcpServer(EventSource):
             return
         conn.setblocking(False)
         tcp_conn = TcpConnection(conn, self.host, self.port, self._loop)
-        self.emit('connect', tcp_conn)
+        self.emit("connect", tcp_conn)
 
     # TODO: should loop stop close listening sockets?
 
     def shutdown(self) -> None:
         "Stop accepting requests and close the listening socket."
-        self.removeListeners('fd_readable')
+        self.removeListeners("fd_readable")
         self.sock.close()
-        self.emit('stop')
+        self.emit("stop")
         # TODO: emit close?
 
 
@@ -282,6 +293,7 @@ class TcpClient(EventSource):
     conn_handler will be called with the tcp_conn as the argument
     when the connection is made.
     """
+
     def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
         self.host = None  # type: bytes
@@ -290,9 +302,9 @@ class TcpClient(EventSource):
         self._error_sent = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setblocking(False)
-        self.on('fd_error', self.handle_fd_error)
-        self.register_fd(self.sock.fileno(), 'fd_writable')
-        self.event_add('fd_error')
+        self.on("fd_error", self.handle_fd_error)
+        self.register_fd(self.sock.fileno(), "fd_writable")
+        self.event_add("fd_error")
 
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
         """
@@ -306,7 +318,7 @@ class TcpClient(EventSource):
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
                 self.handle_socket_error,
-                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
+                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
             )
         lookup(host, self._continue_connect)
 
@@ -315,9 +327,9 @@ class TcpClient(EventSource):
         Continue connecting after DNS returns a result.
         """
         if isinstance(dns_result, Exception):
-            self.handle_socket_error(dns_result, 'gai')
+            self.handle_socket_error(dns_result, "gai")
             return
-        self.on('fd_writable', self.handle_connect)
+        self.on("fd_writable", self.handle_connect)
         try:
             err = self.sock.connect_ex((dns_result, self.port))
         except socket.error as why:
@@ -338,20 +350,21 @@ class TcpClient(EventSource):
             self.handle_socket_error(socket.error(err, os.strerror(err)))
         else:
             tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
-            self.emit('connect', tcp_conn)
+            self.emit("connect", tcp_conn)
 
     def handle_fd_error(self) -> None:
         err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         err_str = os.strerror(err_id)
-        self.handle_conn_error('socket', err_id, err_str)
+        self.handle_conn_error("socket", err_id, err_str)
 
     def handle_socket_error(self, why: Exception, err_type: str = "socket") -> None:
         err_id = why.args[0]
         err_str = why.args[1]
         self.handle_conn_error(err_type, err_id, err_str)
 
-    def handle_conn_error(self, err_type: str, err_id: int, err_str: str,
-                          close: bool = True) -> None:
+    def handle_conn_error(
+        self, err_type: str, err_id: int, err_str: str, close: bool = True
+    ) -> None:
         """
         Handle a connect error.
         """
@@ -361,7 +374,7 @@ class TcpClient(EventSource):
             return
         self._error_sent = True
         self.unregister_fd()
-        self.emit('connect_error', err_type, err_id, err_str)
+        self.emit("connect_error", err_type, err_id, err_str)
         if close:
             self.sock.close()
 
@@ -369,14 +382,19 @@ class TcpClient(EventSource):
 if __name__ == "__main__":
     # quick demo server
     from thor.loop import run, stop
-    server = TcpServer(b'localhost', int(sys.argv[-1]))
+
+    server = TcpServer(b"localhost", int(sys.argv[-1]))
+
     def handle_conn(conn: TcpConnection) -> None:
         conn.pause(False)
+
         def echo(chunk: bytes) -> None:
-            if chunk.strip().lower() in ['quit', 'stop']:
+            if chunk.strip().lower() in ["quit", "stop"]:
                 stop()
             else:
                 conn.write(b"-> %s" % chunk)
-        conn.on('data', echo)
-    server.on('connect', handle_conn)
+
+        conn.on("data", echo)
+
+    server.on("connect", handle_conn)
     run()

@@ -27,6 +27,7 @@ class UdpEndpoint(EventSource):
     > s = UdpEndpoint(host, port)
     > s.on('datagram', datagram_handler)
     """
+
     recv_buffer = 8192
     _block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK])
 
@@ -36,10 +37,10 @@ class UdpEndpoint(EventSource):
         self.port = None  # type: int
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
-        self.max_dgram = min((2**16 - 40), self.sock.getsockopt(
-            socket.SOL_SOCKET, socket.SO_SNDBUF
-        ))
-        self.on('fd_readable', self.handle_datagram)
+        self.max_dgram = min(
+            (2 ** 16 - 40), self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+        )
+        self.on("fd_readable", self.handle_datagram)
         self.register_fd(self.sock.fileno())
 
     def __repr__(self) -> str:
@@ -64,16 +65,16 @@ class UdpEndpoint(EventSource):
 
     def shutdown(self) -> None:
         "Close the listening socket."
-        self.removeListeners('fd_readable')
+        self.removeListeners("fd_readable")
         self.sock.close()
         # TODO: emit close?
 
     def pause(self, paused: bool) -> None:
         "Control incoming datagram events."
         if paused:
-            self.event_del('fd_readable')
+            self.event_del("fd_readable")
         else:
-            self.event_add('fd_readable')
+            self.event_add("fd_readable")
 
     def send(self, datagram: bytes, host: str, port: int) -> None:
         "send datagram to host:port."
@@ -81,7 +82,7 @@ class UdpEndpoint(EventSource):
             self.sock.sendto(datagram, (host, port))
         except socket.error as why:
             if why in self._block_errs:
-                pass # we drop these on the floor. It's UDP, after all.
+                pass  # we drop these on the floor. It's UDP, after all.
             else:
                 raise
 
@@ -97,4 +98,4 @@ class UdpEndpoint(EventSource):
                     break
                 else:
                     raise
-            self.emit('datagram', data, addr[0], addr[1])
+            self.emit("datagram", data, addr[0], addr[1])

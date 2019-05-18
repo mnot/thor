@@ -26,6 +26,7 @@ TcpConnection.close_errs.add(sys_ssl.SSL_ERROR_SSL)
 # TODO: TlsServer
 # TODO: expose cipher info, peer info
 
+
 class TlsClient(TcpClient):
     """
     An asynchronous SSL/TLS client.
@@ -46,6 +47,7 @@ class TlsClient(TcpClient):
     conn_handler will be called with the tcp_conn as the argument
     when the connection is made.
     """
+
     def __init__(self, loop: LoopBase = None) -> None:
         TcpClient.__init__(self, loop)
         try:
@@ -66,7 +68,7 @@ class TlsClient(TcpClient):
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
                 self.handle_socket_error,
-                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT))
+                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
             )
         lookup(host, self._continue_connect)
 
@@ -75,14 +77,12 @@ class TlsClient(TcpClient):
         Continue connecting after DNS results a result.
         """
         if isinstance(dns_result, Exception):
-            self.handle_socket_error(dns_result, 'gai')
+            self.handle_socket_error(dns_result, "gai")
             return
-        self.once('fd_writable', self.handshake)
+        self.once("fd_writable", self.handshake)
         # FIXME: CAs
-        self.sock = self.tls_context.wrap_socket( # type: ignore
-            self.sock,
-            do_handshake_on_connect=False,
-            server_hostname=self.host
+        self.sock = self.tls_context.wrap_socket(  # type: ignore
+            self.sock, do_handshake_on_connect=False, server_hostname=self.host
         )
         try:
             err = self.sock.connect_ex((dns_result, self.port))
@@ -95,36 +95,37 @@ class TlsClient(TcpClient):
 
     def handshake(self) -> None:
         try:
-            self.sock.do_handshake() # type: ignore
-            self.once('fd_writable', self.handle_connect)
+            self.sock.do_handshake()  # type: ignore
+            self.once("fd_writable", self.handle_connect)
         except sys_ssl.SSLError as why:
             if isinstance(why, sys_ssl.SSLWantReadError):
-#            if why == sys_ssl.SSL_ERROR_WANT_READ:
-#                self.once('fd_readable', self.handshake)
-                self.once('fd_writable', self.handshake) # Oh, Linux...
-#            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
+                #            if why == sys_ssl.SSL_ERROR_WANT_READ:
+                #                self.once('fd_readable', self.handshake)
+                self.once("fd_writable", self.handshake)  # Oh, Linux...
+            #            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
             elif isinstance(why, sys_ssl.SSLWantWriteError):
-                self.once('fd_writable', self.handshake)
+                self.once("fd_writable", self.handshake)
             else:
-                self.handle_socket_error(why, 'ssl')
+                self.handle_socket_error(why, "ssl")
         except socket.error as why:
-            self.handle_socket_error(why, 'ssl')
+            self.handle_socket_error(why, "ssl")
 
 
 if __name__ == "__main__":
     import sys
     from thor import run
-    test_host = sys.argv[1].encode('utf-8')
+
+    test_host = sys.argv[1].encode("utf-8")
 
     def out(outbytes: bytes) -> None:
-        sys.stdout.write(outbytes.decode('utf-8', 'replace'))
+        sys.stdout.write(outbytes.decode("utf-8", "replace"))
 
     def go(conn: TcpConnection) -> None:
-        conn.on('data', out)
+        conn.on("data", out)
         conn.write(b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
         conn.pause(False)
 
     c = TlsClient()
-    c.on('connect', go)
+    c.on("connect", go)
     c.connect(test_host, 443)
     run()
