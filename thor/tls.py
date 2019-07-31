@@ -109,6 +109,9 @@ class TlsClient(TcpClient):
                 self.handle_socket_error(why, "ssl")
         except socket.error as why:
             self.handle_socket_error(why, "ssl")
+        except AttributeError as why:
+            # wrap_socket sometimes fails, but the error is caught elsewhere.
+            pass
 
 
 if __name__ == "__main__":
