@@ -126,9 +126,9 @@ class HttpClient:
                     handle_connect(tcp_conn)
                 elif self.idle_timeout > 0:
                     tcp_conn.once("close", idle_close)
-                    tcp_conn._idler = self.loop.schedule(
+                    tcp_conn._idler = self.loop.schedule(   # type: ignore
                         self.idle_timeout, idle_close
-                    )  # type: ignore
+                    )
                     self._idle_conns[origin].append(tcp_conn)
                 else:
                     self.dead_conn(exchange)
