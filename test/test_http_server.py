@@ -19,6 +19,7 @@ class TestHttpServer(framework.ClientServerTestCase):
 
         def stop():
             server.shutdown()
+            server.server_close()
         return stop
 
     def create_client(self, test_host, test_port, client_side):
