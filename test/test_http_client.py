@@ -280,7 +280,6 @@ Content-Length: 5
 Connection: close
 
 12345""")
-            time.sleep(1)
             conn.request.close()
         self.go([server_side], [client_side])
 
