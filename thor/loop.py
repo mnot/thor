@@ -114,7 +114,7 @@ class LoopBase(EventEmitter):
             self.__now = systime.time()
             if debug:
                 delay = self.__now - fd_start
-                if delay >= self.precision * 1.5:
+                if delay > self.precision * 2:
                     sys.stderr.write("WARNING: long fd delay (%.2f)\n" % delay)
             # find scheduled events
             delay = self.__now - last_event_check
