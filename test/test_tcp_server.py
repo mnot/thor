@@ -23,7 +23,6 @@ class TestTcpServer(framework.ClientServerTestCase):
         def stop():
             self.assertTrue(server.conn_count > 0)
             server.shutdown()
-            server.server_close()
         return stop
 
     def create_client(self, host, port, client_side):
