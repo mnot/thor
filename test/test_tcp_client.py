@@ -60,17 +60,22 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
             self.server.serve_forever(poll_interval=0.1)
         self.move_to_thread(serve)
 
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+
     def test_connect(self):
         self.start_server()
         self.client.connect(framework.test_host, framework.test_port)
         self.loop.schedule(2, self.timeout)
-        self.loop.run()
+        try:
+            self.loop.run()
+        finally:
+            self.stop_server()
         self.assertFalse(self.conn.tcp_connected)
         self.assertEqual(self.connect_count, 1)
         self.assertEqual(self.error_count, 0)
         self.assertEqual(self.timeout_hit, False)
-        self.server.shutdown()
-        self.server.socket.close()
 
     def test_connect_refused(self):
         self.client.connect(framework.refuse_host, framework.refuse_port)

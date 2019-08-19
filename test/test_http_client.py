@@ -28,6 +28,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         class LittleRequestHandler(SocketServer.BaseRequestHandler):
             handle = server_side
         server = LittleServer((test_host, test_port), LittleRequestHandler)
+
         def serve():
             server.serve_forever(poll_interval=0.1)
         self.move_to_thread(target=serve)

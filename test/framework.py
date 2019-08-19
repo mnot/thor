@@ -67,8 +67,10 @@ class ClientServerTestCase(unittest.TestCase):
             self.loop.stop()
             self.timeout_hit = True
         self.loop.schedule(timeout, do_timeout)
-        self.loop.run()
-        [stop() for stop in stops]
+        try:
+            self.loop.run()
+        finally:
+            [stop() for stop in stops]
         self.assertEqual(self.timeout_hit, False)
 
     def create_server(self, host, port, server_side):

@@ -86,8 +86,10 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.start_server()
         self.client.connect(framework.tls_host, framework.tls_port)
         self.loop.schedule(5, self.timeout)
-        self.loop.run()
-        self.stop_server()
+        try:
+            self.loop.run()
+        finally:
+            self.stop_server()
         self.assertEqual(self.error_count, 0, (self.last_error_type, self.last_error))
         self.assertEqual(self.timeout_hit, False)
         self.assertEqual(self.connect_count, 1)
