@@ -36,7 +36,6 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
             self.assertTrue(conn.tcp_connected)
             self.connect_count += 1
             conn.write(b"test")
-            conn.close()
             self.loop.schedule(1, self.loop.stop)
         def check_error(err_type, err_id, err_str):
             self.error_count += 1
