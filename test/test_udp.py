@@ -6,12 +6,10 @@ import sys
 import threading
 import unittest
 
+import framework
 
 from thor import loop
 from thor.udp import UdpEndpoint
-
-test_host = b"127.0.0.1"
-test_port = 9002
 
 
 class TestUdpEndpoint(unittest.TestCase):
@@ -19,7 +17,7 @@ class TestUdpEndpoint(unittest.TestCase):
     def setUp(self):
         self.loop = loop.make()
         self.ep1 = UdpEndpoint(self.loop)
-        self.ep1.bind(test_host, test_port)
+        self.ep1.bind(framework.test_host, framework.test_port)
         self.ep1.on('datagram', self.input)
         self.ep1.pause(False)
         self.ep2 = UdpEndpoint()
@@ -38,7 +36,7 @@ class TestUdpEndpoint(unittest.TestCase):
         self.datagrams.append((data, host, port))
 
     def output(self, msg):
-        self.ep2.send(msg, test_host, test_port)
+        self.ep2.send(msg, framework.test_host, framework.test_port)
 
     def test_basic(self):
         self.loop.schedule(1, self.output, b'foo!')

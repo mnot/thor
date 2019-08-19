@@ -6,12 +6,8 @@ import sys
 import threading
 import unittest
 
-
 from thor import loop
 from thor.dns import lookup
-
-test_host = "127.0.0.1"
-test_port = 9002
 
 
 class TestDns(unittest.TestCase):

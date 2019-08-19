@@ -11,9 +11,6 @@ import time
 import unittest
 
 import framework
-test_host = framework.test_host
-test_port = framework.test_port
-
 
 import thor
 from thor.events import on
@@ -30,7 +27,7 @@ class TestHttpClient(framework.ClientServerTestCase):
     def create_server(self, test_host, test_port, server_side):
         class LittleRequestHandler(SocketServer.BaseRequestHandler):
             handle = server_side
-        server = LittleServer((framework.test_host, framework.test_port), LittleRequestHandler)
+        server = LittleServer((test_host, test_port), LittleRequestHandler)
         self.move_to_thread(target=server.serve_forever)
 
         @on(self.loop)
@@ -91,7 +88,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/basic" % (test_host, test_port)
+            req_uri = b"http://%s:%i/basic" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -120,7 +117,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/chunked_response" % (test_host, test_port)
+            req_uri = b"http://%s:%i/chunked_response" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -153,7 +150,7 @@ Transfer-Encoding: chunked
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/chunked_request" % (test_host, test_port)
+            req_uri = b"http://%s:%i/chunked_request" % (framework.test_host, framework.test_port)
             exchange.request_start(b"POST", req_uri, [])
             exchange.request_body(req_body)
             exchange.request_body(req_body)
@@ -191,7 +188,7 @@ Connection: close
                 self.assertTrue(self.nonfinal_seen)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/chunked_request" % (test_host, test_port)
+            req_uri = b"http://%s:%i/chunked_request" % (framework.test_host, framework.test_port)
             exchange.request_start(b"POST", req_uri, [])
             exchange.request_body(req_body)
             exchange.request_body(req_body)
@@ -242,7 +239,7 @@ Transfer-Encoding: chunked
             })
             exchange2.on('response_done', check_done)
 
-            req_uri = b"http://%s:%i/multiconn" % (test_host, test_port)
+            req_uri = b"http://%s:%i/multiconn" % (framework.test_host, framework.test_port)
             exchange1.request_start(b"GET", req_uri, [])
             exchange2.request_start(b"GET", req_uri, [])
             exchange1.request_done([])
@@ -269,7 +266,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/conn_refuse_err" % (test_host, test_port)
+            req_uri = b"http://%s:%i/conn_refuse_err" % (framework.test_host, framework.refuse_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
         self.go([], [client_side])
@@ -332,7 +329,7 @@ Connection: close
             self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
             self.loop.stop()
 
-        req_uri = b"http://%s:ABC123/url_port_err" % (test_host)
+        req_uri = b"http://%s:ABC123/url_port_err" % (framework.test_host)
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
@@ -345,7 +342,7 @@ Connection: close
             self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
             self.loop.stop()
 
-        req_uri = b"http://%s:80000/" % (test_host)
+        req_uri = b"http://%s:80000/" % (framework.test_host)
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
@@ -453,7 +450,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.HttpVersionError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/http_version_err" % (test_host, test_port)
+            req_uri = b"http://%s:%i/http_version_err" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -482,7 +479,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/http_start_encoding" % (test_host, test_port)
+            req_uri = b"http://%s:%i/http_start_encoding" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -506,7 +503,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.HttpVersionError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/protoname_err" % (test_host, test_port)
+            req_uri = b"http://%s:%i/protoname_err" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -535,7 +532,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/close_in_body" % (test_host, test_port)
+            req_uri = b"http://%s:%i/close_in_body" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -554,7 +551,7 @@ Connection: close
     def test_conn_reuse(self):
         self.conn_checked = False
         def client_side(client):
-            req_uri = b"http://%s:%i/conn_reuse" % (test_host, test_port)
+            req_uri = b"http://%s:%i/conn_reuse" % (framework.test_host, framework.test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {
                 'version': b"1.1",
@@ -616,7 +613,7 @@ Connection: close
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
         def client_side(client):
-            req_uri = b"http://%s:%i/succeed_then_err" % (test_host, test_port)
+            req_uri = b"http://%s:%i/succeed_then_err" % (framework.test_host, framework.test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {
                 'version': b"1.1",
@@ -679,7 +676,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/HEAD" % (test_host, test_port)
+            req_uri = b"http://%s:%i/HEAD" % (framework.test_host, framework.test_port)
             exchange.request_start(b"HEAD", req_uri, [])
             exchange.request_done([])
 
@@ -709,7 +706,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/req_retry" % (test_host, test_port)
+            req_uri = b"http://%s:%i/req_retry" % (framework.test_host, framework.test_port)
             exchange.request_start(b"OPTIONS", req_uri, [])
             exchange.request_done([])
 
@@ -743,7 +740,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/req_retry_fail" % (test_host, test_port)
+            req_uri = b"http://%s:%i/req_retry_fail" % (framework.test_host, framework.test_port)
             exchange.request_start(b"OPTIONS", req_uri, [])
             exchange.request_done([])
 
@@ -776,7 +773,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i" % (test_host, test_port)
+            req_uri = b"http://%s:%i" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -808,7 +805,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ExtraDataError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i" % (test_host, test_port)
+            req_uri = b"http://%s:%i" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -839,7 +836,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ExtraDataError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i" % (test_host, test_port)
+            req_uri = b"http://%s:%i" % (framework.test_host, framework.test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 

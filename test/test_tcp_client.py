@@ -11,11 +11,11 @@ import sys
 import threading
 import unittest
 
+import framework
+
 from thor import loop
 from thor.tcp import TcpClient
 
-test_host = b"127.0.0.1"
-test_port = 9002
 
 class LittleRequestHandler(SocketServer.BaseRequestHandler):
     def handle(self):
@@ -59,13 +59,13 @@ class TestTcpClientConnect(unittest.TestCase):
 
     def test_connect(self):
         self.server = LittleServer(
-            (test_host, test_port),
+            (framework.test_host, framework.test_port),
             LittleRequestHandler
         )
         t = threading.Thread(target=self.server.serve_forever)
         t.setDaemon(True)
         t.start()
-        self.client.connect(test_host, test_port)
+        self.client.connect(framework.test_host, framework.test_port)
         self.loop.schedule(2, self.timeout)
         self.loop.run()
         self.assertFalse(self.conn.tcp_connected)
@@ -76,7 +76,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.server.socket.close()
 
     def test_connect_refused(self):
-        self.client.connect(test_host, test_port + 1)
+        self.client.connect(framework.test_host, framework.refuse_port)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
@@ -86,7 +86,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
-        self.client.connect(b'does.not.exist', test_port)
+        self.client.connect(b'does.not.exist', framework.test_port)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
@@ -96,7 +96,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_timeout(self):
-        self.client.connect(b'128.66.0.1', test_port, 1)
+        self.client.connect(b'128.66.0.1', framework.test_port, 1)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
