@@ -230,14 +230,10 @@ This: that
 
 HTTP/1.1 200 OK
 Content-Type: text/plain
-Transfer-Encoding: chunked
+Content-Length: 5
+Connection: close
 
-5\r
-12345\r
-0\r
-\r
-""")
-            # TODO: check server-side recv
+12345""")
             conn.request.close()
         self.go([server_side], [client_side])
 
