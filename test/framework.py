@@ -31,7 +31,7 @@ class ClientServerTestCase(unittest.TestCase):
 
     def move_to_thread(self, target, args=None):
         t = threading.Thread(target=target, args=args or [])
-        t.setDaemon(True)
+        t.daemon = True
         t.start()
 
     def go(self, server_sides, client_sides, timeout=10):
