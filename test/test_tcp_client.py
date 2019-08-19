@@ -62,7 +62,9 @@ class TestTcpClientConnect(unittest.TestCase):
             (framework.test_host, framework.test_port),
             LittleRequestHandler
         )
-        t = threading.Thread(target=self.server.serve_forever)
+        def serve():
+            self.server.serve_forever(poll_interval=0.1)
+        t = threading.Thread(target=serve)
         t.setDaemon(True)
         t.start()
         self.client.connect(framework.test_host, framework.test_port)
