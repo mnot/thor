@@ -17,17 +17,11 @@ from thor import loop
 from thor.tcp import TcpClient
 
 
-class LittleRequestHandler(SocketServer.BaseRequestHandler):
-    def handle(self):
-        # Echo the back to the client
-        data = self.request.recv(1024)
-        self.request.send(data)
-
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
 
-# TODO: update with framework
-class TestTcpClientConnect(unittest.TestCase):
+
+class TestTcpClientConnect(framework.ClientServerTestCase):
 
     def setUp(self):
         self.loop = loop.make()
@@ -57,16 +51,17 @@ class TestTcpClientConnect(unittest.TestCase):
         self.client.on('connect', check_connect)
         self.client.on('connect_error', check_error)
 
-    def test_connect(self):
+    def start_server(self):
         self.server = LittleServer(
             (framework.test_host, framework.test_port),
-            LittleRequestHandler
+            framework.LittleRequestHandler
         )
         def serve():
             self.server.serve_forever(poll_interval=0.1)
-        t = threading.Thread(target=serve)
-        t.setDaemon(True)
-        t.start()
+        self.move_to_thread(serve)
+
+    def test_connect(self):
+        self.start_server()
         self.client.connect(framework.test_host, framework.test_port)
         self.loop.schedule(2, self.timeout)
         self.loop.run()

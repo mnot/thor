@@ -5,6 +5,11 @@ Framework for testing clients and servers, moving one of them into
 a separate thread.
 """
 
+try:
+    import SocketServer
+except ImportError:
+    import socketserver as SocketServer
+
 import os
 import sys
 import threading
@@ -15,6 +20,8 @@ from thor.http.common import HttpMessageHandler, States
 
 test_host = b"127.0.0.1"
 test_port = 21000
+tls_host = test_host
+tls_port = 4443
 timeout_host = test_host
 timeout_port = 31000
 refuse_host = test_host
@@ -114,6 +121,14 @@ class DummyHttpParser(HttpMessageHandler):
         aE(expected.get('trailers', self.test_trailers), self.test_trailers)
         aE(expected.get('error', self.test_err), self.test_err)
         aE(expected.get('states', self.test_states), self.test_states)
+
+
+class LittleRequestHandler(SocketServer.BaseRequestHandler):
+    def handle(self):
+        # Echo back to the client
+        data = self.request.recv(1024)
+        self.request.send(data)
+        self.request.close()
 
 
 def make_fifo(filename):
