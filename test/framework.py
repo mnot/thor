@@ -14,7 +14,7 @@ import thor
 from thor.http.common import HttpMessageHandler, States
 
 test_host = b"127.0.0.1"
-test_port = 9000
+test_port = 21000
 
 
 class ClientServerTestCase(unittest.TestCase):
