@@ -15,9 +15,10 @@ from thor.http.common import HttpMessageHandler, States
 
 test_host = b"127.0.0.1"
 test_port = 21000
-timeout_host = b"www.mnot.net"
-timeout_port = 6666
-refuse_port = 70
+timeout_host = test_host
+timeout_port = 31000
+refuse_host = test_host
+refuse_port = 41000
 
 
 class ClientServerTestCase(unittest.TestCase):

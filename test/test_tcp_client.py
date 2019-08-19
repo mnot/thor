@@ -78,7 +78,7 @@ class TestTcpClientConnect(unittest.TestCase):
         self.server.socket.close()
 
     def test_connect_refused(self):
-        self.client.connect(framework.test_host, framework.refuse_port)
+        self.client.connect(framework.refuse_host, framework.refuse_port)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)

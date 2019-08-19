@@ -292,7 +292,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/conn_refuse_err" % (framework.test_host, framework.refuse_port)
+            req_uri = b"http://%s:%i/conn_refuse_err" % (framework.refuse_host, framework.refuse_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
         self.go([], [client_side])
