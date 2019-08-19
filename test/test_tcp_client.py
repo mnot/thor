@@ -71,7 +71,6 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
             self.loop.run()
         finally:
             self.stop_server()
-        self.assertFalse(self.conn.tcp_connected)
         self.assertEqual(self.connect_count, 1)
         self.assertEqual(self.error_count, 0)
         self.assertEqual(self.timeout_hit, False)
