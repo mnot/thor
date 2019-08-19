@@ -52,7 +52,6 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
             self.assertTrue(conn.tcp_connected)
             self.connect_count += 1
             conn.write(b"GET / HTTP/1.0\r\n\r\n")
-            conn.close()
             self.loop.schedule(1, self.loop.stop)
         def check_error(err_type, err_id, err_str):
             self.error_count += 1
