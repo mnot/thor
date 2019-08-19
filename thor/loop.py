@@ -109,20 +109,32 @@ class LoopBase(EventEmitter):
         self.emit("start")
         while self.running:
             if debug:
+                import cProfile
+                pr = cProfile.Profile()
                 fd_start = systime.time()
-            self._run_fd_events()
-            self.__now = systime.time()
-            if debug:
+                pr.enable()
+                self._run_fd_events()
+                pr.disable()
+                self.__now = systime.time()
                 delay = self.__now - fd_start
                 if delay > self.precision * 2:
                     sys.stderr.write("WARNING: long fd delay (%.2f)\n" % delay)
+                    import pstats, io
+                    s = io.StringIO()
+                    sortby = pstats.SortKey.CUMULATIVE
+                    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+                    ps.print_callers()
+                    print(s.getvalue())
+            else:
+                self._run_fd_events()
+                self.__now = systime.time()
             # find scheduled events
             delay = self.__now - last_event_check
             if delay >= self.precision * 0.90:
                 if debug:
                     if last_event_check and (delay >= self.precision * 4):
                         sys.stderr.write("WARNING: long loop delay (%.2f)\n" % delay)
-                    if len(self.__sched_events) > 5000:
+                    if len(self.__sched_events) > 500:
                         sys.stderr.write(
                             "WARNING: %i events scheduled\n" % len(self.__sched_events)
                         )
