@@ -26,7 +26,7 @@ class LittleTlsServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
                  ssl_version=ssl.PROTOCOL_TLSv1,
                  bind_and_activate=True):
 
-        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        self.context = ssl.SSLContext(ssl_version)
         self.context.load_cert_chain(certfile, keyfile)
 
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate)
