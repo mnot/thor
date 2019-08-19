@@ -110,6 +110,7 @@ class LoopBase(EventEmitter):
         while self.running:
             if debug:
                 import cProfile
+
                 pr = cProfile.Profile()
                 fd_start = systime.time()
                 pr.enable()
@@ -120,6 +121,7 @@ class LoopBase(EventEmitter):
                 if delay > self.precision * 2:
                     sys.stderr.write("WARNING: long fd delay (%.2f)\n" % delay)
                     import pstats, io
+
                     s = io.StringIO()
                     sortby = pstats.SortKey.CUMULATIVE
                     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
