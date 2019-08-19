@@ -35,7 +35,7 @@ test: $(PY_TESTS)
 
 .PHONY: $(PY_TESTS)
 $(PY_TESTS):
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) $@
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) $@ -v
 
 .PHONY: typecheck
 typecheck:
