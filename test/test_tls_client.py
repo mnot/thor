@@ -12,7 +12,7 @@ from thor.tls import TlsClient
 # TODO: set up ssl servers for testing, don't use these.
 test_host = b"www.mnot.net"
 test_host2 = b"www.google.com"
-test_port = 4443
+test_port = 443
 
 # TODO: update with framework
 class TestTlsClientConnect(unittest.TestCase):
