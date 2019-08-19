@@ -8,10 +8,10 @@ jobs:
       - checkout
       - run:
           name: install-requirements
-          command: pip install --user coveralls nose
+          command: pip install --user coveralls nose2
       - run:
           name: test
-          command: ~/.local/bin/nosetests -v --with-coverage --cover-package thor test/test_*.py
+          command: ~/.local/bin/nose2 -v --with-coverage
 
   "Python 3.6":
     working_directory: ~/thor
@@ -21,10 +21,10 @@ jobs:
       - checkout
       - run:
           name: install-requirements
-          command: pip install --user coveralls nose
+          command: pip install --user coveralls nose2
       - run:
           name: test
-          command: ~/.local/bin/nosetests -v --with-coverage --cover-package thor test/test_*.py
+          command: ~/.local/bin/nose2 -v --with-coverage
 
   "Python 3.7":
     working_directory: ~/thor
@@ -34,10 +34,10 @@ jobs:
       - checkout
       - run:
           name: install-requirements
-          command: pip install --user coveralls nose
+          command: pip install --user coveralls nose2
       - run:
           name: test
-          command: ~/.local/bin/nosetests -v --with-coverage --cover-package thor test/test_*.py
+          command: ~/.local/bin/nose2 -v --with-coverage
 
 workflows:
   version: 2
