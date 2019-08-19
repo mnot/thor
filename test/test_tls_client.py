@@ -6,6 +6,8 @@ import sys
 import threading
 import unittest
 
+import framework
+
 from thor import loop
 from thor.tls import TlsClient
 
@@ -75,7 +77,7 @@ class TestTlsClientConnect(unittest.TestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_timeout(self):
-        self.client.connect(b'128.66.0.1', test_port, 1)
+        self.client.connect(framework.timeout_host, framework.timeout_port, 1)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)

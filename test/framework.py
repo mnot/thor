@@ -15,6 +15,8 @@ from thor.http.common import HttpMessageHandler, States
 
 test_host = b"127.0.0.1"
 test_port = 21000
+timeout_host = b"www.mnot.net"
+timeout_port = 6666
 refuse_port = 70
 
 
