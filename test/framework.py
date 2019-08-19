@@ -43,11 +43,12 @@ class ClientServerTestCase(unittest.TestCase):
         is considered failure.
         """
 
+        stops = []
         for server_side in server_sides:
             offset = 0
             if hasattr(server_side, "port_offset"):
                 offset = server_side.port_offset
-            self.create_server(test_host, test_port + offset, server_side)
+            stops.append(self.create_server(test_host, test_port + offset, server_side))
 
         for client_side in client_sides:
             self.create_client(test_host, test_port, client_side)
@@ -57,6 +58,7 @@ class ClientServerTestCase(unittest.TestCase):
             self.timeout_hit = True
         self.loop.schedule(timeout, do_timeout)
         self.loop.run()
+        [stop() for stop in stops]
         self.assertEqual(self.timeout_hit, False)
 
     def create_server(self, host, port, server_side):

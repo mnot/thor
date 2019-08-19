@@ -32,10 +32,10 @@ class TestHttpClient(framework.ClientServerTestCase):
             server.serve_forever(poll_interval=0.1)
         self.move_to_thread(target=serve)
 
-        @on(self.loop)
         def stop():
             server.shutdown()
             server.server_close()
+        return stop
 
     def create_client(self, host, port, client_side):
         client = HttpClient(loop=self.loop)

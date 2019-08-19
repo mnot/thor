@@ -19,10 +19,11 @@ class TestTcpServer(framework.ClientServerTestCase):
             server.conn_count += 1
             server_side(conn)
         server.on('connect', run_server)
-        @on(self.loop)
+
         def stop():
             self.assertTrue(server.conn_count > 0)
             server.shutdown()
+        return stop
 
     def create_client(self, host, port, client_side):
         def run_client(client_side1):
