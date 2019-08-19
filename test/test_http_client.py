@@ -169,6 +169,35 @@ Connection: close
         self.go([server_side], [client_side])
 
 
+    def test_HEAD(self):
+        def client_side(client):
+            exchange = client.exchange()
+            self.check_exchange(exchange, {
+                'version': b"1.1",
+                'status': b"200",
+                'phrase': b'OK',
+                'body': b""
+            })
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/HEAD" % (framework.test_host, framework.test_port)
+            exchange.request_start(b"HEAD", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.send(b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 5
+Connection: close
+
+""")
+            conn.request.close()
+        self.go([server_side], [client_side])
+
+
     def test_1xx(self):
         req_body = b"54321"
         def client_side(client):
@@ -661,36 +690,6 @@ Connection: close
             conn.request.close()
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
-
-
-    def test_HEAD(self):
-        def client_side(client):
-            exchange = client.exchange()
-            self.check_exchange(exchange, {
-                'version': b"1.1",
-                'status': b"200",
-                'phrase': b'OK',
-                'body': b""
-            })
-            @on(exchange)
-            def response_done(trailers):
-                self.loop.stop()
-
-            req_uri = b"http://%s:%i/HEAD" % (framework.test_host, framework.test_port)
-            exchange.request_start(b"HEAD", req_uri, [])
-            exchange.request_done([])
-
-        def server_side(conn):
-            conn.request.send(b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-""")
-            time.sleep(1)
-            conn.request.close()
-        self.go([server_side], [client_side])
 
 
     def test_req_retry(self):
