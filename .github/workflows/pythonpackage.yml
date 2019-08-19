@@ -1,6 +1,7 @@
 name: Python package
 
-on: [push]
+# push
+on: []
 
 jobs:
   build:
