@@ -211,6 +211,7 @@ Connection: close
             })
             @on(exchange)
             def response_nonfinal(status_code, status_phrase, headers):
+                self.assertEqual(status_code, b"110")
                 self.nonfinal_seen = True
             @on(exchange)
             def response_done(trailers):
@@ -219,7 +220,6 @@ Connection: close
 
             req_uri = b"http://%s:%i/chunked_request" % (framework.test_host, framework.test_port)
             exchange.request_start(b"POST", req_uri, [])
-            exchange.request_body(req_body)
             exchange.request_body(req_body)
             exchange.request_done([])
 
