@@ -49,7 +49,6 @@ class TestTlsClientConnect(unittest.TestCase):
         self.client.connect(test_host, test_port)
         self.loop.schedule(2, self.timeout)
         self.loop.run()
-        self.assertFalse(self.conn.tcp_connected)
         self.assertEqual(self.connect_count, 1)
         self.assertEqual(self.error_count, 0)
         self.assertEqual(self.timeout_hit, False)
