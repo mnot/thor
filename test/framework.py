@@ -21,7 +21,7 @@ from thor.http.common import HttpMessageHandler, States
 test_host = b"127.0.0.1"
 test_port = 21000
 tls_host = test_host
-tls_port = 44443
+tls_port = 24443
 timeout_host = b"127.0.0.2"
 timeout_port = 31000
 refuse_host = test_host
@@ -39,7 +39,8 @@ class ClientServerTestCase(unittest.TestCase):
             sys.stdout.write("WARNING: loop still running at end of test.")
             self.loop.stop()
 
-    def move_to_thread(self, target, args=None):
+    @staticmethod
+    def move_to_thread(target, args=None):
         t = threading.Thread(target=target, args=args or [])
         t.daemon = True
         t.start()
