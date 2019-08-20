@@ -1,6 +1,6 @@
 # Thor
 
-[![Build Status](https://travis-ci.org/mnot/thor.svg?branch=master)](https://travis-ci.org/mnot/thor)
+[![CircleCI](https://circleci.com/gh/mnot/thor.svg?style=svg)](https://circleci.com/gh/mnot/thor)
 [![Coverage Status](https://coveralls.io/repos/mnot/thor/badge.svg)](https://coveralls.io/r/mnot/thor)
 
 ## About Thor
