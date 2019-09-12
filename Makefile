@@ -28,7 +28,7 @@ tidy:
 
 .PHONY: lint
 lint:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pylint --rcfile=test/pylintrc thor
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pylint --output-format=colorized --rcfile=test/pylintrc thor
 
 .PHONY: test
 test: $(PY_TESTS)
