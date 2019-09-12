@@ -95,6 +95,21 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.last_error, socket.EAI_NONAME)
         self.assertEqual(self.timeout_hit, False)
 
+    def test_ip_check(self):
+        self.start_server()
+        def ip_check (dns_result):
+            return False
+        self.client.check_ip = ip_check
+        self.client.connect(framework.test_host, framework.test_port)
+        self.loop.schedule(2, self.timeout)
+        try:
+            self.loop.run()
+        finally:
+            self.stop_server()
+        self.assertEqual(self.connect_count, 0)
+        self.assertEqual(self.error_count, 1)
+        self.assertEqual(self.timeout_hit, False)
+
 #    def test_connect_timeout(self):
 #        self.client.connect(framework.timeout_host, framework.timeout_port, 1)
 #        self.loop.schedule(3, self.timeout)

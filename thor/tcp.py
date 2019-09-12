@@ -15,7 +15,7 @@ import errno
 import os
 import sys
 import socket
-from typing import Tuple, List, Union, Type  # pylint: disable=unused-import
+from typing import Tuple, List, Union, Type, Callable  # pylint: disable=unused-import
 import ssl as sys_ssl  # pylint: disable=unused-import
 
 from thor.dns import lookup
@@ -298,6 +298,7 @@ class TcpClient(EventSource):
         EventSource.__init__(self, loop)
         self.host = None  # type: bytes
         self.port = None  # type: int
+        self.check_ip = None  # type: Callable[[str], bool]
         self._timeout_ev = None  # type: ScheduledEvent
         self._error_sent = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -329,6 +330,11 @@ class TcpClient(EventSource):
         if isinstance(dns_result, Exception):
             self.handle_socket_error(dns_result, "gai")
             return
+        if self.check_ip is not None:
+            if not self.check_ip(dns_result):
+                self.handle_conn_error("access", 0, "IP Check failed")
+                return
+
         self.on("fd_writable", self.handle_connect)
         try:
             err = self.sock.connect_ex((dns_result, self.port))

@@ -62,6 +62,7 @@ class HttpClient:
         self.retry_limit = 2  # type: int
         self.retry_delay = 0.5  # type: float  # seconds
         self.max_server_conn = 6  # type: int
+        self.check_ip = None  # type: Callable[[str], bool]
         self.careful = True  # type: bool
         self._idle_conns = defaultdict(
             list
@@ -169,6 +170,7 @@ class HttpClient:
             tcp_client = self.tls_client_class(self.loop)
         else:
             raise ValueError(u"unknown scheme %s" % scheme)
+        tcp_client.check_ip = self.check_ip
         tcp_client.once("connect", handle_connect)
         tcp_client.once("connect_error", handle_error)
         self._conn_counts[origin] += 1
