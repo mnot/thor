@@ -134,6 +134,7 @@ Signal that the response body is finished. This must be called for every respons
 
 
 <span id="headers"/>
+
 ## Working with HTTP Headers 
 
 In Thor's HTTP APIs, headers are moved around as lists of tuples, where each tuple is a (_bytes_ `field-name`, _bytes_ `field-value`) pair. For example:
