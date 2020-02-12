@@ -152,12 +152,14 @@ Thor has several utility functions for manipulating this data structure; see [th
 
 
 <span id="header_names"/>
+
 ### _set_ thor.http.header\_names ( _[headers](#headers)_ `headers` )
 
 Given a list of header tuples `headers`, return the set of _bytes_ header field-names present.
 
 
 <span id="header_dict"/>
+
 ### _dict_ thor.http.header\_dict ( _[headers](#headers)_ `headers`,  _list_ `omit` )
 
 Given a list of header tuples `headers`, return a dictionary whose keys are the _bytes_ header field-names (normalised to lower case) and whose values are lists of _bytes_ field-values. 
@@ -168,6 +170,7 @@ If `omit`, a list of _bytes_ field-names, is specified, those field names will b
 
 
 <span id="get_header"/>
+
 ### _list_ thor.http.get\_header ( _[headers](#headers)_ `headers`, _bytes_ `fieldname` )
 
 Given a list of header tuples `headers`, return a list of _bytes_ field-values for the given `fieldname`. 
