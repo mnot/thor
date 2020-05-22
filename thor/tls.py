@@ -50,10 +50,7 @@ class TlsClient(TcpClient):
 
     def __init__(self, loop: LoopBase = None) -> None:
         TcpClient.__init__(self, loop)
-        try:
-            self.tls_context = sys_ssl.SSLContext(sys_ssl.PROTOCOL_SSLv23)
-        except AttributeError:
-            self.tls_context = None
+        self.tls_context = sys_ssl.create_default_context()
 
     # TODO: refactor into tcp.py
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
