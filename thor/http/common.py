@@ -434,9 +434,12 @@ class HttpMessageHandler:
                 return True
 
         try:
-            hdr_tuples, conn_tokens, transfer_codes, content_length = self._parse_fields(
-                header_lines, True
-            )
+            (
+                hdr_tuples,
+                conn_tokens,
+                transfer_codes,
+                content_length,
+            ) = self._parse_fields(header_lines, True)
         except ValueError:  # returned empty because there was an error
             return False  # throw away the rest
 

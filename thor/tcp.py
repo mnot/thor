@@ -121,7 +121,7 @@ class TcpConnection(EventSource):
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
         status.append(self.tcp_connected and "connected" or "disconnected")
-        status.append("%s:%s" % (self.host, self.port))
+        status.append("%s:%i" % (self.host.decode("idna"), self.port))
         if self._input_paused:
             status.append("input paused")
         if self._output_paused:

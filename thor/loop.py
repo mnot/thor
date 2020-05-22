@@ -123,7 +123,7 @@ class LoopBase(EventEmitter):
                     import pstats, io
 
                     s = io.StringIO()
-                    sortby = pstats.SortKey.CUMULATIVE
+                    sortby = pstats.SortKey.CUMULATIVE  # type: ignore
                     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
                     ps.print_callers()
                     print(s.getvalue())

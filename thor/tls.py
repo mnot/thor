@@ -79,7 +79,9 @@ class TlsClient(TcpClient):
         self.once("fd_writable", self.handshake)
         # FIXME: CAs
         self.sock = self.tls_context.wrap_socket(  # type: ignore
-            self.sock, do_handshake_on_connect=False, server_hostname=self.host
+            self.sock,
+            do_handshake_on_connect=False,
+            server_hostname=self.host.decode("idna"),
         )
         try:
             err = self.sock.connect_ex((dns_result, self.port))

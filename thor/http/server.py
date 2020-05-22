@@ -230,7 +230,13 @@ class HttpServerExchange(EventEmitter):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append("%s {%s}" % (self.method or "-", self.uri or "-"))
+        status.append(
+            "%s {%s}"
+            % (
+                self.method.decode("ascii") or "-",
+                self.uri.decode("utf-8", "replace") or "-",
+            )
+        )
         return "<%s at %#x>" % (", ".join(status), id(self))
 
     def request_start(self) -> None:
@@ -284,7 +290,7 @@ def test_handler(x: HttpServerExchange) -> None:  # pragma: no cover
 
     @on(x, "request_body")
     def body(chunk: bytes) -> None:
-        print("body: %s" % chunk)
+        print("body: %s" % chunk.decode("utf-8", "replace"))
 
     @on(x, "request_done")
     def done(trailers: RawHeaderListType) -> None:
