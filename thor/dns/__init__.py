@@ -9,7 +9,9 @@ pool_size = 10
 
 def lookup(host: bytes, cb: Callable[..., None]) -> None:
     f = _pool.submit(_lookup, host)
-    cb(f.result())
+    def done(ff):
+        cb(ff.result())
+    f.add_done_callback(done)
 
 
 def _lookup(host: bytes) -> Union[str, Exception]:
