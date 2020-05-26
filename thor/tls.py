@@ -80,8 +80,13 @@ class TlsClient(TcpClient):
             return
         self.once("fd_writable", self.handshake)
         # FIXME: CAs
+        tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_socket.setblocking(False)
+        self.on("fd_error", self.handle_fd_error)
+        self.register_fd(tcp_socket.fileno(), "fd_writable")
+        self.event_add("fd_error")
         self.sock = self.tls_context.wrap_socket(  # type: ignore
-            self.sock,
+            tcp_socket,
             do_handshake_on_connect=False,
             server_hostname=self.host.decode("idna"),
         )

@@ -256,7 +256,8 @@ class TcpServer(EventSource):
     def shutdown(self) -> None:
         "Stop accepting requests and close the listening socket."
         self.removeListeners("fd_readable")
-        self.sock.close()
+        if self.sock:
+            self.sock.close()
         self.emit("stop")
         # TODO: emit close?
 
@@ -298,14 +299,10 @@ class TcpClient(EventSource):
         EventSource.__init__(self, loop)
         self.host = None  # type: bytes
         self.port = None  # type: int
+        self.sock = None  # type: socket.socket
         self.check_ip = None  # type: Callable[[str], bool]
         self._timeout_ev = None  # type: ScheduledEvent
         self._error_sent = False
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setblocking(False)
-        self.on("fd_error", self.handle_fd_error)
-        self.register_fd(self.sock.fileno(), "fd_writable")
-        self.event_add("fd_error")
 
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
         """
@@ -335,6 +332,11 @@ class TcpClient(EventSource):
                 self.handle_conn_error("access", 0, "IP Check failed")
                 return
 
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setblocking(False)
+        self.on("fd_error", self.handle_fd_error)
+        self.register_fd(self.sock.fileno(), "fd_writable")
+        self.event_add("fd_error")
         self.on("fd_writable", self.handle_connect)
         try:
             err = self.sock.connect_ex((dns_result, self.port))
@@ -381,7 +383,7 @@ class TcpClient(EventSource):
         self._error_sent = True
         self.unregister_fd()
         self.emit("connect_error", err_type, err_id, err_str)
-        if close:
+        if close and self.sock:
             self.sock.close()
 
 
