@@ -50,74 +50,42 @@ class TlsClient(TcpClient):
 
     def __init__(self, loop: LoopBase = None) -> None:
         TcpClient.__init__(self, loop)
-        self.tls_context = sys_ssl.create_default_context()
-        self.tls_context.check_hostname = False
-        self.tls_context.verify_mode = sys_ssl.CERT_NONE
+        self.tls_sock = None
 
-    # TODO: refactor into tcp.py
-    def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
-        """
-        Connect to host:port (with an optional connect timeout)
-        and emit 'connect' when connected, or 'connect_error' in
-        the case of an error.
-        """
-        self.host = host
-        self.port = port
-        if connect_timeout:
-            self._timeout_ev = self._loop.schedule(
-                connect_timeout,
-                self.handle_socket_error,
-                socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
-            )
-        lookup(host, self._continue_connect)
-
-    def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
-        """
-        Continue connecting after DNS results a result.
-        """
-        if isinstance(dns_result, Exception):
-            self.handle_socket_error(dns_result, "gai")
-            return
-        self.once("fd_writable", self.handshake)
-        # FIXME: CAs
-        tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        tcp_socket.setblocking(False)
-        self.on("fd_error", self.handle_fd_error)
-        self.register_fd(tcp_socket.fileno(), "fd_writable")
-        self.event_add("fd_error")
-        self.sock = self.tls_context.wrap_socket(  # type: ignore
-            tcp_socket,
+    def handle_connect(self) -> None:
+        tls_context = sys_ssl.create_default_context()
+        tls_context.check_hostname = False
+        tls_context.verify_mode = sys_ssl.CERT_NONE
+        self.tls_sock = tls_context.wrap_socket(  # type: ignore
+            self.sock,
             do_handshake_on_connect=False,
             server_hostname=self.host.decode("idna"),
         )
-        try:
-            err = self.sock.connect_ex((dns_result, self.port))
-        except socket.error as why:
-            self.handle_socket_error(why)
-            return
-        if err != errno.EINPROGRESS:
-            self.handle_socket_error(socket.error(err, os.strerror(err)))
-            return
+        self.once("fd_writable", self.handshake)
 
     def handshake(self) -> None:
         try:
-            self.sock.do_handshake()  # type: ignore
-            self.once("fd_writable", self.handle_connect)
+            self.tls_sock.do_handshake()  # type: ignore
+            self.once("fd_writable", self.handle_tls_connect)
         except sys_ssl.SSLError as why:
             if isinstance(why, sys_ssl.SSLWantReadError):
-                #            if why == sys_ssl.SSL_ERROR_WANT_READ:
-                #                self.once('fd_readable', self.handshake)
                 self.once("fd_writable", self.handshake)  # Oh, Linux...
-            #            elif why == sys_ssl.SSL_ERROR_WANT_WRITE:
             elif isinstance(why, sys_ssl.SSLWantWriteError):
                 self.once("fd_writable", self.handshake)
             else:
                 self.handle_socket_error(why, "ssl")
         except socket.error as why:
             self.handle_socket_error(why, "ssl")
-        except AttributeError as why:
-            # wrap_socket sometimes fails, but the error is caught elsewhere.
-            pass
+        except AttributeError:
+            # For some reason, wrap_context is returning None. Try again.
+            self.once("fd_writable", self.handshake)
+
+    def handle_tls_connect(self) -> None:
+        self.unregister_fd()
+        if self._timeout_ev:
+            self._timeout_ev.delete()
+        tls_conn = TcpConnection(self.tls_sock, self.host, self.port, self._loop)
+        self.emit("connect", tls_conn)
 
 
 if __name__ == "__main__":
