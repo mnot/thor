@@ -116,7 +116,7 @@ class TcpConnection(EventSource):
         self.register_fd(sock.fileno())
         self.on("fd_readable", self.handle_readable)
         self.on("fd_writable", self.handle_writable)
-        self.on("fd_close", self._handle_close)
+        self.once("fd_close", self._handle_close)
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -334,10 +334,10 @@ class TcpClient(EventSource):
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setblocking(False)
-        self.on("fd_error", self.handle_fd_error)
+        self.once("fd_error", self.handle_fd_error)
         self.register_fd(self.sock.fileno(), "fd_writable")
         self.event_add("fd_error")
-        self.on("fd_writable", self.handle_connect)
+        self.once("fd_writable", self.handle_connect)
         try:
             err = self.sock.connect_ex((dns_result, self.port))
         except socket.error as why:
