@@ -361,7 +361,10 @@ class TcpClient(EventSource):
             self.emit("connect", tcp_conn)
 
     def handle_fd_error(self) -> None:
-        err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+        try:
+            err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+        except OSError:
+            err_id = 54
         err_str = os.strerror(err_id)
         self.handle_conn_error("socket", err_id, err_str)
 
