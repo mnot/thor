@@ -329,13 +329,13 @@ class EpollLoop(LoopBase):
     def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
-            select.EPOLLIN: "fd_readable",
-            select.EPOLLOUT: "fd_writable",
-            select.EPOLLHUP: "fd_close",
-            select.EPOLLERR: "fd_error",
+            select.EPOLLIN: "fd_readable",  # type: ignore
+            select.EPOLLOUT: "fd_writable",  # type: ignore
+            select.EPOLLHUP: "fd_close",  # type: ignore
+            select.EPOLLERR: "fd_error",  # type: ignore
         }
         LoopBase.__init__(self, *args)
-        self._epoll = select.epoll()
+        self._epoll = select.epoll()  # type: ignore
         # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
