@@ -688,9 +688,6 @@ Connection: close
             self.check_exchange(
                 exchange1,
                 {
-                    "version": b"1.1",
-                    "status": b"200",
-                    "phrase": b"OK",
                     "body": b"12345",
                 },
             )
@@ -705,9 +702,6 @@ Connection: close
                 self.check_exchange(
                     exchange2,
                     {
-                        "version": b"1.1",
-                        "status": b"404",
-                        "phrase": b"Not Found",
                         "body": b"54321",
                     },
                 )
@@ -732,12 +726,13 @@ Connection: close
 
         def server_side(conn):
             conn.request.sendall(
-                b"""\
+                b"""
 HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
 
-12345"""
+12345
+"""
             )
             time.sleep(3)
             conn.request.sendall(
