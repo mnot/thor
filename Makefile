@@ -1,6 +1,3 @@
-PYTHON=python3
-PYTHONPATH=./
-version=$(shell PYTHONPATH=$(PYTHONPATH) $(PYTHON) -c "import thor; print(thor.__version__)")
 PY_TESTS=test/test_*.py
 
 all:
@@ -10,25 +7,31 @@ all:
 .PHONY: run
 run: test
 
-.PHONY: version
-version:
-	@echo $(version)
 
-.PHONY: dist
-dist: clean typecheck test
-	git tag thor-$(version)
-	git push
-	git push --tags origin
-	$(PYTHON) setup.py sdist
-	$(PYTHON) -m twine upload dist/*
+##########################################################################################
+## Tasks
 
 .PHONY: tidy
-tidy:
-	black thor
+tidy: venv
+	$(VENV)/black thor
 
 .PHONY: lint
-lint:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pylint --output-format=colorized --rcfile=test/pylintrc thor
+lint: venv
+	PYTHONPATH=$(VENV) $(VENV)/pylint --output-format=colorized --rcfile=test/pylintrc thor
+
+.PHONY: typecheck
+typecheck: venv
+	PYTHONPATH=$(VENV) $(VENV)/python -m mypy --config-file=test/mypy.ini thor
+
+.PHONY: clean
+clean:
+	rm -rf build dist MANIFEST thor.egg-info .venv
+	find . -type f -name \*.pyc -exec rm {} \;
+	find . -d -type d -name __pycache__ -exec rm -rf {} \;
+
+
+##########################################################################################
+## Tests
 
 .PHONY: test
 test: $(PY_TESTS)
@@ -37,12 +40,24 @@ test: $(PY_TESTS)
 $(PY_TESTS):
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) $@ -v
 
-.PHONY: typecheck
-typecheck:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m mypy --config-file=test/mypy.ini thor
 
-.PHONY: clean
-clean:
-	rm -rf build dist MANIFEST thor.egg-info
-	find . -type f -name \*.pyc -exec rm {} \;
-	find . -d -type d -name __pycache__ -exec rm -rf {} \;
+#############################################################################
+## Distribution
+
+.PHONY: version
+version: venv
+	$(eval VERSION=$(shell $(VENV)/python -c "import thor; print(thor.__version__)"))
+
+.PHONY: build
+build: clean venv
+	$(VENV)/python -m build
+
+.PHONY: upload
+upload: build typecheck test version
+	git tag thor-$(VERSION)
+	git push
+	git push --tags origin
+	$(VENV)/python -m twine upload dist/*
+
+
+include Makefile.venv
