@@ -29,7 +29,6 @@ refuse_port = 41000
 
 
 class ClientServerTestCase(unittest.TestCase):
-
     def setUp(self):
         self.loop = thor.loop.make()
         self.timeout_hit = False
@@ -67,6 +66,7 @@ class ClientServerTestCase(unittest.TestCase):
         def do_timeout():
             self.loop.stop()
             self.timeout_hit = True
+
         self.loop.schedule(timeout, do_timeout)
         try:
             self.loop.run()
@@ -93,7 +93,9 @@ class DummyHttpParser(HttpMessageHandler):
         self.test_err = None
         self.test_states = []
 
-    def input_start(self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length):
+    def input_start(
+        self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length
+    ):
         self.test_states.append("START")
         self.test_top_line = top_line
         self.test_hdrs = hdr_tuples
@@ -110,7 +112,7 @@ class DummyHttpParser(HttpMessageHandler):
     def input_error(self, err):
         self.test_states.append("ERROR")
         self.test_err = err
-        return False # never recover.
+        return False  # never recover.
 
     def check(self, asserter, expected):
         """
@@ -118,12 +120,12 @@ class DummyHttpParser(HttpMessageHandler):
         assert using asserter as necessary.
         """
         aE = asserter.assertEqual
-        aE(expected.get('top_line', self.test_top_line), self.test_top_line)
-        aE(expected.get('hdrs', self.test_hdrs), self.test_hdrs)
-        aE(expected.get('body', self.test_body), self.test_body)
-        aE(expected.get('trailers', self.test_trailers), self.test_trailers)
-        aE(expected.get('error', self.test_err), self.test_err)
-        aE(expected.get('states', self.test_states), self.test_states)
+        aE(expected.get("top_line", self.test_top_line), self.test_top_line)
+        aE(expected.get("hdrs", self.test_hdrs), self.test_hdrs)
+        aE(expected.get("body", self.test_body), self.test_body)
+        aE(expected.get("trailers", self.test_trailers), self.test_trailers)
+        aE(expected.get("error", self.test_err), self.test_err)
+        aE(expected.get("states", self.test_states), self.test_states)
 
 
 class LittleRequestHandler(SocketServer.BaseRequestHandler):
@@ -138,12 +140,12 @@ def make_fifo(filename):
     try:
         os.unlink(filename)
     except OSError:
-        pass # wasn't there
+        pass  # wasn't there
     try:
         os.mkfifo(filename)
     except OSError as e:
         print("Failed to create FIFO: %s" % e)
     else:
-        r = os.open(filename, os.O_RDONLY|os.O_NONBLOCK)
-        w = os.open(filename, os.O_WRONLY|os.O_NONBLOCK)
+        r = os.open(filename, os.O_RDONLY | os.O_NONBLOCK)
+        w = os.open(filename, os.O_WRONLY | os.O_NONBLOCK)
         return r, w

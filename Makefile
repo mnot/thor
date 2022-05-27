@@ -13,7 +13,7 @@ run: test
 
 .PHONY: tidy
 tidy: venv
-	$(VENV)/black thor
+	$(VENV)/black thor test
 
 .PHONY: lint
 lint: venv

@@ -11,14 +11,15 @@ import thor
 from thor.events import on
 from thor.http import HttpServer
 
-class TestHttpServer(framework.ClientServerTestCase):
 
+class TestHttpServer(framework.ClientServerTestCase):
     def create_server(self, test_host, test_port, server_side):
         server = HttpServer(test_host, test_port, loop=self.loop)
         server_side(server)
 
         def stop():
             server.shutdown()
+
         return stop
 
     def create_client(self, test_host, test_port, client_side):
@@ -27,6 +28,7 @@ class TestHttpServer(framework.ClientServerTestCase):
             client.connect((test_host, test_port))
             client_side1(client)
             client.close()
+
         self.move_to_thread(target=run_client, args=(client_side,))
 
     def check_exchange(self, exchange, expected):
@@ -39,15 +41,16 @@ class TestHttpServer(framework.ClientServerTestCase):
         @on(exchange)
         def error(err_msg):
             exchange.test_happened = True
-            self.assertEqual(err_msg, expected.get('error', err_msg))
+            self.assertEqual(err_msg, expected.get("error", err_msg))
             self.loop.stop()
 
         @on(exchange)
         def request_start(method, uri, headers):
-            self.assertEqual(method, expected.get('method', method))
-            self.assertEqual(uri, expected.get('phrase', uri))
+            self.assertEqual(method, expected.get("method", method))
+            self.assertEqual(uri, expected.get("phrase", uri))
 
         exchange.tmp_req_body = b""
+
         @on(exchange)
         def request_body(chunk):
             exchange.tmp_req_body += chunk
@@ -55,13 +58,9 @@ class TestHttpServer(framework.ClientServerTestCase):
         @on(exchange)
         def request_done(trailers):
             exchange.test_happened = True
+            self.assertEqual(trailers, expected.get("req_trailers", trailers))
             self.assertEqual(
-                trailers,
-                expected.get('req_trailers', trailers)
-            )
-            self.assertEqual(
-                exchange.tmp_req_body,
-                expected.get('body', exchange.tmp_req_body)
+                exchange.tmp_req_body, expected.get("body", exchange.tmp_req_body)
             )
             self.loop.stop()
 
@@ -69,90 +68,94 @@ class TestHttpServer(framework.ClientServerTestCase):
         def stop():
             self.assertTrue(exchange.test_happened)
 
-
     def test_basic(self):
         def server_side(server):
             def check(exchange):
-                self.check_exchange(exchange, {
-                    'method': b'GET',
-                    'uri': b'/'
-                })
-            server.on('exchange', check)
+                self.check_exchange(exchange, {"method": b"GET", "uri": b"/"})
+
+            server.on("exchange", check)
 
         def client_side(client_conn):
-            client_conn.sendall(b"""\
+            client_conn.sendall(
+                b"""\
 GET / HTTP/1.1
 Host: %s:%i
 
-""" % (framework.test_host, framework.test_port))
+"""
+                % (framework.test_host, framework.test_port)
+            )
             time.sleep(1)
             client_conn.close()
-        self.go([server_side], [client_side])
 
+        self.go([server_side], [client_side])
 
     def test_extraline(self):
         def server_side(server):
             def check(exchange):
-                self.check_exchange(exchange, {
-                    'method': b'GET',
-                    'uri': b'/'
-                })
-            server.on('exchange', check)
+                self.check_exchange(exchange, {"method": b"GET", "uri": b"/"})
+
+            server.on("exchange", check)
 
         def client_side(client_conn):
-            client_conn.sendall(b"""\
+            client_conn.sendall(
+                b"""\
 
 GET / HTTP/1.1
 Host: %s:%i\r
 \r
-""" % (framework.test_host, framework.test_port))
+"""
+                % (framework.test_host, framework.test_port)
+            )
             time.sleep(1)
             client_conn.close()
-        self.go([server_side], [client_side])
 
+        self.go([server_side], [client_side])
 
     def test_post(self):
         def server_side(server):
             def check(exchange):
-                self.check_exchange(exchange, {
-                    'method': b'POST',
-                    'uri': b'/foo'
-                })
-            server.on('exchange', check)
+                self.check_exchange(exchange, {"method": b"POST", "uri": b"/foo"})
+
+            server.on("exchange", check)
 
         def client_side(client_conn):
-            client_conn.sendall(b"""\
+            client_conn.sendall(
+                b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
-12345""" % (framework.test_host, framework.test_port))
+12345"""
+                % (framework.test_host, framework.test_port)
+            )
             time.sleep(1)
             client_conn.close()
-        self.go([server_side], [client_side])
 
+        self.go([server_side], [client_side])
 
     def test_post_extra_crlf(self):
         def server_side(server):
             def check(exchange):
-                self.check_exchange(exchange, {
-                    'method': b'POST',
-                    'uri': b'/foo'
-                })
-            server.on('exchange', check)
+                self.check_exchange(exchange, {"method": b"POST", "uri": b"/foo"})
+
+            server.on("exchange", check)
 
         def client_side(client_conn):
-            client_conn.sendall(b"""\
+            client_conn.sendall(
+                b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
 12345
-""" % (framework.test_host, framework.test_port))
+"""
+                % (framework.test_host, framework.test_port)
+            )
             time.sleep(1)
             client_conn.close()
+
         self.go([server_side], [client_side])
 
 
@@ -172,20 +175,19 @@ Content-Length: 5
 #
 #        def client_side(client_conn):
 #            client_conn.sendall("""\
-#GET / HTTP/1.1
-#Host: %s:%i
+# GET / HTTP/1.1
+# Host: %s:%i
 #
-#GET / HTTP/1.1
-#Host: %s:%i
+# GET / HTTP/1.1
+# Host: %s:%i
 #
-#""" % (
+# """ % (
 #    framework.test_host, framework.test_port,
 #    framework.test_host, framework.test_port
-#))
+# ))
 #            time.sleep(1)
 #            client_conn.close()
 #        self.go([server_side], [client_side])
-
 
 
 #    def test_conn_close(self):
@@ -202,6 +204,5 @@ Content-Length: 5
 #    def test_startline_encoding(self):
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-
