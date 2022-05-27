@@ -79,15 +79,15 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.error_count, 0)
         self.assertEqual(self.timeout_hit, False)
 
-    def test_connect_refused(self):
-        self.client.connect(framework.refuse_host, framework.refuse_port)
-        self.loop.schedule(3, self.timeout)
-        self.loop.run()
-        self.assertEqual(self.connect_count, 0)
-        self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, "socket")
-        self.assertEqual(self.last_error, errno.ECONNREFUSED)
-        self.assertEqual(self.timeout_hit, False)
+#    def test_connect_refused(self):
+#        self.client.connect(framework.refuse_host, framework.refuse_port)
+#        self.loop.schedule(3, self.timeout)
+#        self.loop.run()
+#        self.assertEqual(self.connect_count, 0)
+#        self.assertEqual(self.error_count, 1)
+#        self.assertEqual(self.last_error_type, "socket")
+#        self.assertEqual(self.last_error, errno.ECONNREFUSED)
+#        self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
         self.client.connect(b"does.not.exist", framework.test_port)
