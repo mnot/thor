@@ -34,11 +34,8 @@ clean:
 ## Tests
 
 .PHONY: test
-test: $(PY_TESTS)
-
-.PHONY: $(PY_TESTS)
-$(PY_TESTS):
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) $@ -v
+test:
+	PYTHONPATH=.:$(VENV) $(VENV)/pytest test
 
 
 #############################################################################
