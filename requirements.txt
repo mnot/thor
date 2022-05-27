@@ -3,3 +3,4 @@ black
 pylint
 pytest
 build
+twine
