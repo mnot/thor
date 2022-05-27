@@ -6,3 +6,4 @@ MANIFEST
 __pycache__
 .mypy_cache
 thor.egg-info
+.venv
