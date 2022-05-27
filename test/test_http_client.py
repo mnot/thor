@@ -753,6 +753,7 @@ Connection: close
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
 
+    @pytest.mark.xfail
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
 
