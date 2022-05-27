@@ -2,3 +2,4 @@ mypy
 black
 pylint
 pytest
+build
