@@ -34,7 +34,7 @@ class TestHttpParser(unittest.TestCase):
             self.assertEqual(
                 body,
                 self.parser.test_body,
-                "%s not equal to %s" % (body[:20], self.parser.test_body[:20]),
+                f"{body[:20]} not equal to {self.parser.test_body[:20]}",
             )
         else:
             self.assertTrue("ERROR" in states, states)
@@ -276,16 +276,14 @@ Content-Length: %(body_len)i
         self.checkSingleMsg(
             [
                 a.encode("ascii")
-                for a in """\
-
+                for a in f"""
 
 
 HTTP/1.1 200 OK
 Content-Type: text/plain
-Content-Length: %(body_len)i
+Content-Length: {len(body)}
 
-%(body)s"""
-                % {"body": body, "body_len": len(body)}
+{body}"""
             ],
             body.encode("ascii"),
         )

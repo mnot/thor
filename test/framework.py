@@ -144,7 +144,7 @@ def make_fifo(filename):
     try:
         os.mkfifo(filename)
     except OSError as e:
-        print("Failed to create FIFO: %s" % e)
+        print(f"Failed to create FIFO: {e}")
     else:
         r = os.open(filename, os.O_RDONLY | os.O_NONBLOCK)
         w = os.open(filename, os.O_WRONLY | os.O_NONBLOCK)

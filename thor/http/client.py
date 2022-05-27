@@ -169,7 +169,7 @@ class HttpClient:
         elif scheme == "https":
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError("unknown scheme %s" % scheme)
+            raise ValueError(f"unknown scheme {scheme}")
         tcp_client.check_ip = self.check_ip
         tcp_client.once("connect", handle_connect)
         tcp_client.once("connect_error", handle_error)
@@ -213,17 +213,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append(
-            "%s {%s}"
-            % (
-                self.method.decode("utf-8", "replace") or "-",
-                self.uri.decode("utf-8", "replace") or "-",
-            )
-        )
+        method = self.method.decode("utf-8", "replace") or "-"
+        uri = self.uri.decode("utf-8", "replace") or "-"
+        status.append(f"{method} <{uri}>")
         if self.tcp_conn:
             status.append(self.tcp_conn.tcp_connected and "connected" or "disconnected")
         status.append(HttpMessageHandler.__repr__(self))
-        return "<%s at %#x>" % (", ".join(status), id(self))
+        return f"<{', '.join(status)} at {id(self):#x}>"
 
     def request_start(
         self, method: bytes, uri: bytes, req_hdrs: RawHeaderListType
@@ -272,7 +268,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         elif scheme == "https":
             default_port = 443
         else:
-            self.input_error(UrlError("Unsupported URL scheme '%s'" % scheme), False)
+            self.input_error(UrlError(f"Unsupported URL scheme '{scheme}'"), False)
             raise ValueError
         if b"@" in authority:
             authority = authority.split(b"@", 1)[1]
@@ -299,14 +295,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             except ValueError:
                 self.input_error(
                     UrlError(
-                        "Non-integer port '%s' in URL"
-                        % portb.decode("utf-8", "replace")
+                        f"Non-integer port '{portb.decode('utf-8', 'replace')}' in URL"
                     ),
                     False,
                 )
                 raise
             if not 1 <= port <= 65535:
-                self.input_error(UrlError("URL port %i out of range" % port), False)
+                self.input_error(UrlError(f"URL port {port} out of range"), False)
                 raise ValueError
         else:
             port = default_port
@@ -439,15 +434,13 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                     self.client.loop.schedule(self.client.retry_delay, self._retry)
                 else:
                     self.input_error(
-                        ConnectError(
-                            "Tried to connect %s times." % (self._retries + 1)
-                        ),
+                        ConnectError(f"Tried to connect {self._retries + 1} times."),
                         False,
                     )
             else:
                 self.input_error(
                     ConnectError(
-                        "Can't retry %s method" % self.method.decode("utf-8", "replace")
+                        f"Can't retry {self.method.decode('utf-8', 'replace')} method"
                     ),
                     False,
                 )
@@ -597,10 +590,7 @@ def test_client(
     @on(x)
     def error(err_msg: HttpError) -> None:
         if err_msg:
-            err(
-                "\033[1;31m*** ERROR:\033[0;39m %s (%s)\n"
-                % (err_msg.desc, err_msg.detail)
-            )
+            err(f"\033[1;31m*** ERROR:\033[0;39m {err_msg.desc} ({err_msg.detail})\n")
         if not err_msg.client_recoverable:
             stop()
 

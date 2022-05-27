@@ -94,12 +94,7 @@ class LoopBase(EventEmitter):
         is_running = "running" if self.running else "not-running"
         events = len(self.__sched_events)
         targets = len(self._fd_targets)
-        return "<%s - %s, %i sched_events, %i fd_targets>" % (
-            name,
-            is_running,
-            events,
-            targets,
-        )
+        return f"<{name} - {is_running}, {events} sched_events, {targets} fd_targets>"
 
     def run(self) -> None:
         "Start the loop."
@@ -119,8 +114,9 @@ class LoopBase(EventEmitter):
                 self.__now = systime.time()
                 delay = self.__now - fd_start
                 if delay > self.precision * 2:
-                    sys.stderr.write("WARNING: long fd delay (%.2f)\n" % delay)
-                    import pstats, io
+                    sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
+                    import io
+                    import pstats
 
                     s = io.StringIO()
                     sortby = pstats.SortKey.CUMULATIVE  # type: ignore
@@ -135,10 +131,10 @@ class LoopBase(EventEmitter):
             if delay >= self.precision * 0.90:
                 if debug:
                     if last_event_check and (delay >= self.precision * 4):
-                        sys.stderr.write("WARNING: long loop delay (%.2f)\n" % delay)
+                        sys.stderr.write(f"WARNING: long loop delay ({delay:.2f})\n")
                     if len(self.__sched_events) > 500:
                         sys.stderr.write(
-                            "WARNING: %i events scheduled\n" % len(self.__sched_events)
+                            f"WARNING: {len(self.__sched_events)} events scheduled\n"
                         )
                 last_event_check = self.__now
                 for event in self.__sched_events:
@@ -156,8 +152,7 @@ class LoopBase(EventEmitter):
                             delay = systime.time() - ev_start
                             if delay > self.precision * 2:
                                 sys.stderr.write(
-                                    "WARNING: long event delay (%.2f): %s\n"
-                                    % (delay, what.__name__)
+                                    f"WARNING: long event delay ({delay:.2f}): {what.__name__}\n"
                                 )
                     else:
                         break

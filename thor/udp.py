@@ -46,7 +46,7 @@ class UdpEndpoint(EventSource):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        return "<%s at %#x>" % (", ".join(status), id(self))
+        return f"<{', '.join(status)} at {id(self):#x}>"
 
     def bind(self, host: bytes, port: int) -> None:
         """
@@ -101,8 +101,7 @@ class UdpEndpoint(EventSource):
             except socket.error as why:
                 if why.args[0] in self._block_errs:
                     break
-                else:
-                    raise
+                raise
             self.emit("datagram", data, addr[0], addr[1])
 
     def handle_socket_error(self, why: Exception, err_type: str = "socket") -> None:

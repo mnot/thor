@@ -8,13 +8,9 @@ This is a generic library for building event-based / asynchronous
 SSL/TLS servers and clients.
 """
 
-import errno
-import os
 import socket
 import ssl as sys_ssl
-from typing import Union
 
-from thor.dns import lookup
 from thor.loop import LoopBase
 from thor.tcp import TcpClient, TcpConnection
 

@@ -129,7 +129,7 @@ class HttpMessageHandler:
         self._output_delimit = None  # type: Delimiters
 
     def __repr__(self) -> str:
-        return "input %s output %s" % (self._input_state, self._output_state)
+        return f"input {self._input_state} output {self._output_state}"
 
     # input-related methods
 
@@ -203,14 +203,14 @@ class HttpMessageHandler:
             self._input_state == States.HEADERS_DONE
         ):  # we found a complete header/trailer set
             try:
-                body_handler = getattr(self, "_handle_%s" % self._input_delimit.value)
+                body_handler = getattr(self, f"_handle_{self._input_delimit.value}")
             except AttributeError:
-                raise Exception("Unknown input delimiter %s" % self._input_delimit)
+                raise Exception(f"Unknown input delimiter {self._input_delimit}")
             body_handler(inbytes)
         elif self._input_state == States.ERROR:  # something bad happened.
             pass  # I'm silently ignoring input that I don't understand.
         else:
-            raise Exception("Unknown state %s" % self._input_state)
+            raise Exception(f"Unknown state {self._input_state}")
 
     def _handle_nobody(self, inbytes: bytes) -> None:
         "Handle input that shouldn't have a body."
@@ -534,7 +534,7 @@ class HttpMessageHandler:
         elif self._output_delimit is None:
             return True  # encountered an error before we found a delimiter
         else:
-            raise AssertionError("Unknown request delimiter %s" % self._output_delimit)
+            raise AssertionError(f"Unknown request delimiter {self._output_delimit}")
         self._output_state = States.WAITING
         self.output_done()
         return False

@@ -121,7 +121,7 @@ class TcpConnection(EventSource):
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
         status.append(self.tcp_connected and "connected" or "disconnected")
-        status.append("%s:%i" % (self.host.decode("idna"), self.port))
+        status.append(f"{self.host.decode('idna')}:{self.port}")
         if self._input_paused:
             status.append("input paused")
         if self._output_paused:
@@ -129,8 +129,8 @@ class TcpConnection(EventSource):
         if self._closing:
             status.append("closing")
         if self._write_buffer:
-            status.append("%s write buffered" % len(self._write_buffer))
-        return "<%s at %#x>" % (", ".join(status), id(self))
+            status.append(f"{len(self._write_buffer)} write buffered")
+        return f"<{', '.join(status)} at {id(self):#x}>"
 
     def handle_readable(self) -> None:
         "The connection has data read for reading"

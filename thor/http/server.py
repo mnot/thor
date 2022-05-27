@@ -230,14 +230,10 @@ class HttpServerExchange(EventEmitter):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append(
-            "%s {%s}"
-            % (
-                self.method.decode("ascii") or "-",
-                self.uri.decode("utf-8", "replace") or "-",
-            )
-        )
-        return "<%s at %#x>" % (", ".join(status), id(self))
+        method = self.method.decode("ascii") or "-"
+        uri = self.uri.decode("utf-8", "replace") or "-"
+        status.append(f"{method} <{uri}>")
+        return f'<{", ".join(status)} at {id(self):#x}>'
 
     def request_start(self) -> None:
         self.started = True
@@ -283,24 +279,24 @@ class HttpServerExchange(EventEmitter):
 def test_handler(x: HttpServerExchange) -> None:  # pragma: no cover
     @on(x, "request_start")
     def go(*args: Any) -> None:
-        print("start: %s on %s" % (str(args[1]), id(x.http_conn)))
+        print(f"start: {str(args[1])} on {id(x.http_conn)}")
         x.response_start(b"200", b"OK", [])
         x.response_body(b"foo!")
         x.response_done([])
 
     @on(x, "request_body")
     def body(chunk: bytes) -> None:
-        print("body: %s" % chunk.decode("utf-8", "replace"))
+        print(f"body: {chunk.decode('utf-8', 'replace')}")
 
     @on(x, "request_done")
     def done(trailers: RawHeaderListType) -> None:
-        print("done: %s" % str(trailers))
+        print(f"done: {str(trailers)}")
 
 
 if __name__ == "__main__":
     from thor.loop import run
 
-    sys.stderr.write("PID: %s\n" % os.getpid())
+    sys.stderr.write(f"PID: {os.getpid()}\n")
     h, p = b"127.0.0.1", int(sys.argv[1])
     demo_server = HttpServer(h, p)
     demo_server.on("exchange", test_handler)
