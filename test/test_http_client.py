@@ -10,6 +10,8 @@ import sys
 import time
 import unittest
 
+import pytest
+
 import framework
 
 import thor
@@ -676,6 +678,7 @@ Connection: close
 
         self.go([server_side], [client_side])
 
+    @pytest.mark.xfail
     def test_conn_reuse(self):
         self.conn_checked = False
 
