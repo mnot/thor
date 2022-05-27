@@ -169,7 +169,7 @@ class HttpClient:
         elif scheme == "https":
             tcp_client = self.tls_client_class(self.loop)
         else:
-            raise ValueError(u"unknown scheme %s" % scheme)
+            raise ValueError("unknown scheme %s" % scheme)
         tcp_client.check_ip = self.check_ip
         tcp_client.once("connect", handle_connect)
         tcp_client.once("connect_error", handle_error)
