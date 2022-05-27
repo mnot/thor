@@ -25,7 +25,7 @@ tls_port = 24443
 timeout_host = b"127.0.0.2"
 timeout_port = 31000
 refuse_host = test_host
-refuse_port = 41000
+refuse_port = 45000
 
 
 class ClientServerTestCase(unittest.TestCase):
