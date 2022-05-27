@@ -24,7 +24,7 @@ class LittleTlsServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         RequestHandlerClass,
         certfile,
         keyfile,
-        ssl_version=ssl.PROTOCOL_TLS,
+        ssl_version=ssl.PROTOCOL_TLS_SERVER,
         bind_and_activate=True,
     ):
 
