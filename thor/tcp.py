@@ -18,7 +18,7 @@ import socket
 from typing import Tuple, List, Union, Type, Callable  # pylint: disable=unused-import
 import ssl as sys_ssl  # pylint: disable=unused-import
 
-from thor.dns import lookup
+from thor.dns import lookup, pickDnsResult, DnsResultList
 from thor.loop import EventSource, LoopBase, schedule
 from thor.loop import ScheduledEvent  # pylint: disable=unused-import
 
@@ -318,28 +318,29 @@ class TcpClient(EventSource):
                 self.handle_socket_error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
             )
-        lookup(host, self._continue_connect)
+        lookup(host, port, socket.SOCK_STREAM, self._continue_connect)
 
-    def _continue_connect(self, dns_result: Union[str, Exception]) -> None:
+    def _continue_connect(self, dns_results: Union[DnsResultList, Exception]) -> None:
         """
         Continue connecting after DNS returns a result.
         """
-        if isinstance(dns_result, Exception):
-            self.handle_socket_error(dns_result, "gai")
+        if isinstance(dns_results, Exception):
+            self.handle_socket_error(dns_results, "gai")
             return
+        dns_result = pickDnsResult(dns_results)
         if self.check_ip is not None:
-            if not self.check_ip(dns_result):
+            if not self.check_ip(dns_result[4][0]):
                 self.handle_conn_error("access", 0, "IP Check failed")
                 return
 
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = socket.socket(dns_result[0], socket.SOCK_STREAM)
         self.sock.setblocking(False)
         self.once("fd_error", self.handle_fd_error)
         self.register_fd(self.sock.fileno(), "fd_writable")
         self.event_add("fd_error")
         self.once("fd_writable", self.handle_connect)
         try:
-            err = self.sock.connect_ex((dns_result, self.port))
+            err = self.sock.connect_ex(dns_result[4])
         except socket.error as why:
             self.handle_socket_error(why)
             return

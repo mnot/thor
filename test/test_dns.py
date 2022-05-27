@@ -11,7 +11,6 @@ from thor.dns import lookup
 
 
 class TestDns(unittest.TestCase):
-
     def setUp(self):
         self.loop = loop.make()
         self.loop.schedule(5, self.timeout)
@@ -28,25 +27,26 @@ class TestDns(unittest.TestCase):
         self.assertTrue(isinstance(results, socket.gaierror), results)
 
     def test_basic(self):
-        lookup(b'www.google.com', self.check_success)
+        lookup(b"www.google.com", 80, socket.SOCK_STREAM, self.check_success)
         self.loop.run()
 
     def test_lots(self):
-        lookup(b'www.google.com', self.check_success)
-        lookup(b'www.facebook.com', self.check_success)
-        lookup(b'www.example.com', self.check_success)
-        lookup(b'www.ietf.org', self.check_success)
-        lookup(b'www.github.com', self.check_success)
-        lookup(b'www.twitter.com', self.check_success)
-        lookup(b'www.abc.net.au', self.check_success)
-        lookup(b'www.mnot.net', self.check_success)
-        lookup(b'www.eff.org', self.check_success)
-        lookup(b'www.aclu.org', self.check_success)
+        lookup(b"www.google.com", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.facebook.com", 80, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.example.com", 80, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.ietf.org", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.github.com", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.twitter.com", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.abc.net.au", 80, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.mnot.net", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.eff.org", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"www.aclu.org", 443, socket.SOCK_STREAM, self.check_success)
         self.loop.run()
 
     def test_gai(self):
-        lookup(b'foo.foo', self.check_gai_error)
-        lookup(b'bar.bar', self.check_gai_error)
+        lookup(b"foo.foo", 23, socket.SOCK_STREAM, self.check_gai_error)
+        lookup(b"bar.bar", 23, socket.SOCK_DGRAM, self.check_gai_error)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

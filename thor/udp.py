@@ -11,7 +11,7 @@ import errno
 import socket
 from typing import Union
 
-from thor.dns import lookup
+from thor.dns import lookup, pickDnsResult, DnsResultList
 from thor.loop import EventSource, LoopBase
 
 
@@ -35,10 +35,11 @@ class UdpEndpoint(EventSource):
         EventSource.__init__(self, loop)
         self.host = None  # type: bytes
         self.port = None  # type: int
+        self._error_sent = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
         self.max_dgram = min(
-            (2 ** 16 - 40), self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+            (2**16 - 40), self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
         )
         self.on("fd_readable", self.handle_datagram)
         self.register_fd(self.sock.fileno())
@@ -58,10 +59,14 @@ class UdpEndpoint(EventSource):
         self.host = host
         self.port = port
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        lookup(host, self._continue_bind)
+        lookup(host, port, socket.SOCK_DGRAM, self._continue_bind)
 
-    def _continue_bind(self, dns_result: Union[str, Exception]) -> None:
-        self.sock.bind((dns_result, self.port))
+    def _continue_bind(self, dns_results: Union[DnsResultList, Exception]) -> None:
+        if isinstance(dns_results, Exception):
+            self.handle_socket_error(dns_results, "gai")
+            return
+        dns_result = pickDnsResult(dns_results)
+        self.sock.bind(dns_result[4])
 
     def shutdown(self) -> None:
         "Close the listening socket."
@@ -99,3 +104,14 @@ class UdpEndpoint(EventSource):
                 else:
                     raise
             self.emit("datagram", data, addr[0], addr[1])
+
+    def handle_socket_error(self, why: Exception, err_type: str = "socket") -> None:
+        err_id = why.args[0]
+        err_str = why.args[1]
+        if self._error_sent:
+            return
+        self._error_sent = True
+        self.unregister_fd()
+        self.emit("socket_error", err_type, err_id, err_str)
+        if self.sock:
+            self.sock.close()

@@ -276,8 +276,24 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             raise ValueError
         if b"@" in authority:
             authority = authority.split(b"@", 1)[1]
-        if b":" in authority:
+        portb = None
+        ipv6_literal = False
+        if authority.startswith(b"["):
+            ipv6_literal = True
+            try:
+                delimiter = authority.index(b"]")
+            except ValueError:
+                self.input_error(UrlError("IPv6 URL missing ]"), False)
+                raise ValueError
+            hostb = authority[1:delimiter]
+            rest = authority[delimiter + 1 :]
+            if rest.startswith(b":"):
+                portb = rest[1:]
+        elif b":" in authority:
             hostb, portb = authority.rsplit(b":", 1)
+        else:
+            hostb = authority
+        if portb:
             try:
                 port = int(portb.decode("utf-8", "replace"))
             except ValueError:
@@ -293,32 +309,42 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
                 self.input_error(UrlError("URL port %i out of range" % port), False)
                 raise ValueError
         else:
-            hostb, port = authority, default_port
+            port = default_port
         try:
             host = hostb.decode("ascii", "strict")
         except UnicodeDecodeError:
             self.input_error(UrlError("URL host has non-ascii characters"), False)
             raise ValueError
-        if not all(c in ascii_letters + digits + ".-" for c in host):
-            self.input_error(UrlError("URL hostname has disallowed character"), False)
-            raise ValueError
+        if ipv6_literal:
+            print(host)
+            if not all(c in digits + ":abcdefABCDEF" for c in host):
+                self.input_error(
+                    UrlError("URL IPv6 literal has disallowed character"), False
+                )
+                raise ValueError
+        else:
+            if not all(c in ascii_letters + digits + ".-" for c in host):
+                self.input_error(
+                    UrlError("URL hostname has disallowed character"), False
+                )
+                raise ValueError
+            labels = host.split(".")
+            if any(len(l) == 0 for l in labels):
+                self.input_error(UrlError("URL hostname has empty label"), False)
+                raise ValueError
+            if any(len(l) > 63 for l in labels):
+                self.input_error(
+                    UrlError("URL hostname label greater than 63 characters"), False
+                )
+                raise ValueError
+            #        if any(l[0].isdigit() for l in labels):
+            #            self.input_error(UrlError("URL hostname label starts with digit"), False)
+            #            raise ValueError
         if len(host) > 255:
             self.input_error(
                 UrlError("URL hostname greater than 255 characters"), False
             )
             raise ValueError
-        labels = host.split(".")
-        if any(len(l) == 0 for l in labels):
-            self.input_error(UrlError("URL hostname has empty label"), False)
-            raise ValueError
-        if any(len(l) > 63 for l in labels):
-            self.input_error(
-                UrlError("URL hostname label greater than 63 characters"), False
-            )
-            raise ValueError
-        #        if any(l[0].isdigit() for l in labels):
-        #            self.input_error(UrlError("URL hostname label starts with digit"), False)
-        #            raise ValueError
         if path == b"":
             path = b"/"
         self.authority = authority
