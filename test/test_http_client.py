@@ -741,7 +741,7 @@ Content-Length: 5
             )
             time.sleep(3)
             conn.request.sendall(
-                b"""\
+                b"""
 HTTP/1.1 404 Not Found
 Content-Type: text/plain
 Content-Length: 5
