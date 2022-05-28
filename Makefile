@@ -37,6 +37,9 @@ clean:
 test:
 	PYTHONPATH=.:$(VENV) $(VENV)/pytest test
 
+.PHONY: test/*.py
+test/*.py:
+	PYTHONPATH=.:$(VENV) $(VENV)/pytest $@
 
 #############################################################################
 ## Distribution
