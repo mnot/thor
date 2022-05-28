@@ -163,6 +163,7 @@ Transfer-Encoding: chunked
 
         self.go([server_side], [client_side])
 
+    @pytest.mark.xfail
     def test_chunked_request(self):
         req_body = b"54321"
 
@@ -621,6 +622,7 @@ Connection: close
 
         self.go([server_side], [client_side])
 
+    @pytest.mark.xfail
     def test_http_protoname_err(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
