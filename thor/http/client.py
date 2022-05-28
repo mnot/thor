@@ -481,7 +481,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.client.dead_conn(self)
         if self._input_buffer:
             self.handle_input(b"")
-        if self._input_state == States.QUIET:
+        if self._input_state in [States.QUIET, States.ERROR]:
             pass  # nothing to see here
         elif self._input_delimit == Delimiters.CLOSE:
             self.input_end([])
