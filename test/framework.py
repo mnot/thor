@@ -22,7 +22,7 @@ from thor.http.common import HttpMessageHandler, States
 test_host = b"127.0.0.1"
 tls_host = test_host
 tls_port = 24443
-timeout_host = b"127.0.0.2"
+timeout_host = b"www.mnot.net"
 timeout_port = 31000
 refuse_host = test_host
 refuse_port = 45000
