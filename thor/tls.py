@@ -52,11 +52,15 @@ class TlsClient(TcpClient):
         tls_context = sys_ssl.create_default_context()
         tls_context.check_hostname = False
         tls_context.verify_mode = sys_ssl.CERT_NONE
-        self.tls_sock = tls_context.wrap_socket(  # type: ignore
-            self.sock,
-            do_handshake_on_connect=False,
-            server_hostname=self.hostname.decode("idna"),
-        )
+        try:
+            self.tls_sock = tls_context.wrap_socket(  # type: ignore
+                self.sock,
+                do_handshake_on_connect=False,
+                server_hostname=self.hostname.decode("idna"),
+            )
+        except OSError as why:
+            self.handle_socket_error(why, "ssl")
+            return
         self.once("fd_writable", self.handshake)
 
     def handshake(self) -> None:
