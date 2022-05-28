@@ -11,7 +11,7 @@ import errno
 import socket
 from typing import Union
 
-from thor.dns import lookup, pickDnsResult, DnsResultList
+from thor.dns import lookup, DnsResultList
 from thor.loop import EventSource, LoopBase
 
 
@@ -65,8 +65,7 @@ class UdpEndpoint(EventSource):
         if isinstance(dns_results, Exception):
             self.handle_socket_error(dns_results, "gai")
             return
-        dns_result = pickDnsResult(dns_results)
-        self.sock.bind(dns_result[4])
+        self.sock.bind(dns_results[0][4])
 
     def shutdown(self) -> None:
         "Close the listening socket."

@@ -21,7 +21,7 @@ class TestDns(unittest.TestCase):
         self.loop.stop()
 
     def check_success(self, results):
-        self.assertTrue(type(results) is str, results)
+        self.assertTrue(type(results) == list and len(results) > 0, results)
 
     def check_gai_error(self, results):
         self.assertTrue(isinstance(results, socket.gaierror), results)

@@ -18,7 +18,7 @@ import socket
 from typing import Tuple, List, Union, Type, Callable  # pylint: disable=unused-import
 import ssl as sys_ssl  # pylint: disable=unused-import
 
-from thor.dns import lookup, pickDnsResult, DnsResultList
+from thor.dns import lookup, DnsResultList
 from thor.loop import EventSource, LoopBase, schedule
 from thor.loop import ScheduledEvent  # pylint: disable=unused-import
 
@@ -299,6 +299,7 @@ class TcpClient(EventSource):
         EventSource.__init__(self, loop)
         self.host = None  # type: bytes
         self.port = None  # type: int
+        self.addresses = None  # type: DnsResultList
         self.sock = None  # type: socket.socket
         self.check_ip = None  # type: Callable[[str], bool]
         self._timeout_ev = None  # type: ScheduledEvent
@@ -318,29 +319,36 @@ class TcpClient(EventSource):
                 self.handle_socket_error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
             )
-        lookup(host, port, socket.SOCK_STREAM, self._continue_connect)
+        lookup(host, port, socket.SOCK_STREAM, self._handle_dns)
 
-    def _continue_connect(self, dns_results: Union[DnsResultList, Exception]) -> None:
+    def _handle_dns(self, dns_results: Union[DnsResultList, Exception]) -> None:
         """
-        Continue connecting after DNS returns a result.
+        Handle DNS results.
         """
         if isinstance(dns_results, Exception):
             self.handle_socket_error(dns_results, "gai")
             return
-        dns_result = pickDnsResult(dns_results)
+        self.addresses = dns_results
+        self._initiate_connection()
+
+    def _initiate_connection(self) -> None:
+        """
+        Start a connection using the next available DNS address.
+        """
+        current_address = self.addresses.pop(0)
         if self.check_ip is not None:
-            if not self.check_ip(dns_result[4][0]):
+            if not self.check_ip(current_address[4][0]):
                 self.handle_conn_error("access", 0, "IP Check failed")
                 return
 
-        self.sock = socket.socket(dns_result[0], socket.SOCK_STREAM)
+        self.sock = socket.socket(current_address[0], socket.SOCK_STREAM)
         self.sock.setblocking(False)
         self.once("fd_error", self.handle_fd_error)
         self.register_fd(self.sock.fileno(), "fd_writable")
         self.event_add("fd_error")
         self.once("fd_writable", self.handle_connect)
         try:
-            err = self.sock.connect_ex(dns_result[4])
+            err = self.sock.connect_ex(current_address[4])
         except socket.error as why:
             self.handle_socket_error(why)
             return
