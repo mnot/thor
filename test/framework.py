@@ -11,6 +11,7 @@ except ImportError:
     import socketserver as SocketServer
 
 import os
+import socket
 import sys
 import threading
 import unittest
@@ -19,13 +20,13 @@ import thor
 from thor.http.common import HttpMessageHandler, States
 
 test_host = b"127.0.0.1"
-test_port = 21000
 tls_host = test_host
 tls_port = 24443
 timeout_host = b"127.0.0.2"
 timeout_port = 31000
 refuse_host = test_host
 refuse_port = 45000
+udp_port = 48500
 
 
 class ClientServerTestCase(unittest.TestCase):
@@ -53,15 +54,18 @@ class ClientServerTestCase(unittest.TestCase):
         is considered failure.
         """
 
-        stops = []
+        assert len(server_sides) == len(client_sides)
+        steps = []
         for server_side in server_sides:
-            offset = 0
-            if hasattr(server_side, "port_offset"):
-                offset = server_side.port_offset
-            stops.append(self.create_server(test_host, test_port + offset, server_side))
+            test_port = self.get_port()
+            steps.append(
+                (self.create_server(test_host, test_port, server_side), test_port)
+            )
 
+        i = 0
         for client_side in client_sides:
-            self.create_client(test_host, test_port, client_side)
+            self.create_client(test_host, steps[i][1], client_side)
+            i += 1
 
         def do_timeout():
             self.loop.stop()
@@ -71,8 +75,14 @@ class ClientServerTestCase(unittest.TestCase):
         try:
             self.loop.run()
         finally:
-            [stop() for stop in stops]
+            [step[0]() for step in steps]
         self.assertEqual(self.timeout_hit, False)
+
+    def get_port(self):
+        sock = socket.socket()
+        sock.bind(("", 0))
+        _, port = sock.getsockname()
+        return port
 
     def create_server(self, host, port, server_side):
         raise NotImplementedError

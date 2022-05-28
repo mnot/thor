@@ -43,10 +43,10 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         return stop
 
-    def create_client(self, host, port, client_side):
+    def create_client(self, test_host, test_port, client_side):
         client = HttpClient(loop=self.loop)
         client.connect_timeout = 1
-        client_side(client)
+        client_side(client, test_host, test_port)
 
     def check_exchange(self, exchange, expected):
         """
@@ -86,7 +86,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             self.assertTrue(exchange.test_happened, expected)
 
     def test_basic(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -102,7 +102,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/basic" % (framework.test_host, framework.test_port)
+            req_uri = b"http://%s:%i/basic" % (test_host, test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -121,7 +121,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_chunked_response(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -138,8 +138,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/chunked_response" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
@@ -164,7 +164,7 @@ Transfer-Encoding: chunked
     def test_chunked_request(self):
         req_body = b"54321"
 
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -181,8 +181,8 @@ Transfer-Encoding: chunked
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/chunked_request" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"POST", req_uri, [])
             exchange.request_body(req_body)
@@ -205,7 +205,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_HEAD(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -216,7 +216,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i/HEAD" % (framework.test_host, framework.test_port)
+            req_uri = b"http://%s:%i/HEAD" % (test_host, test_port)
             exchange.request_start(b"HEAD", req_uri, [])
             exchange.request_done([])
 
@@ -238,7 +238,7 @@ Connection: close
     def test_1xx(self):
         req_body = b"54321"
 
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             self.nonfinal_seen = False
             exchange = client.exchange()
             self.check_exchange(
@@ -262,8 +262,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/chunked_request" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"POST", req_uri, [])
             exchange.request_body(req_body)
@@ -294,7 +294,7 @@ Connection: close
             if self.test_req_count == 2:
                 self.loop.stop()
 
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange1 = client.exchange()
             self.check_exchange(
                 exchange1,
@@ -320,8 +320,8 @@ Connection: close
             exchange2.on("response_done", check_done)
 
             req_uri = b"http://%s:%i/multiconn" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange1.request_start(b"GET", req_uri, [])
             exchange2.request_start(b"GET", req_uri, [])
@@ -343,7 +343,10 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_conn_refuse_err(self):
-        def client_side(client):
+        def server_side(conn):
+            pass
+
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
 
             @on(exchange)
@@ -358,7 +361,7 @@ Connection: close
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
-        self.go([], [client_side])
+        self.go([server_side], [client_side])
 
     # FIXME: works because dns is currently blocking
     def test_conn_noname_err(self):
@@ -409,7 +412,7 @@ Connection: close
             self.assertEqual(err_msg.__class__, thor.http.error.UrlError)
             self.loop.stop()
 
-        req_uri = "http://[www.example.com:80000/".encode("utf-8")
+        req_uri = b"http://[www.example.com:80000/"
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
@@ -544,7 +547,7 @@ Connection: close
         exchange.request_done([])
 
     def test_http_version_err(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
 
             @on(exchange)
@@ -553,8 +556,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/http_version_err" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
@@ -574,7 +577,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_http_start_encoding(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -591,8 +594,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/http_start_encoding" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
@@ -612,7 +615,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_http_protoname_err(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
 
             @on(exchange)
@@ -621,8 +624,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/protoname_err" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
@@ -642,7 +645,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_close_in_body(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -659,8 +662,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/close_in_body" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
@@ -683,10 +686,10 @@ Connection: close
     def test_conn_reuse(self):
         self.conn_checked = False
 
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             req_uri = b"http://%s:%i/conn_reuse" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange1 = client.exchange()
             self.check_exchange(
@@ -757,10 +760,10 @@ Connection: close
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
 
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             req_uri = b"http://%s:%i/succeed_then_err" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange1 = client.exchange()
             self.check_exchange(
@@ -820,7 +823,7 @@ Connection: close
         self.assertTrue(self.conn_checked)
 
     def test_req_retry(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -837,8 +840,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/req_retry" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"OPTIONS", req_uri, [])
             exchange.request_done([])
@@ -862,7 +865,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_req_retry_fail(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -880,8 +883,8 @@ Connection: close
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/req_retry_fail" % (
-                framework.test_host,
-                framework.test_port,
+                test_host,
+                test_port,
             )
             exchange.request_start(b"OPTIONS", req_uri, [])
             exchange.request_done([])
@@ -905,7 +908,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_nobody(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -921,7 +924,7 @@ Connection: close
             def response_done(trailers):
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i" % (framework.test_host, framework.test_port)
+            req_uri = b"http://%s:%i" % (test_host, test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -940,7 +943,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_nobody_body(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -957,7 +960,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ExtraDataError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i" % (framework.test_host, framework.test_port)
+            req_uri = b"http://%s:%i" % (test_host, test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 
@@ -976,7 +979,7 @@ Connection: close
         self.go([server_side], [client_side])
 
     def test_extra_body(self):
-        def client_side(client):
+        def client_side(client, test_host, test_port):
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -993,7 +996,7 @@ Connection: close
                 self.assertEqual(err_msg.__class__, thor.http.error.ExtraDataError)
                 self.loop.stop()
 
-            req_uri = b"http://%s:%i" % (framework.test_host, framework.test_port)
+            req_uri = b"http://%s:%i" % (test_host, test_port)
             exchange.request_start(b"GET", req_uri, [])
             exchange.request_done([])
 

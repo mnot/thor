@@ -55,22 +55,24 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.client.on("connect_error", check_error)
 
     def start_server(self):
+        test_port = self.get_port()
         self.server = LittleServer(
-            (framework.test_host, framework.test_port), framework.LittleRequestHandler
+            (framework.test_host, test_port), framework.LittleRequestHandler
         )
 
         def serve():
             self.server.serve_forever(poll_interval=0.1)
 
         self.move_to_thread(serve)
+        return test_port
 
     def stop_server(self):
         self.server.shutdown()
         self.server.server_close()
 
     def test_connect(self):
-        self.start_server()
-        self.client.connect(framework.test_host, framework.test_port)
+        test_port = self.start_server()
+        self.client.connect(framework.test_host, test_port)
         self.loop.schedule(2, self.timeout)
         try:
             self.loop.run()
@@ -91,7 +93,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
     #        self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
-        self.client.connect(b"does.not.exist", framework.test_port)
+        self.client.connect(b"does.not.exist", 80)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
@@ -101,13 +103,13 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_ip_check(self):
-        self.start_server()
+        test_port = self.start_server()
 
         def ip_check(dns_result):
             return False
 
         self.client.check_ip = ip_check
-        self.client.connect(framework.test_host, framework.test_port)
+        self.client.connect(framework.test_host, test_port)
         self.loop.schedule(2, self.timeout)
         try:
             self.loop.run()
@@ -119,7 +121,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
 
 #    def test_connect_timeout(self):
-#        self.client.connect(framework.timeout_host, framework.timeout_port, 1)
+#        self.client.connect(timeout_host, timeout_port, 1)
 #        self.loop.schedule(3, self.timeout)
 #        self.loop.run()
 #        self.assertEqual(self.connect_count, 0)

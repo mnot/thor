@@ -26,7 +26,7 @@ class TestHttpServer(framework.ClientServerTestCase):
         def run_client(client_side1):
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((test_host, test_port))
-            client_side1(client)
+            client_side1(client, test_host, test_port)
             client.close()
 
         self.move_to_thread(target=run_client, args=(client_side,))
@@ -75,14 +75,14 @@ class TestHttpServer(framework.ClientServerTestCase):
 
             server.on("exchange", check)
 
-        def client_side(client_conn):
+        def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
                 b"""\
 GET / HTTP/1.1
 Host: %s:%i
 
 """
-                % (framework.test_host, framework.test_port)
+                % (test_host, test_port)
             )
             time.sleep(1)
             client_conn.close()
@@ -96,7 +96,7 @@ Host: %s:%i
 
             server.on("exchange", check)
 
-        def client_side(client_conn):
+        def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
                 b"""\
 
@@ -104,7 +104,7 @@ GET / HTTP/1.1
 Host: %s:%i\r
 \r
 """
-                % (framework.test_host, framework.test_port)
+                % (test_host, test_port)
             )
             time.sleep(1)
             client_conn.close()
@@ -118,7 +118,7 @@ Host: %s:%i\r
 
             server.on("exchange", check)
 
-        def client_side(client_conn):
+        def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
                 b"""\
 POST / HTTP/1.1
@@ -127,7 +127,7 @@ Content-Type: text/plain
 Content-Length: 5
 
 12345"""
-                % (framework.test_host, framework.test_port)
+                % (test_host, test_port)
             )
             time.sleep(1)
             client_conn.close()
@@ -141,7 +141,7 @@ Content-Length: 5
 
             server.on("exchange", check)
 
-        def client_side(client_conn):
+        def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
                 b"""\
 POST / HTTP/1.1
@@ -151,7 +151,7 @@ Content-Length: 5
 
 12345
 """
-                % (framework.test_host, framework.test_port)
+                % (test_host, test_port)
             )
             time.sleep(1)
             client_conn.close()
@@ -173,7 +173,7 @@ Content-Length: 5
 #            def stop():
 #                self.assertEqual(server.ex_count, 2)
 #
-#        def client_side(client_conn):
+#        def client_side(client_conn, test_host, test_port):
 #            client_conn.sendall("""\
 # GET / HTTP/1.1
 # Host: %s:%i
@@ -182,8 +182,8 @@ Content-Length: 5
 # Host: %s:%i
 #
 # """ % (
-#    framework.test_host, framework.test_port,
-#    framework.test_host, framework.test_port
+#    test_host, test_port,
+#    test_host, test_port
 # ))
 #            time.sleep(1)
 #            client_conn.close()
