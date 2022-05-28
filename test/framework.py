@@ -14,6 +14,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import unittest
 
 import thor
@@ -59,7 +60,7 @@ class ClientServerTestCase(unittest.TestCase):
         steps = []
         for server_side in server_sides:
             steps.append(self.create_server(server_side))
-
+        time.sleep(1)
         i = 0
         for client_side in client_sides:
             self.create_client(test_host, steps[i][1], client_side)
