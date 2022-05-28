@@ -115,7 +115,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -282,7 +283,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -338,7 +340,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -572,7 +575,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -610,7 +614,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -640,7 +645,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -678,7 +684,8 @@ Content-Type: text/plain
 Content-Length: 15
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -751,7 +758,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-54321"""
+54321
+"""
             )
             conn.request.close()
 
@@ -807,7 +815,8 @@ HTTP/1.1 200 OK
 Content-Type: text/plain
 Content-Length: 5
 
-12345"""
+12345
+"""
             )
             time.sleep(2)
             conn.request.sendall(
@@ -817,7 +826,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-54321"""
+54321
+"""
             )
             conn.request.close()
 
@@ -860,7 +870,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
                 )
             conn.request.close()
 
@@ -903,7 +914,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
                 )
             conn.request.close()
 
@@ -974,7 +986,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             conn.request.close()
 
@@ -1010,7 +1023,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-1234567890"""
+1234567890
+"""
             )
             conn.request.close()
 
