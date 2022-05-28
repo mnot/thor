@@ -836,6 +836,7 @@ Connection: close
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
 
+    @pytest.mark.xfail
     def test_req_retry(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
