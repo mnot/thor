@@ -17,7 +17,7 @@ class IOStopper(thor.loop.EventSource):
     def __init__(self, testcase, loop):
         thor.loop.EventSource.__init__(self, loop)
         self.testcase = testcase
-        self.r_fd, self.w_fd = make_fifo("tmp_fifo")
+        self.r_fd, self.w_fd = make_fifo(f"tmp_fifo_{testcase.id()}")
         self.on("fd_writable", self.write)
         self.register_fd(self.w_fd, "fd_writable")
 
@@ -26,7 +26,7 @@ class IOStopper(thor.loop.EventSource):
         self._loop.stop()
         os.close(self.r_fd)
         os.close(self.w_fd)
-        os.unlink("tmp_fifo")
+        os.unlink(f"tmp_fifo_{self.testcase.id()}")
 
 
 class TestLoop(unittest.TestCase):
@@ -121,12 +121,12 @@ class TestEventSource(unittest.TestCase):
         self.loop = thor.loop.make()
         self.es = thor.loop.EventSource(self.loop)
         self.events_seen = []
-        self.r_fd, self.w_fd = make_fifo("tmp_fifo")
+        self.r_fd, self.w_fd = make_fifo(f"tmp_fifo_{self.id}")
 
     def tearDown(self):
         os.close(self.r_fd)
         os.close(self.w_fd)
-        os.unlink("tmp_fifo")
+        os.unlink(f"tmp_fifo_{self.id}")
 
     def test_EventSource_register(self):
         self.es.register_fd(self.r_fd)
