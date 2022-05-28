@@ -42,6 +42,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
             self.error_count += 1
             self.last_error_type = err_type
             self.last_error = err_id
+            self.last_error_str = err_str
             self.loop.schedule(1, self.loop.stop)
 
         def timeout():
@@ -95,7 +96,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, "gai")
+        self.assertEqual(self.last_error_type, "socket", self.last_error_str)
         self.assertEqual(self.last_error, socket.EAI_NONAME)
         self.assertEqual(self.timeout_hit, False)
 

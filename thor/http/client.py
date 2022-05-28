@@ -13,13 +13,15 @@ will block the entire client.
 
 from collections import defaultdict
 from urllib.parse import urlsplit, urlunsplit
+import socket
 from string import ascii_letters, digits
-from typing import Callable, List, Dict, Tuple, Union  # pylint: disable=unused-import
+from typing import Callable, List, Dict, Tuple, Union
 
 import thor
 from thor.events import EventEmitter, on
+from thor.dns import lookup, DnsResultList
 from thor.loop import LoopBase
-from thor.loop import ScheduledEvent  # pylint: disable=unused-import
+from thor.loop import ScheduledEvent
 from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
 
@@ -37,6 +39,7 @@ from thor.http.common import (
 from thor.http.error import (
     UrlError,
     ConnectError,
+    DnsError,
     ReadTimeoutError,
     HttpVersionError,
     StartLineError,
@@ -51,26 +54,25 @@ req_rm_hdrs = hop_by_hop_hdrs + [b"host"]
 class HttpClient:
     "An asynchronous HTTP client."
 
-    tcp_client_class = TcpClient
-    tls_client_class = TlsClient
-
     def __init__(self, loop: LoopBase = None) -> None:
         self.loop = loop or thor.loop._loop
         self.idle_timeout = 60  # type: int    # seconds
-        self.connect_timeout = None  # type: int    # seconds
+        self.connect_attempts = 3  # type: int
+        self.connect_timeout = 3  # type: int    # seconds
         self.read_timeout = None  # type: int    # seconds
         self.retry_limit = 2  # type: int
         self.retry_delay = 0.5  # type: float  # seconds
         self.max_server_conn = 6  # type: int
         self.check_ip = None  # type: Callable[[str], bool]
         self.careful = True  # type: bool
+        self._outstanding = defaultdict(list)  # type: Dict[OriginType, List]
         self._idle_conns = defaultdict(
             list
         )  # type: Dict[OriginType, List[TcpConnection]]
-        self._conn_counts = defaultdict(int)  # type: Dict[OriginType, int]
+        self.conn_counts = defaultdict(int)  # type: Dict[OriginType, int]
         self._req_q = defaultdict(
             list
-        )  # type: Dict[OriginType, List[Tuple[Callable, Callable, float]]]
+        )  # type: Dict[OriginType, List[Tuple[Callable, Callable]]]
         self.loop.once("stop", self._close_conns)
 
     def exchange(self) -> "HttpClientExchange":
@@ -81,7 +83,6 @@ class HttpClient:
         origin: OriginType,
         handle_connect: Callable,
         handle_connect_error: Callable,
-        connect_timeout: float,
     ) -> None:
         "Find an idle connection for origin, or create a new one."
         while True:
@@ -89,9 +90,7 @@ class HttpClient:
                 tcp_conn = self._idle_conns[origin].pop()
             except IndexError:  # No idle conns available.
                 del self._idle_conns[origin]
-                self._new_conn(
-                    origin, handle_connect, handle_connect_error, connect_timeout
-                )
+                self._new_conn(origin, handle_connect, handle_connect_error)
                 break
             if tcp_conn.tcp_connected:
                 tcp_conn.removeListeners("data", "pause", "close")
@@ -140,41 +139,24 @@ class HttpClient:
         if exchange.tcp_conn and exchange.tcp_conn.tcp_connected:
             exchange.tcp_conn.close()
         exchange.tcp_conn = None
-        self._conn_counts[origin] -= 1
-        if self._conn_counts[origin] == 0:
-            del self._conn_counts[origin]
+        self.conn_counts[origin] -= 1
+        if self.conn_counts[origin] == 0:
+            del self.conn_counts[origin]
             if self._req_q[origin]:
-                (handle_connect, handle_connect_error, connect_timeout) = self._req_q[
-                    origin
-                ].pop(0)
-                self._new_conn(
-                    origin, handle_connect, handle_connect_error, connect_timeout
-                )
+                (handle_connect, handle_connect_error) = self._req_q[origin].pop(0)
+                self._new_conn(origin, handle_connect, handle_connect_error)
 
     def _new_conn(
         self,
         origin: OriginType,
-        handle_connect: Callable,
-        handle_error: Callable,
-        timeout: float,
+        handle_connect: Callable[[TcpConnection], None],
+        handle_error: Callable[[str, int, str], None],
     ) -> None:
         "Create a new connection."
-        if self._conn_counts[origin] >= self.max_server_conn:
-            self._req_q[origin].append((handle_connect, handle_error, timeout))
+        if self.conn_counts[origin] >= self.max_server_conn:
+            self._req_q[origin].append((handle_connect, handle_error))
             return
-        (scheme, host, port) = origin
-        tcp_client = None  # type: Union[TcpClient, TlsClient]
-        if scheme == "http":
-            tcp_client = self.tcp_client_class(self.loop)
-        elif scheme == "https":
-            tcp_client = self.tls_client_class(self.loop)
-        else:
-            raise ValueError(f"unknown scheme {scheme}")
-        tcp_client.check_ip = self.check_ip
-        tcp_client.once("connect", handle_connect)
-        tcp_client.once("connect_error", handle_error)
-        self._conn_counts[origin] += 1
-        tcp_client.connect(host.encode("ascii"), port, timeout)
+        HttpConnectionInitiate(self, origin, handle_connect, handle_error)
 
     def _close_conns(self) -> None:
         "Close all idle HTTP connections."
@@ -186,6 +168,80 @@ class HttpClient:
                     pass
         self._idle_conns.clear()
         # TODO: probably need to close in-progress conns too.
+
+
+class HttpConnectionInitiate:
+    """
+    Creates a new TCP connection to an origin.
+    """
+
+    tcp_client_class = TcpClient
+    tls_client_class = TlsClient
+
+    def __init__(
+        self,
+        client: HttpClient,
+        origin: OriginType,
+        handle_connect: Callable[[TcpConnection], None],
+        handle_error: Callable[[str, int, str], None],
+    ) -> None:
+        self.client = client
+        self.origin = origin
+        self.handle_connect = handle_connect
+        self.handle_error = handle_error
+        self._attempts = 0
+        self._dns_results = []  # type: DnsResultList
+        (_, host, port) = origin
+        lookup(host.encode("idna"), port, socket.SOCK_STREAM, self._handle_dns)
+
+    def _handle_dns(self, dns_results: Union[DnsResultList, Exception]) -> None:
+        """
+        Handle the DNS response.
+        """
+        if isinstance(dns_results, Exception):
+            err_id = dns_results.args[0]
+            err_str = dns_results.args[1]
+            self.handle_error("gai", err_id, err_str)
+        else:
+            self._dns_results = dns_results
+            self._initiate_connection()
+
+    def _initiate_connection(self) -> None:
+        """
+        Attempt to open a connection.
+        """
+        dns_result = self._dns_results[self._attempts % len(self._dns_results)]
+        (scheme, host, _) = self.origin
+        tcp_client = None  # type: Union[TcpClient, TlsClient]
+        if scheme == "http":
+            tcp_client = self.tcp_client_class(self.client.loop)
+        elif scheme == "https":
+            tcp_client = self.tls_client_class(self.client.loop)
+        else:
+            raise ValueError(f"unknown scheme {scheme}")
+        tcp_client.check_ip = self.client.check_ip
+        tcp_client.once("connect", self.handle_connect)
+        tcp_client.once("connect_error", self._handle_connect_error)
+        self._attempts += 1
+        tcp_client.connect_dns(
+            host.encode("idna"), dns_result, self.client.connect_timeout
+        )
+
+    def _handle_connect(self, tcp_conn: TcpConnection) -> None:
+        """
+        A connection succeeded.
+        """
+        self.client.conn_counts[self.origin] += 1
+        self.handle_connect(tcp_conn)
+
+    def _handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
+        """
+        A connection failed.
+        """
+        if self._attempts > self.client.connect_attempts:
+            self.handle_error("retry", self._attempts, "Too many connection attempts")
+        else:
+            self.client.loop.schedule(0, self._initiate_connection)
 
 
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
@@ -236,10 +292,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         except (TypeError, ValueError):
             return
         self.client.attach_conn(
-            self.origin,
-            self._handle_connect,
-            self._handle_connect_error,
-            self.client.connect_timeout,
+            self.origin, self._handle_connect, self._handle_connect_error
         )
 
     # TODO: if we sent Expect: 100-continue, don't wait forever
@@ -251,7 +304,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         Returns None if there is an error, otherwise the origin.
         """
         try:
-            (schemeb, authority, path, query, fragment) = urlsplit(uri)
+            (schemeb, authority, path, query, _) = urlsplit(uri)
         except UnicodeDecodeError:
             self.input_error(UrlError("URL has non-ascii characters"), False)
             raise ValueError
@@ -413,7 +466,11 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "The connection has failed."
         self._clear_read_timeout()
         self.client.dead_conn(self)
-        if self._retries < self.client.retry_limit:
+        if err_type == "gai":
+            self.input_error(DnsError(err_str), False)
+        elif err_type == "retry":
+            self.input_error(ConnectError(err_str), False)
+        elif self._retries < self.client.retry_limit:
             self.client.loop.schedule(self.client.retry_delay, self._retry)
         else:
             self.input_error(ConnectError(err_str), False)
@@ -456,10 +513,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "Retry the request."
         self._retries += 1
         self.client.attach_conn(
-            self.origin,
-            self._handle_connect,
-            self._handle_connect_error,
-            self.client.connect_timeout,
+            self.origin, self._handle_connect, self._handle_connect_error
         )
 
     def _req_body_pause(self, paused: bool) -> None:

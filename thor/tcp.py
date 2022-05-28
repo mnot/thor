@@ -18,7 +18,7 @@ import socket
 from typing import Tuple, List, Union, Type, Callable  # pylint: disable=unused-import
 import ssl as sys_ssl  # pylint: disable=unused-import
 
-from thor.dns import lookup, DnsResultList
+from thor.dns import DnsResult, Address
 from thor.loop import EventSource, LoopBase, schedule
 from thor.loop import ScheduledEvent  # pylint: disable=unused-import
 
@@ -101,12 +101,11 @@ class TcpConnection(EventSource):
     )
 
     def __init__(
-        self, sock: socket.socket, host: bytes, port: int, loop: LoopBase = None
+        self, sock: socket.socket, address: Address, loop: LoopBase = None
     ) -> None:
         EventSource.__init__(self, loop)
         self.socket = sock
-        self.host = host
-        self.port = port
+        self.address = address
         self.tcp_connected = True  # we assume a connected socket
         self._input_paused = True  # we start with input paused
         self._output_paused = False
@@ -121,7 +120,7 @@ class TcpConnection(EventSource):
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
         status.append(self.tcp_connected and "connected" or "disconnected")
-        status.append(f"{self.host.decode('idna')}:{self.port}")
+        status.append(f"{self.address[0]}:{self.address[1]}")
         if self._input_paused:
             status.append("input paused")
         if self._output_paused:
@@ -248,7 +247,9 @@ class TcpServer(EventSource):
             # multiple processes listening
             return
         conn.setblocking(False)
-        tcp_conn = TcpConnection(conn, self.host, self.port, self._loop)
+        tcp_conn = TcpConnection(
+            conn, (self.host.decode("idna"), self.port), self._loop
+        )
         self.emit("connect", tcp_conn)
 
     # TODO: should loop stop close listening sockets?
@@ -289,7 +290,7 @@ class TcpClient(EventSource):
     > c = TcpClient()
     > c.on('connect', conn_handler)
     > c.on('connect_error', error_handler)
-    > c.connect(host, port)
+    > c.connect(address)
 
     conn_handler will be called with the tcp_conn as the argument
     when the connection is made.
@@ -297,9 +298,8 @@ class TcpClient(EventSource):
 
     def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
-        self.host = None  # type: bytes
-        self.port = None  # type: int
-        self.addresses = None  # type: DnsResultList
+        self.hostname = None  # type: bytes
+        self.address = None  # type: Address
         self.sock = None  # type: socket.socket
         self.check_ip = None  # type: Callable[[str], bool]
         self._timeout_ev = None  # type: ScheduledEvent
@@ -307,48 +307,48 @@ class TcpClient(EventSource):
 
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
         """
-        Connect to host:port (with an optional connect timeout)
+        Connect to an IPv4 host/port. Does not work with IPv6; see connect_dns().
+        """
+        dns_result = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            6,
+            "",
+            (host.decode("idna"), port),
+        )
+        self.connect_dns(host, dns_result, connect_timeout)
+
+    def connect_dns(
+        self, hostname: bytes, dns_result: DnsResult, connect_timeout: float = None
+    ) -> None:
+        """
+        Connect to DnsResult (with an optional connect timeout)
         and emit 'connect' when connected, or 'connect_error' in
         the case of an error.
         """
-        self.host = host
-        self.port = port
+        self.hostname = hostname
+        family = dns_result[0]
+        address = dns_result[4]
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
                 self.handle_socket_error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
             )
-        lookup(host, port, socket.SOCK_STREAM, self._handle_dns)
 
-    def _handle_dns(self, dns_results: Union[DnsResultList, Exception]) -> None:
-        """
-        Handle DNS results.
-        """
-        if isinstance(dns_results, Exception):
-            self.handle_socket_error(dns_results, "gai")
-            return
-        self.addresses = dns_results
-        self._initiate_connection()
-
-    def _initiate_connection(self) -> None:
-        """
-        Start a connection using the next available DNS address.
-        """
-        current_address = self.addresses.pop(0)
         if self.check_ip is not None:
-            if not self.check_ip(current_address[4][0]):
+            if not self.check_ip(address[0]):
                 self.handle_conn_error("access", 0, "IP Check failed")
                 return
 
-        self.sock = socket.socket(current_address[0], socket.SOCK_STREAM)
+        self.sock = socket.socket(family, socket.SOCK_STREAM)
         self.sock.setblocking(False)
         self.once("fd_error", self.handle_fd_error)
         self.register_fd(self.sock.fileno(), "fd_writable")
         self.event_add("fd_error")
         self.once("fd_writable", self.handle_connect)
         try:
-            err = self.sock.connect_ex(current_address[4])
+            err = self.sock.connect_ex(address)
         except socket.error as why:
             self.handle_socket_error(why)
             return
@@ -366,7 +366,7 @@ class TcpClient(EventSource):
         if err:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
         else:
-            tcp_conn = TcpConnection(self.sock, self.host, self.port, self._loop)
+            tcp_conn = TcpConnection(self.sock, self.address, self._loop)
             self.emit("connect", tcp_conn)
 
     def handle_fd_error(self) -> None:

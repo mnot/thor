@@ -95,6 +95,11 @@ class LengthRequiredError(HttpError):
     client_recoverable = True
 
 
+class DnsError(HttpError):
+    desc = "DNS Error"
+    server_status = (b"502", b"Bad Gateway")
+
+
 class ConnectError(HttpError):
     desc = "Connection error"
     server_status = (b"504", b"Gateway Timeout")

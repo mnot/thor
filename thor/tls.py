@@ -38,7 +38,7 @@ class TlsClient(TcpClient):
     > c = TlsClient()
     > c.on('connect', conn_handler)
     > c.on('connect_error', error_handler)
-    > c.connect(host, port)
+    > c.connect(address)
 
     conn_handler will be called with the tcp_conn as the argument
     when the connection is made.
@@ -55,7 +55,7 @@ class TlsClient(TcpClient):
         self.tls_sock = tls_context.wrap_socket(  # type: ignore
             self.sock,
             do_handshake_on_connect=False,
-            server_hostname=self.host.decode("idna"),
+            server_hostname=self.hostname.decode("idna"),
         )
         self.once("fd_writable", self.handshake)
 
@@ -80,25 +80,5 @@ class TlsClient(TcpClient):
         self.unregister_fd()
         if self._timeout_ev:
             self._timeout_ev.delete()
-        tls_conn = TcpConnection(self.tls_sock, self.host, self.port, self._loop)
+        tls_conn = TcpConnection(self.tls_sock, self.address, self._loop)
         self.emit("connect", tls_conn)
-
-
-if __name__ == "__main__":
-    import sys
-    from thor import run
-
-    test_host = sys.argv[1].encode("utf-8")
-
-    def out(outbytes: bytes) -> None:
-        sys.stdout.write(outbytes.decode("utf-8", "replace"))
-
-    def go(conn: TcpConnection) -> None:
-        conn.on("data", out)
-        conn.write(b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % test_host)
-        conn.pause(False)
-
-    c = TlsClient()
-    c.on("connect", go)
-    c.connect(test_host, 443)
-    run()

@@ -7,12 +7,13 @@ from typing import Callable, Union, Tuple, List, Iterable, Any
 
 pool_size = 10
 
+Address = Union[Tuple[str, int], Tuple[str, int, int, int]]
 DnsResult = Tuple[
     socket.AddressFamily,
     socket.SocketKind,
     int,
     str,
-    Union[Tuple[str, int], Tuple[str, int, int, int]],
+    Address,
 ]
 DnsResultList = List[DnsResult]
 

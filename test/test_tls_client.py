@@ -124,7 +124,7 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, "gai")
+        self.assertEqual(self.last_error_type, "socket")
         self.assertEqual(self.last_error, socket.EAI_NONAME)
         self.assertEqual(self.timeout_hit, False)
 
