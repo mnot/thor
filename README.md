@@ -1,6 +1,6 @@
 # Thor
 
-[![CircleCI](https://circleci.com/gh/mnot/thor.svg?style=svg)](https://circleci.com/gh/mnot/thor)
+[![CI](https://github.com/mnot/thor/actions/workflows/ci.yml/badge.svg)](https://github.com/mnot/thor/actions/workflows/ci.yml)
 [![Coverage Status](https://coveralls.io/repos/mnot/thor/badge.svg)](https://coveralls.io/r/mnot/thor)
 
 ## About Thor
