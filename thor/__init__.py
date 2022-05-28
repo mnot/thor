@@ -32,7 +32,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 
 from thor.loop import run, stop, time, schedule, running, debug
 from thor.tcp import TcpClient, TcpServer
