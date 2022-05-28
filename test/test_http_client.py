@@ -877,10 +877,7 @@ Connection: close
                 )
             conn.request.close()
 
-        def dummy_client(a, b, c):
-            pass
-
-        self.go([server_side, server_side], [client_side, dummy_client])
+        self.go([server_side], [client_side])
 
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):
