@@ -27,6 +27,7 @@ timeout_port = 31000
 refuse_host = test_host
 refuse_port = 45000
 udp_port = 48500
+timeout = 20
 
 
 class ClientServerTestCase(unittest.TestCase):
@@ -45,7 +46,7 @@ class ClientServerTestCase(unittest.TestCase):
         t.daemon = True
         t.start()
 
-    def go(self, server_sides, client_sides, timeout=10):
+    def go(self, server_sides, client_sides, timeout=timeout):
         """
         Start the server(s), handling connections with server_side (handler),
         and then run the client(s), calling client_side (client).
