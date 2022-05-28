@@ -1,4 +1,4 @@
-PY_TESTS=test/test_*.py
+GITHUB_STEP_SUMMARY ?= throwaway
 
 all:
 	@echo "make dist to 1) push and tag to github, and 2) upload to pypi."
@@ -35,7 +35,8 @@ clean:
 
 .PHONY: test
 test:
-	PYTHONPATH=.:$(VENV) $(VENV)/pytest test
+	PYTHONPATH=.:$(VENV) $(VENV)/pytest --md $(GITHUB_STEP_SUMMARY) test
+	rm -f thowaway
 
 .PHONY: test/*.py
 test/*.py:
