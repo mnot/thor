@@ -16,7 +16,7 @@ class TestUdpEndpoint(unittest.TestCase):
     def setUp(self):
         self.loop = loop.make()
         self.ep1 = UdpEndpoint(self.loop)
-        self.ep1.bind(framework.test_host, framework.test_port)
+        self.ep1.bind(framework.test_host, framework.udp_port)
         self.ep1.on("datagram", self.input)
         self.ep1.pause(False)
         self.ep2 = UdpEndpoint()
@@ -35,7 +35,7 @@ class TestUdpEndpoint(unittest.TestCase):
         self.datagrams.append((data, host, port))
 
     def output(self, msg):
-        self.ep2.send(msg, framework.test_host, framework.test_port)
+        self.ep2.send(msg, framework.test_host, framework.udp_port)
 
     def test_basic(self):
         self.loop.schedule(1, self.output, b"foo!")
