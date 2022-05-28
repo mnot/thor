@@ -164,16 +164,8 @@ class TestEventSource(unittest.TestCase):
         self.assertEqual(data, check)
         self.events_seen.append("fd_readable")
 
-
-#    def test_EventSource_close(self):
-#        self.es.register_fd(self.fd, 'close')
-#        self.es.on('close', self.close_check)
-#        self.fd.close()
-#        self.loop._run_fd_events()
-#        self.assertTrue('close' in self.events_seen)
-#
-#    def close_check(self):
-#        self.events_seen.append('close')
+    def close_check(self):
+        self.events_seen.append('fd_close')
 
 if __name__ == "__main__":
     unittest.main()
