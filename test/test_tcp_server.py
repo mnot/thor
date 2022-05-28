@@ -12,8 +12,9 @@ from thor.events import on
 
 
 class TestTcpServer(framework.ClientServerTestCase):
-    def create_server(self, host, port, server_side):
-        server = thor.TcpServer(host, port, loop=self.loop)
+    def create_server(self, server_side):
+        test_port = self.get_port()
+        server = thor.TcpServer(framework.test_host, test_port, loop=self.loop)
         server.conn_count = 0
 
         def run_server(conn):
@@ -26,7 +27,7 @@ class TestTcpServer(framework.ClientServerTestCase):
             self.assertTrue(server.conn_count > 0)
             server.shutdown()
 
-        return stop
+        return (stop, test_port)
 
     def create_client(self, host, port, client_side):
         def run_client(client_side1):

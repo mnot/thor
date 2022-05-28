@@ -26,11 +26,12 @@ class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 class TestHttpClient(framework.ClientServerTestCase):
-    def create_server(self, test_host, test_port, server_side):
+    def create_server(self, server_side):
         class LittleRequestHandler(SocketServer.BaseRequestHandler):
             handle = server_side
 
-        server = LittleServer((test_host, test_port), LittleRequestHandler)
+        test_port = self.get_port()
+        server = LittleServer((framework.test_host, test_port), LittleRequestHandler)
 
         def serve():
             server.serve_forever(poll_interval=0.1)
@@ -41,7 +42,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             server.shutdown()
             server.server_close()
 
-        return stop
+        return (stop, test_port)
 
     def create_client(self, test_host, test_port, client_side):
         client = HttpClient(loop=self.loop)

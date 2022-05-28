@@ -13,14 +13,15 @@ from thor.http import HttpServer
 
 
 class TestHttpServer(framework.ClientServerTestCase):
-    def create_server(self, test_host, test_port, server_side):
-        server = HttpServer(test_host, test_port, loop=self.loop)
+    def create_server(self, server_side):
+        test_port = self.get_port()
+        server = HttpServer(framework.test_host, test_port, loop=self.loop)
         server_side(server)
 
         def stop():
             server.shutdown()
 
-        return stop
+        return (stop, test_port)
 
     def create_client(self, test_host, test_port, client_side):
         def run_client(client_side1):

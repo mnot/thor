@@ -57,10 +57,7 @@ class ClientServerTestCase(unittest.TestCase):
         assert len(server_sides) == len(client_sides)
         steps = []
         for server_side in server_sides:
-            test_port = self.get_port()
-            steps.append(
-                (self.create_server(test_host, test_port, server_side), test_port)
-            )
+            steps.append(self.create_server(server_side))
 
         i = 0
         for client_side in client_sides:
@@ -84,7 +81,7 @@ class ClientServerTestCase(unittest.TestCase):
         _, port = sock.getsockname()
         return port
 
-    def create_server(self, host, port, server_side):
+    def create_server(self, server_side):
         raise NotImplementedError
 
     def create_client(self, host, port, client_side):
