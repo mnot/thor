@@ -15,6 +15,7 @@ import framework
 
 from thor import loop
 from thor.tls import TlsClient
+import pytest
 
 
 class LittleTlsServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -108,6 +109,7 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
         self.assertEqual(self.connect_count, 1)
 
+    @pytest.mark.xfail
     def test_connect_refused(self):
         self.client.connect(framework.refuse_host, framework.refuse_port)
         self.loop.schedule(3, self.timeout)
