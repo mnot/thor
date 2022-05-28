@@ -44,7 +44,7 @@ class ClientServerTestCase(unittest.TestCase):
         t.daemon = True
         t.start()
 
-    def go(self, server_sides, client_sides, timeout=10):
+    def go(self, server_sides, client_sides, timeout=15):
         """
         Start the server(s), handling connections with server_side (handler),
         and then run the client(s), calling client_side (client).
