@@ -82,15 +82,15 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.error_count, 0)
         self.assertEqual(self.timeout_hit, False)
 
-    #    def test_connect_refused(self):
-    #        self.client.connect(framework.refuse_host, framework.refuse_port)
-    #        self.loop.schedule(3, self.timeout)
-    #        self.loop.run()
-    #        self.assertEqual(self.connect_count, 0)
-    #        self.assertEqual(self.error_count, 1)
-    #        self.assertEqual(self.last_error_type, "socket")
-    #        self.assertEqual(self.last_error, errno.ECONNREFUSED)
-    #        self.assertEqual(self.timeout_hit, False)
+    def test_connect_refused(self):
+        self.client.connect(framework.refuse_host, framework.refuse_port)
+        self.loop.schedule(3, self.timeout)
+        self.loop.run()
+        self.assertEqual(self.connect_count, 0)
+        self.assertEqual(self.error_count, 1)
+        self.assertEqual(self.last_error_type, "socket")
+        self.assertEqual(self.last_error, errno.ECONNREFUSED)
+        self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
         self.client.connect(b"does.not.exist", 80)
@@ -119,17 +119,16 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.error_count, 1)
         self.assertEqual(self.timeout_hit, False)
 
-
-#    def test_connect_timeout(self):
-#        self.client.connect(timeout_host, timeout_port, 1)
-#        self.loop.schedule(3, self.timeout)
-#        self.loop.run()
-#        self.assertEqual(self.connect_count, 0)
-#        self.assertEqual(self.error_count, 1)
-#        self.assertEqual(self.last_error_type, 'socket')
-#        self.assertEqual(self.last_error, errno.ETIMEDOUT,
-#                         errno.errorcode.get(self.last_error, self.last_error))
-#        self.assertEqual(self.timeout_hit, False)
+    def test_connect_timeout(self):
+        self.client.connect(framework.timeout_host, framework.timeout_port, 1)
+        self.loop.schedule(3, self.timeout)
+        self.loop.run()
+        self.assertEqual(self.connect_count, 0)
+        self.assertEqual(self.error_count, 1)
+        self.assertEqual(self.last_error_type, 'socket')
+        self.assertEqual(self.last_error, errno.ETIMEDOUT,
+                         errno.errorcode.get(self.last_error, self.last_error))
+        self.assertEqual(self.timeout_hit, False)
 
 # TODO:
 #   def test_pause(self):
