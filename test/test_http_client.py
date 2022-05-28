@@ -198,7 +198,8 @@ Content-Type: text/plain
 Content-Length: 5
 Connection: close
 
-12345"""
+12345
+"""
             )
             # TODO: check server-side recv
             conn.request.close()
