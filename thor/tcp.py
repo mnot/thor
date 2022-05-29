@@ -15,8 +15,7 @@ import errno
 import os
 import sys
 import socket
-from typing import Tuple, List, Union, Type, Callable
-import ssl as sys_ssl
+from typing import List, Callable
 
 from thor.dns import DnsResult, Address
 from thor.loop import EventSource, LoopBase, schedule
@@ -241,7 +240,7 @@ class TcpServer(EventSource):
 
     def handle_accept(self) -> None:
         try:
-            conn, addr = self.sock.accept()
+            conn, _ = self.sock.accept()
         except (TypeError, IndexError):
             # sometimes accept() returns None if we have
             # multiple processes listening
@@ -336,8 +335,8 @@ class TcpClient(EventSource):
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
             )
 
-        if self.check_ip is not None:
-            if not self.check_ip(address[0]):
+        if callable(self.check_ip):
+            if not self.check_ip(address[0]):  # pylint: disable=not-callable
                 self.handle_conn_error("access", 0, "IP Check failed")
                 return
 

@@ -276,19 +276,19 @@ class HttpServerExchange(EventEmitter):
             self.http_conn.close_conn()
 
 
-def test_handler(x: HttpServerExchange) -> None:  # pragma: no cover
-    @on(x, "request_start")
+def test_handler(ex: HttpServerExchange) -> None:  # pragma: no cover
+    @on(ex, "request_start")
     def go(*args: Any) -> None:
-        print(f"start: {str(args[1])} on {id(x.http_conn)}")
-        x.response_start(b"200", b"OK", [])
-        x.response_body(b"foo!")
-        x.response_done([])
+        print(f"start: {str(args[1])} on {id(ex.http_conn)}")
+        ex.response_start(b"200", b"OK", [])
+        ex.response_body(b"foo!")
+        ex.response_done([])
 
-    @on(x, "request_body")
+    @on(ex, "request_body")
     def body(chunk: bytes) -> None:
         print(f"body: {chunk.decode('utf-8', 'replace')}")
 
-    @on(x, "request_done")
+    @on(ex, "request_done")
     def done(trailers: RawHeaderListType) -> None:
         print(f"done: {str(trailers)}")
 

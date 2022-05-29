@@ -18,7 +18,7 @@ from typing import (
     Iterable,
     Tuple,
     Any,
-)  # pylint: disable=unused-import
+)
 
 from thor.events import EventEmitter
 
@@ -86,7 +86,7 @@ class LoopBase(EventEmitter):
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__now: float = None
-        self._eventlookup = dict([(v, k) for (k, v) in self._event_types.items()])
+        self._eventlookup = {v: k for (k, v) in self._event_types.items()}
         self.__event_cache: Dict[int, Set[str]] = {}
 
     def __repr__(self) -> str:
@@ -118,11 +118,11 @@ class LoopBase(EventEmitter):
                     import io
                     from pstats import SortKey, Stats  # type: ignore
 
-                    s = io.StringIO()
+                    st = io.StringIO()
                     sortby = SortKey.CUMULATIVE
-                    ps = Stats(pr, stream=s).sort_stats(sortby)
+                    ps = Stats(pr, stream=st).sort_stats(sortby)
                     ps.print_callers()
-                    print(s.getvalue())
+                    print(st.getvalue())
             else:
                 self._run_fd_events()
                 self.__now = systime.time()
@@ -227,18 +227,18 @@ class LoopBase(EventEmitter):
             pass
 
     @staticmethod
-    def _insort(a: List, x: Any, lo: int = 0, hi: int = None) -> None:
+    def _insort(li: List, thing: Any, lo: int = 0, hi: int = None) -> None:
         if lo < 0:
             raise ValueError("lo must be non-negative")
         if hi is None:
-            hi = len(a)
+            hi = len(li)
         while lo < hi:
             mid = (lo + hi) // 2
-            if x[0] < a[mid][0]:
+            if thing[0] < li[mid][0]:
                 hi = mid
             else:
                 lo = mid + 1
-        a.insert(lo, x)
+        li.insert(lo, thing)
 
     def _eventmask(self, events: Iterable[str]) -> int:
         "Calculate the mask for a list of events."
@@ -407,13 +407,13 @@ class KqueueLoop(LoopBase):
 
     def _run_fd_events(self) -> None:
         events = self._kq.control([], self.max_ev, self.precision)
-        for e in events:
-            event_types = self._filter2events(e.filter)
+        for ev in events:
+            event_types = self._filter2events(ev.filter)
             for event_type in event_types:
-                self._fd_event(event_type, int(e.ident))
-            if e.flags & select.KQ_EV_EOF:
-                self._fd_event("fd_close", int(e.ident))
-            if e.flags & select.KQ_EV_ERROR:
+                self._fd_event(event_type, int(ev.ident))
+            if ev.flags & select.KQ_EV_EOF:
+                self._fd_event("fd_close", int(ev.ident))
+            if ev.flags & select.KQ_EV_ERROR:
                 pass
             # TODO: pull errors, etc. out of flags and fflags
             #   If the read direction of the socket has shutdown, then
@@ -451,4 +451,4 @@ stop = _loop.stop
 schedule = _loop.schedule
 time = _loop.time
 running = _loop.running
-debug = False
+debug = False  # pylint: disable=invalid-name

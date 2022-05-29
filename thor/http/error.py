@@ -19,7 +19,7 @@ class HttpError(Exception):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        return "<%s at %#x>" % (", ".join(status), id(self))
+        return f"<{', '.join(status)} at {id(self):#x}>"
 
 
 # General parsing errors

@@ -123,7 +123,9 @@ class HttpClient:
                     handle_connect(tcp_conn)
                 elif self.idle_timeout > 0:
                     tcp_conn.once("close", idle_close)
-                    tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close)  # type: ignore
+                    tcp_conn._idler = self.loop.schedule(  # type: ignore
+                        self.idle_timeout, idle_close
+                    )
                     self._idle_conns[origin].append(tcp_conn)
                 else:
                     self.dead_conn(exchange)
@@ -159,13 +161,13 @@ class HttpClient:
             for conn in conn_list:
                 try:
                     conn.close()
-                except:
+                except socket.error:
                     pass
         self._idle_conns.clear()
         # TODO: probably need to close in-progress conns too.
 
 
-class HttpConnectionInitiate:
+class HttpConnectionInitiate:  # pylint: disable=too-few-public-methods
     """
     Creates a new TCP connection to an origin.
     """
@@ -619,38 +621,38 @@ def test_client(
     request_uri: bytes, out: Callable, err: Callable
 ) -> None:  # pragma: no coverage
     "A simple demonstration of a client."
-    from thor.loop import stop, run, schedule
+    from thor.loop import stop, run, schedule  # pylint: disable=import-outside-toplevel
 
-    c = HttpClient()
-    c.connect_timeout = 5
-    c.careful = False
-    x = c.exchange()
+    cl = HttpClient()
+    cl.connect_timeout = 5
+    cl.careful = False
+    ex = cl.exchange()
 
-    @on(x)
+    @on(ex)
     def response_start(
         status: bytes, phrase: bytes, headers: RawHeaderListType
     ) -> None:
         "Print the response headers."
-        out(b"HTTP/%s %s %s\n" % (x.res_version, status, phrase))
+        out(b"HTTP/%s %s %s\n" % (ex.res_version, status, phrase))
         out(b"\n".join([b"%s:%s" % header for header in headers]))
         print()
         print()
 
-    @on(x)
+    @on(ex)
     def error(err_msg: HttpError) -> None:
         if err_msg:
             err(f"\033[1;31m*** ERROR:\033[0;39m {err_msg.desc} ({err_msg.detail})\n")
         if not err_msg.client_recoverable:
             stop()
 
-    x.on("response_body", out)
+    ex.on("response_body", out)
 
-    @on(x)
+    @on(ex)
     def response_done(trailers: RawHeaderListType) -> None:
         schedule(1, stop)
 
-    x.request_start(b"GET", request_uri, [])
-    x.request_done([])
+    ex.request_start(b"GET", request_uri, [])
+    ex.request_done([])
     run()
 
 

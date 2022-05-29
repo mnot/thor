@@ -9,21 +9,14 @@ for the parsing portions of the HTTP client and server.
 
 from collections import defaultdict
 from enum import Enum
-from typing import (
-    Callable,
-    Dict,
-    List,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import Dict, List, Set, Tuple
 
 from thor.http import error
 
-linesep = b"\r\n"
 RawHeaderListType = List[Tuple[bytes, bytes]]
 OriginType = Tuple[str, str, int]
 
+LINESEP = b"\r\n"
 NEWLINE = ord("\n")
 RETURN = ord("\r")
 
@@ -62,7 +55,7 @@ def header_names(hdr_tuples: RawHeaderListType) -> Set[bytes]:
     """
     Given a list of header tuples, return the set of the header names seen.
     """
-    return set([n.lower() for n, v in hdr_tuples])
+    return {n.lower() for n, v in hdr_tuples}
 
 
 def header_dict(
@@ -76,11 +69,11 @@ def header_dict(
     returned in the dictionary.
     """
     out: Dict[bytes, List[bytes]] = defaultdict(list)
-    for (n, v) in hdr_tuples:
-        n = n.lower()
-        if n in (omit or []):
+    for (name, val) in hdr_tuples:
+        name = name.lower()
+        if name in (omit or []):
             continue
-        out[n].extend([i.strip() for i in v.split(b",")])
+        out[name].extend([i.strip() for i in val.split(b",")])
     return out
 
 
@@ -330,7 +323,7 @@ class HttpMessageHandler:
         transfer_codes: List[bytes] = []
         content_length: int = None
 
-        for line in header_lines:
+        for line in header_lines:  # pylint: disable=too-many-nested-blocks
             if line[:1] in [b" ", b"\t"]:  # Fold LWS
                 if hdr_tuples:
                     hdr_tuples[-1] = (
@@ -338,12 +331,12 @@ class HttpMessageHandler:
                         b"%s %s" % (hdr_tuples[-1][1], line.lstrip()),
                     )
                     continue
-                else:  # top header starts with whitespace
-                    self.input_error(
-                        error.TopLineSpaceError(line.decode("utf-8", "replace"))
-                    )
-                    if self.careful:
-                        raise ValueError
+                # top header starts with whitespace
+                self.input_error(
+                    error.TopLineSpaceError(line.decode("utf-8", "replace"))
+                )
+                if self.careful:
+                    raise ValueError
             try:
                 fn, fv = line.split(b":", 1)
             except ValueError:
@@ -497,7 +490,7 @@ class HttpMessageHandler:
         out = [top_line]
         out.extend([b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples])
         out.extend([b"", b""])
-        self.output(linesep.join(out))
+        self.output(LINESEP.join(out))
         self._output_state = States.HEADERS_DONE
 
     def output_body(self, chunk: bytes) -> None:
