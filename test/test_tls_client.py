@@ -129,16 +129,16 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.last_error, socket.EAI_NONAME)
         self.assertEqual(self.timeout_hit, False)
 
-
     def test_connect_timeout(self):
         self.client.connect(framework.timeout_host, framework.timeout_port, 1)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error_type, 'socket')
+        self.assertEqual(self.last_error_type, "socket")
         self.assertEqual(self.last_error, ssl.errno.ETIMEDOUT)
         self.assertEqual(self.timeout_hit, False)
+
 
 # TODO:
 #   def test_pause(self):

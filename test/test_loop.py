@@ -165,7 +165,8 @@ class TestEventSource(unittest.TestCase):
         self.events_seen.append("fd_readable")
 
     def close_check(self):
-        self.events_seen.append('fd_close')
+        self.events_seen.append("fd_close")
+
 
 if __name__ == "__main__":
     unittest.main()
