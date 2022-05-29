@@ -36,7 +36,7 @@ clean:
 .PHONY: test
 test:
 	PYTHONPATH=.:$(VENV) $(VENV)/pytest --md $(GITHUB_STEP_SUMMARY) --workers auto test
-	rm -f thowaway
+	rm -f throwaway
 
 .PHONY: test/*.py
 test/*.py:
