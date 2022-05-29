@@ -15,12 +15,12 @@ import errno
 import os
 import sys
 import socket
-from typing import Tuple, List, Union, Type, Callable  # pylint: disable=unused-import
-import ssl as sys_ssl  # pylint: disable=unused-import
+from typing import Tuple, List, Union, Type, Callable
+import ssl as sys_ssl
 
 from thor.dns import DnsResult, Address
 from thor.loop import EventSource, LoopBase, schedule
-from thor.loop import ScheduledEvent  # pylint: disable=unused-import
+from thor.loop import ScheduledEvent
 
 
 class TcpConnection(EventSource):
@@ -110,7 +110,7 @@ class TcpConnection(EventSource):
         self._input_paused = True  # we start with input paused
         self._output_paused = False
         self._closing = False
-        self._write_buffer = []  # type: List[bytes]
+        self._write_buffer: List[bytes] = []
 
         self.register_fd(sock.fileno())
         self.on("fd_readable", self.handle_readable)
@@ -298,11 +298,11 @@ class TcpClient(EventSource):
 
     def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
-        self.hostname = None  # type: bytes
-        self.address = None  # type: Address
-        self.sock = None  # type: socket.socket
-        self.check_ip = None  # type: Callable[[str], bool]
-        self._timeout_ev = None  # type: ScheduledEvent
+        self.hostname: bytes = None
+        self.address: Address = None
+        self.sock: socket.socket = None
+        self.check_ip: Callable[[str], bool] = None
+        self._timeout_ev: ScheduledEvent = None
         self._error_sent = False
 
     def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:

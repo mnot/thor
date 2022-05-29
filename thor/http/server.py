@@ -73,9 +73,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         EventEmitter.__init__(self)
         self.tcp_conn = tcp_conn
         self.server = server
-        self.ex_queue = []  # type: List[HttpServerExchange] # queue of exchanges
+        self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
         self.output_paused = False
-        self._idler = None  # type: ScheduledEvent
+        self._idler: ScheduledEvent = None
 
     def req_body_pause(self, paused: bool) -> None:
         """

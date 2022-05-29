@@ -17,8 +17,8 @@ class EventEmitter:
     """
 
     def __init__(self) -> None:
-        self.__events = defaultdict(list)  # type: Dict[str, List[Callable]]
-        self.__sink = None  # type: object
+        self.__events: Dict[str, List[Callable]] = defaultdict(list)
+        self.__sink: object = None
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()

@@ -16,7 +16,7 @@ from typing import (
     Set,
     Tuple,
     Union,
-)  # pylint: disable=unused-import
+)
 
 from thor.http import error
 
@@ -75,7 +75,7 @@ def header_dict(
     If omit is defined, each header listed (by lower-cased name) will not be
     returned in the dictionary.
     """
-    out = defaultdict(list)  # type: Dict[bytes, List[bytes]]
+    out: Dict[bytes, List[bytes]] = defaultdict(list)
     for (n, v) in hdr_tuples:
         n = n.lower()
         if n in (omit or []):
@@ -116,17 +116,17 @@ class HttpMessageHandler:
     """
 
     careful = True  # if False, don't fail on errors, but preserve them.
-    default_state = None  # type: States  # QUIET or WAITING
+    default_state: States = None  # QUIET or WAITING
 
     def __init__(self) -> None:
         self.input_header_length = 0
         self.input_transfer_length = 0
-        self._input_buffer = []  # type: List[bytes]
+        self._input_buffer: List[bytes] = []
         self._input_state = self.default_state
-        self._input_delimit = None  # type: Delimiters
+        self._input_delimit: Delimiters = None
         self._input_body_left = 0
         self._output_state = States.WAITING
-        self._output_delimit = None  # type: Delimiters
+        self._output_delimit: Delimiters = None
 
     def __repr__(self) -> str:
         return f"input {self._input_state} output {self._output_state}"
@@ -325,10 +325,10 @@ class HttpMessageHandler:
         and without the trailing CRLFCRLF), return its header tuples.
         """
 
-        hdr_tuples = []  # type: RawHeaderListType
-        conn_tokens = []  # type: List[bytes]
-        transfer_codes = []  # type: List[bytes]
-        content_length = None  # type: int
+        hdr_tuples: RawHeaderListType = []
+        conn_tokens: List[bytes] = []
+        transfer_codes: List[bytes] = []
+        content_length: int = None
 
         for line in header_lines:
             if line[:1] in [b" ", b"\t"]:  # Fold LWS

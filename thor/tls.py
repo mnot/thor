@@ -46,14 +46,14 @@ class TlsClient(TcpClient):
 
     def __init__(self, loop: LoopBase = None) -> None:
         TcpClient.__init__(self, loop)
-        self.tls_sock = None
+        self.tls_sock: sys_ssl.SSLSocket = None
 
     def handle_connect(self) -> None:
         tls_context = sys_ssl.create_default_context()
         tls_context.check_hostname = False
         tls_context.verify_mode = sys_ssl.CERT_NONE
         try:
-            self.tls_sock = tls_context.wrap_socket(  # type: ignore
+            self.tls_sock = tls_context.wrap_socket(
                 self.sock,
                 do_handshake_on_connect=False,
                 server_hostname=self.hostname.decode("idna"),
@@ -65,7 +65,7 @@ class TlsClient(TcpClient):
 
     def handshake(self) -> None:
         try:
-            self.tls_sock.do_handshake()  # type: ignore
+            self.tls_sock.do_handshake()
             self.once("fd_writable", self.handle_tls_connect)
         except sys_ssl.SSLError as why:
             if isinstance(why, sys_ssl.SSLWantReadError):

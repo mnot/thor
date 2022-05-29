@@ -38,8 +38,8 @@ class EventSource(EventEmitter):
     def __init__(self, loop: "LoopBase" = None) -> None:
         EventEmitter.__init__(self)
         self._loop = loop or _loop
-        self._interesting_events = set()  # type: Set[str]
-        self._fd = None  # type: int
+        self._interesting_events: Set[str] = set()
+        self._fd: int = None
 
     def register_fd(self, fd: int, event: str = None) -> None:
         """
@@ -77,17 +77,17 @@ class LoopBase(EventEmitter):
     Base class for async loops.
     """
 
-    _event_types = {}  # type: Dict[int, str] # map of event types to names; override.
+    _event_types: Dict[int, str] = {}  # map of event types to names; override.
 
     def __init__(self, precision: float = None) -> None:
         EventEmitter.__init__(self)
         self.precision = precision or 0.25  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
-        self.__sched_events = []  # type: List[Tuple[float, Callable]]
-        self._fd_targets = {}  # type: Dict[int, EventSource]
-        self.__now = None  # type: float
+        self.__sched_events: List[Tuple[float, Callable]] = []
+        self._fd_targets: Dict[int, EventSource] = {}
+        self.__now: float = None
         self._eventlookup = dict([(v, k) for (k, v) in self._event_types.items()])
-        self.__event_cache = {}  # type: Dict[int, Set[str]]
+        self.__event_cache: Dict[int, Set[str]] = {}
 
     def __repr__(self) -> str:
         name = self.__class__.__name__
@@ -99,7 +99,7 @@ class LoopBase(EventEmitter):
     def run(self) -> None:
         "Start the loop."
         self.running = True
-        last_event_check = 0  # type: float
+        last_event_check: float = 0.0
         self.__now = systime.time()
         self.emit("start")
         while self.running:
@@ -116,11 +116,11 @@ class LoopBase(EventEmitter):
                 if delay > self.precision * 2:
                     sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
                     import io
-                    import pstats
+                    from pstats import SortKey, Stats  # type: ignore
 
                     s = io.StringIO()
-                    sortby = pstats.SortKey.CUMULATIVE  # type: ignore
-                    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+                    sortby = SortKey.CUMULATIVE
+                    ps = Stats(pr, stream=s).sort_stats(sortby)
                     ps.print_callers()
                     print(s.getvalue())
             else:
@@ -433,7 +433,7 @@ def make(precision: float = None) -> LoopBase:
     Returned loop instances have all of the methods and instance variables
     that *thor.loop* has.
     """
-    loop = None  # type: LoopBase
+    loop: LoopBase = None
     if hasattr(select, "epoll"):
         loop = EpollLoop(precision)
     elif hasattr(select, "kqueue"):

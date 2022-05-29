@@ -33,8 +33,8 @@ class UdpEndpoint(EventSource):
 
     def __init__(self, loop: LoopBase = None) -> None:
         EventSource.__init__(self, loop)
-        self.host = None  # type: bytes
-        self.port = None  # type: int
+        self.host: bytes = None
+        self.port: int = None
         self._error_sent = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)

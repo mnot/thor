@@ -44,7 +44,7 @@ from thor.http.error import (
     HttpVersionError,
     StartLineError,
 )
-from thor.http.error import HttpError  # pylint: disable=unused-import
+from thor.http.error import HttpError
 
 req_rm_hdrs = hop_by_hop_hdrs + [b"host"]
 
@@ -56,23 +56,20 @@ class HttpClient:
 
     def __init__(self, loop: LoopBase = None) -> None:
         self.loop = loop or thor.loop._loop
-        self.idle_timeout = 60  # type: int    # seconds
-        self.connect_attempts = 3  # type: int
-        self.connect_timeout = 3  # type: int    # seconds
-        self.read_timeout = None  # type: int    # seconds
-        self.retry_limit = 2  # type: int
-        self.retry_delay = 0.5  # type: float  # seconds
-        self.max_server_conn = 6  # type: int
-        self.check_ip = None  # type: Callable[[str], bool]
-        self.careful = True  # type: bool
-        self._outstanding = defaultdict(list)  # type: Dict[OriginType, List]
-        self._idle_conns = defaultdict(
+        self.idle_timeout: int = 60  # seconds
+        self.connect_attempts: int = 3
+        self.connect_timeout: int = 3  # seconds
+        self.read_timeout: int = None  # seconds
+        self.retry_limit: int = 2
+        self.retry_delay: float = 0.5  # seconds
+        self.max_server_conn: int = 6
+        self.check_ip: Callable[[str], bool] = None
+        self.careful: bool = True
+        self._idle_conns: Dict[OriginType, List[TcpConnection]] = defaultdict(list)
+        self.conn_counts: Dict[OriginType, int] = defaultdict(int)
+        self._req_q: Dict[OriginType, List[Tuple[Callable, Callable]]] = defaultdict(
             list
-        )  # type: Dict[OriginType, List[TcpConnection]]
-        self.conn_counts = defaultdict(int)  # type: Dict[OriginType, int]
-        self._req_q = defaultdict(
-            list
-        )  # type: Dict[OriginType, List[Tuple[Callable, Callable]]]
+        )
         self.loop.once("stop", self._close_conns)
 
     def exchange(self) -> "HttpClientExchange":
@@ -126,9 +123,7 @@ class HttpClient:
                     handle_connect(tcp_conn)
                 elif self.idle_timeout > 0:
                     tcp_conn.once("close", idle_close)
-                    tcp_conn._idler = self.loop.schedule(  # type: ignore
-                        self.idle_timeout, idle_close
-                    )
+                    tcp_conn._idler = self.loop.schedule(self.idle_timeout, idle_close)  # type: ignore
                     self._idle_conns[origin].append(tcp_conn)
                 else:
                     self.dead_conn(exchange)
@@ -190,7 +185,7 @@ class HttpConnectionInitiate:
         self.handle_connect = handle_connect
         self.handle_error = handle_error
         self._attempts = 0
-        self._dns_results = []  # type: DnsResultList
+        self._dns_results: DnsResultList = []
         (_, host, port) = origin
         lookup(host.encode("idna"), port, socket.SOCK_STREAM, self._handle_dns)
 
@@ -212,7 +207,7 @@ class HttpConnectionInitiate:
         """
         dns_result = self._dns_results[self._attempts % len(self._dns_results)]
         (scheme, host, _) = self.origin
-        tcp_client = None  # type: Union[TcpClient, TlsClient]
+        tcp_client: Union[TcpClient, TlsClient] = None
         if scheme == "http":
             tcp_client = self.tcp_client_class(self.client.loop)
         elif scheme == "https":
@@ -252,20 +247,20 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         EventEmitter.__init__(self)
         self.client = client
         self.careful = client.careful
-        self.method = None  # type: bytes
-        self.uri = None  # type: bytes
-        self.req_hdrs = None  # type: RawHeaderListType
-        self.req_target = None  # type: bytes
-        self.authority = None  # type: bytes
-        self.res_version = None  # type: bytes
-        self.tcp_conn = None  # type: TcpConnection
-        self.origin = None  # type: OriginType
+        self.method: bytes = None
+        self.uri: bytes = None
+        self.req_hdrs: RawHeaderListType = None
+        self.req_target: bytes = None
+        self.authority: bytes = None
+        self.res_version: bytes = None
+        self.tcp_conn: TcpConnection = None
+        self.origin: OriginType = None
         self._conn_reusable = False
         self._req_body = False
         self._req_started = False
         self._retries = 0
-        self._read_timeout_ev = None  # type: ScheduledEvent
-        self._output_buffer = []  # type: List[bytes]
+        self._read_timeout_ev: ScheduledEvent = None
+        self._output_buffer: List[bytes] = []
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
