@@ -29,6 +29,9 @@ clean:
 	find . -type f -name \*.pyc -exec rm {} \;
 	find . -d -type d -name __pycache__ -exec rm -rf {} \;
 
+.PHONY: loop_type
+loop_type:
+	PYTHONPATH=$(VENV) $(VENV)/python -c "import thor.loop; print(thor.loop._loop.__class__)"
 
 ##########################################################################################
 ## Tests
