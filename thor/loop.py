@@ -393,7 +393,7 @@ class KqueueLoop(LoopBase):
     def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(
+            ev = select.kevent( # type: ignore[attr-defined]
                 fd,
                 eventmask,
                 select.KQ_EV_ADD | select.KQ_EV_ENABLE,  # type: ignore[attr-defined]
