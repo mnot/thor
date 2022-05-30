@@ -17,7 +17,7 @@ tidy: venv
 
 .PHONY: lint
 lint: venv
-	PYTHONPATH=$(VENV) $(VENV)/pylint --output-format=colorized --rcfile=test/pylintrc thor
+	PYTHONPATH=$(VENV) $(VENV)/pylint --output-format=colorized thor
 
 .PHONY: typecheck
 typecheck: venv
