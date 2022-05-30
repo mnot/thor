@@ -7,6 +7,9 @@ This is a generic library for building asynchronous event loops, using
 Python's built-in poll / epoll / kqueue support.
 """
 
+import cProfile
+import io
+from pstats import SortKey, Stats  # type: ignore
 import select
 import sys
 import time as systime
@@ -102,10 +105,8 @@ class LoopBase(EventEmitter):
         last_event_check: float = 0.0
         self.__now = systime.time()
         self.emit("start")
-        while self.running:
+        while self.running: # pylint: disable=too-many-nested-blocks
             if debug:
-                import cProfile
-
                 pr = cProfile.Profile()
                 fd_start = systime.time()
                 pr.enable()
@@ -115,8 +116,6 @@ class LoopBase(EventEmitter):
                 delay = self.__now - fd_start
                 if delay > self.precision * 2:
                     sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
-                    import io
-                    from pstats import SortKey, Stats  # type: ignore
 
                     st = io.StringIO()
                     sortby = SortKey.CUMULATIVE
@@ -251,9 +250,9 @@ class LoopBase(EventEmitter):
         "Calculate the events implied by a given filter."
         if evfilter not in self.__event_cache:
             events = set()
-            for et in self._event_types:
+            for (et, ev) in self._event_types.items():
                 if et & evfilter:
-                    events.add(self._event_types[et])
+                    events.add(ev)
             self.__event_cache[evfilter] = events
         return self.__event_cache[evfilter]
 

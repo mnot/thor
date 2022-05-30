@@ -12,4 +12,4 @@ from thor.http.common import (
     hop_by_hop_hdrs,
 )
 
-debug = False
+debug = False  # pylint: disable=invalid-name
