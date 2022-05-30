@@ -26,7 +26,7 @@ from typing import (
 from thor.events import EventEmitter
 
 
-__all__ = ["run", "stop", "schedule", "time", "running", "debug"]
+__all__ = ["run", "stop", "schedule", "time", "debug"]
 
 
 class EventSource(EventEmitter):
@@ -437,5 +437,4 @@ run = _loop.run
 stop = _loop.stop
 schedule = _loop.schedule
 time = _loop.time
-running = _loop.running
 debug = False  # pylint: disable=invalid-name
