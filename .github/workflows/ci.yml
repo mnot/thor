@@ -34,6 +34,8 @@ jobs:
         key: ${{ runner.os }}-${{ matrix.python-version }}-venv-${{ hashFiles('**/requirements.txt') }}
     - name: Set up venv
       run: make venv
+    - name: Loop Type
+      run: make loop_type
     - name: Typecheck
       run: make typecheck
     - name: Test
