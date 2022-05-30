@@ -90,8 +90,8 @@ class HttpClient:
             if tcp_conn.tcp_connected:
                 tcp_conn.removeListeners("data", "pause", "close")
                 tcp_conn.pause(True)
-                if hasattr(tcp_conn, "_idler"):
-                    tcp_conn._idler.delete()  # type: ignore
+                if hasattr(tcp_conn, "idler"):
+                    tcp_conn.idler.delete()  # type: ignore
                 handle_connect(tcp_conn)
                 break
 
@@ -106,8 +106,8 @@ class HttpClient:
 
                 def idle_close() -> None:
                     "Remove the connection from the pool when it closes."
-                    if hasattr(tcp_conn, "_idler"):
-                        tcp_conn._idler.delete()  # type: ignore
+                    if hasattr(tcp_conn, "idler"):
+                        tcp_conn.idler.delete()  # type: ignore
                     self.dead_conn(exchange)
                     try:
                         self._idle_conns[origin].remove(tcp_conn)
@@ -121,7 +121,7 @@ class HttpClient:
                     handle_connect(tcp_conn)
                 elif self.idle_timeout > 0:
                     tcp_conn.once("close", idle_close)
-                    tcp_conn._idler = self.loop.schedule(  # type: ignore
+                    tcp_conn.idler = self.loop.schedule(  # type: ignore
                         self.idle_timeout, idle_close
                     )
                     self._idle_conns[origin].append(tcp_conn)
