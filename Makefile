@@ -21,7 +21,7 @@ lint: venv
 
 .PHONY: typecheck
 typecheck: venv
-	PYTHONPATH=$(VENV) $(VENV)/python -m mypy --config-file=test/mypy.ini thor
+	PYTHONPATH=$(VENV) $(VENV)/python -m mypy thor
 
 .PHONY: clean
 clean:
