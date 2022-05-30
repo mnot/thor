@@ -58,7 +58,6 @@ class TestTcpServer(framework.ClientServerTestCase):
         self.assertTrue(self.server_recv > 0, self.server_recv)
 
 
-# TODO:
 #   def test_pause(self):
 #   def test_shutdown(self):
 

@@ -100,8 +100,6 @@ class EventEmitter:
         """
         self.__sink = sink
 
-    # TODO: event bubbling
-
 
 def on(obj: EventEmitter, event: str = None) -> Callable:
     """

@@ -48,8 +48,6 @@ from thor.http.error import HttpError
 
 req_rm_hdrs = hop_by_hop_hdrs + [b"host"]
 
-# TODO: next-hop version cache for Expect/Continue, etc.
-
 
 class HttpClient:
     "An asynchronous HTTP client."
@@ -164,7 +162,6 @@ class HttpClient:
                 except socket.error:
                     pass
         self._idle_conns.clear()
-        # TODO: probably need to close in-progress conns too.
 
 
 class HttpConnectionInitiate:  # pylint: disable=too-few-public-methods
@@ -291,9 +288,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.client.attach_conn(
             self.origin, self._handle_connect, self._handle_connect_error
         )
-
-    # TODO: if we sent Expect: 100-continue, don't wait forever
-    # (i.e., schedule something)
 
     def _parse_uri(self, uri: bytes) -> OriginType:
         """
@@ -455,7 +449,6 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         tcp_conn.on("data", self.handle_input)
         tcp_conn.once("close", self._conn_closed)
         tcp_conn.on("pause", self._req_body_pause)
-        # FIXME: should this be done AFTER _req_start?
         self.output(b"")  # kick the output buffer
         self.tcp_conn.pause(False)
 

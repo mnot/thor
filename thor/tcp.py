@@ -82,7 +82,6 @@ class TcpConnection(EventSource):
     getting data from them, you'll need to pause(False).
     """
 
-    # TODO: play with various buffer sizes
     write_bufsize = 16
     read_bufsize = 1024 * 16
 
@@ -197,7 +196,6 @@ class TcpConnection(EventSource):
             self._closing = True
         else:
             self._close()
-        # TODO: should loop stop automatically close all conns?
 
     def _handle_close(self) -> None:
         "The connection has been closed by the other side."
@@ -251,20 +249,16 @@ class TcpServer(EventSource):
         )
         self.emit("connect", tcp_conn)
 
-    # TODO: should loop stop close listening sockets?
-
     def shutdown(self) -> None:
         "Stop accepting requests and close the listening socket."
         self.removeListeners("fd_readable")
         if self.sock:
             self.sock.close()
         self.emit("stop")
-        # TODO: emit close?
 
 
 def server_listen(host: bytes, port: int, backlog: int = None) -> socket.socket:
     "Return a socket listening to host:port."
-    # TODO: IPV6
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setblocking(False)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

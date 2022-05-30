@@ -91,7 +91,6 @@ Content-Length: %(body_len)i
             ],
             body,
         )
-        # FIXME: error?
 
     def test_hdr_case(self):
         body = b"12345678901234567890"
@@ -694,7 +693,6 @@ Content-Length: %(body_len)i
         )
 
 
-# TODO:
 #    def test_nobody_delimit(self):
 #    def test_pipeline_nobody(self):
 #    def test_chunked_then_length(self):

@@ -59,7 +59,6 @@ class HttpServer(EventEmitter):
 
     def shutdown(self) -> None:
         "Stop the server"
-        # TODO: Finish outstanding requests w/ timeout?
         self.tcp_server.shutdown()
         self.emit("stop")
 
@@ -101,8 +100,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def conn_closed(self) -> None:
         "The server connection has closed."
-        #        for exchange in self.ex_queue:
-        #            exchange.pause() # FIXME - maybe a connclosed err?
         self.ex_queue = []
         self.tcp_conn = None
 
@@ -138,7 +135,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             req_version = req_version.rsplit(b"/", 1)[1]
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line.decode("utf-8", "replace")))
-            # TODO: more fine-grained
             raise ValueError
         if b"host" not in header_names(hdr_tuples):
             self.input_error(HostRequiredError())
@@ -192,16 +188,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.ex_queue.append(ex)
             self.close_conn()
 
-    # TODO: if in mid-request, we need to send an error event and clean up.
-    #        self.ex_queue[-1].emit('error', err)
-
     def drain_exchange_queue(self) -> None:
         """
         Walk through the exchange queue and kick off unstarted requests
         until we run out of output buffer.
         """
-        # TODO: probably have a separate metric for outstanding requests,
-        # rather than just the write queue size.
         for exchange in self.ex_queue:
             if not exchange.started:
                 exchange.request_start()

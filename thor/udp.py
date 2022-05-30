@@ -55,7 +55,6 @@ class UdpEndpoint(EventSource):
 
         Can raise socket.error if binding fails.
         """
-        # TODO: IPV6
         self.host = host
         self.port = port
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -71,7 +70,6 @@ class UdpEndpoint(EventSource):
         "Close the listening socket."
         self.removeListeners("fd_readable")
         self.sock.close()
-        # TODO: emit close?
 
     def pause(self, paused: bool) -> None:
         "Control incoming datagram events."
@@ -92,8 +90,6 @@ class UdpEndpoint(EventSource):
 
     def handle_datagram(self) -> None:
         "Handle an incoming datagram, emitting the 'datagram' event."
-        # TODO: consider pre-allocating buffers.
-        # TODO: is it best to loop here?
         while True:
             try:
                 data, addr = self.sock.recvfrom(self.recv_buffer)

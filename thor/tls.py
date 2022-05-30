@@ -19,9 +19,6 @@ TcpConnection.block_errs.add(sys_ssl.SSL_ERROR_WANT_WRITE)
 TcpConnection.close_errs.add(sys_ssl.SSL_ERROR_EOF)
 TcpConnection.close_errs.add(sys_ssl.SSL_ERROR_SSL)
 
-# TODO: TlsServer
-# TODO: expose cipher info, peer info
-
 
 class TlsClient(TcpClient):
     """

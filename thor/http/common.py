@@ -87,7 +87,6 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
     safe to use this on headers whose values may include a comma (e.g.,
     Set-Cookie, or any value with a quoted string).
     """
-    # TODO: support quoted strings
     return [
         v.strip()
         for v in sum(
@@ -237,11 +236,9 @@ class HttpMessageHandler:
             if len(inbytes) > 512:
                 # OK, this is absurd...
                 self.input_error(error.ChunkError(inbytes.decode("utf-8", "replace")))
-                # TODO: need testing around this; catching the right thing?
             else:
                 self._input_buffer.append(inbytes)
             return b""
-        # TODO: do we need to ignore blank lines?
         if b";" in chunk_size:  # ignore chunk extensions
             chunk_size = chunk_size.split(b";", 1)[0]
         try:
@@ -288,7 +285,7 @@ class HttpMessageHandler:
                 try:
                     trailers = self._parse_fields(trailer_block.splitlines())[0]
                 except ValueError:
-                    self._input_state = States.ERROR  # TODO: need an explicit error
+                    self._input_state = States.ERROR
                     return
                 else:
                     self.input_end(trailers)
@@ -340,8 +337,7 @@ class HttpMessageHandler:
             try:
                 fn, fv = line.split(b":", 1)
             except ValueError:
-                continue  # TODO: error on unparseable field?
-            # TODO: a zero-length name isn't valid
+                continue
             if fn[-1:] in [b" ", b"\t"]:
                 self.input_error(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
                 if self.careful:
@@ -355,7 +351,7 @@ class HttpMessageHandler:
                 # parse connection-related headers
                 if f_name == b"connection":
                     conn_tokens += [v.strip().lower() for v in f_val.split(b",")]
-                elif f_name == b"transfer-encoding":  # TODO: parameters? no...
+                elif f_name == b"transfer-encoding":
                     transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
                 elif f_name == b"content-length":
                     if content_length is not None:
@@ -418,7 +414,7 @@ class HttpMessageHandler:
         header_lines = inbytes.splitlines()
 
         # chop off the top line
-        while True:  # TODO: limit?
+        while True:
             try:
                 top_line = header_lines.pop(0)
                 if top_line.strip() != b"":
@@ -502,11 +498,6 @@ class HttpMessageHandler:
         if self._output_delimit == Delimiters.CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode("ascii"), chunk)
         self.output(chunk)
-        # TODO: body counting
-
-    #        self._output_body_sent += len(chunk)
-    #        assert self._output_body_sent <= self._output_content_length, \
-    #            "Too many body bytes sent"
 
     def output_end(self, trailers: RawHeaderListType) -> bool:
         """
@@ -521,7 +512,7 @@ class HttpMessageHandler:
                 % b"\r\n".join([b"%s: %s" % (k.strip(), v) for k, v in trailers])
             )
         elif self._output_delimit == Delimiters.COUNTED:
-            pass  # TODO: double-check the length
+            pass
         elif self._output_delimit == Delimiters.CLOSE:
             return True
         elif self._output_delimit is None:

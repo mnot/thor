@@ -140,7 +140,6 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
 
 
-# TODO:
 #   def test_pause(self):
 
 if __name__ == "__main__":

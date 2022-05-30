@@ -203,7 +203,6 @@ Connection: close
 12345
 """
             )
-            # TODO: check server-side recv
             conn.request.close()
 
         self.go([server_side], [client_side])
@@ -369,7 +368,6 @@ Connection: close
 
         self.go([server_side], [client_side])
 
-    # FIXME: works because dns is currently blocking
     def test_conn_noname_err(self):
         client = HttpClient(loop=self.loop)
         exchange = client.exchange()
@@ -1034,7 +1032,6 @@ Connection: close
         self.go([server_side], [client_side])
 
 
-# TODO:
 #    def test_req_body(self):
 #    def test_req_body_dont_retry(self):
 #    def test_req_body_close_on_err(self):

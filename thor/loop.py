@@ -105,7 +105,7 @@ class LoopBase(EventEmitter):
         last_event_check: float = 0.0
         self.__now = systime.time()
         self.emit("start")
-        while self.running: # pylint: disable=too-many-nested-blocks
+        while self.running:  # pylint: disable=too-many-nested-blocks
             if debug:
                 pr = cProfile.Profile()
                 fd_start = systime.time()
@@ -193,7 +193,6 @@ class LoopBase(EventEmitter):
         "An event has occured on an fd."
         if fd in self._fd_targets:
             self._fd_targets[fd].emit(event)
-        # TODO: automatic unregister on 'close'?
 
     def time(self) -> float:
         "Return the current time (to avoid a system call)."
@@ -209,7 +208,7 @@ class LoopBase(EventEmitter):
         calling its delete() method.
         """
 
-        def cb() -> None:  # FIXME: can't compare functions in py3. Suck.
+        def cb() -> None:
             if callback:
                 callback(*args)
 
@@ -286,7 +285,6 @@ class PollLoop(LoopBase):
             select.POLLERR: "fd_error",
             select.POLLHUP: "fd_close",
         }
-        #        select.POLLNVAL - TODO
 
         LoopBase.__init__(self, *args)
         self._poll = select.poll()
@@ -376,8 +374,6 @@ class KqueueLoop(LoopBase):
         self.max_ev = 50  # maximum number of events to pull from the queue
         self._kq = select.kqueue()
 
-    # TODO: override schedule() to use kqueue event scheduling.
-
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         self._fd_targets[fd] = target
         for event in events:
@@ -414,14 +410,6 @@ class KqueueLoop(LoopBase):
                 self._fd_event("fd_close", int(ev.ident))
             if ev.flags & select.KQ_EV_ERROR:
                 pass
-            # TODO: pull errors, etc. out of flags and fflags
-            #   If the read direction of the socket has shutdown, then
-
-    # 	the filter also sets EV_EOF in flags, and returns the
-    # 	socket error (if any) in fflags.  It is possible for
-    # 	EOF to be returned (indicating the connection is gone)
-    # 	while there is still data pending in the socket
-    # 	buffer.
 
 
 def make(precision: float = None) -> LoopBase:
