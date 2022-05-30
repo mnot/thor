@@ -323,7 +323,7 @@ class EpollLoop(LoopBase):
         self._event_types = {
             select.EPOLLIN: "fd_readable",  # type: ignore[attr-defined]
             select.EPOLLOUT: "fd_writable",  # type: ignore[attr-defined]
-            select.EPOLLHUP: "fd_close",  # type: ignore[attr-defined]
+            select.EPOLLRDHUP: "fd_close",  # type: ignore[attr-defined]
             select.EPOLLERR: "fd_error",  # type: ignore[attr-defined]
         }
         LoopBase.__init__(self, *args)
