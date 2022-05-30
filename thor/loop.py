@@ -327,7 +327,7 @@ class EpollLoop(LoopBase):
             select.EPOLLERR: "fd_error",  # type: ignore[attr-defined]
         }
         LoopBase.__init__(self, *args)
-        self._epoll = select.epoll()  # type: ignore
+        self._epoll = select.epoll()  # type: ignore[attr-defined]
         # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
@@ -373,7 +373,7 @@ class KqueueLoop(LoopBase):
         }
         LoopBase.__init__(self, *args)
         self.max_ev = 50  # maximum number of events to pull from the queue
-        self._kq = select.kqueue()
+        self._kq = select.kqueue()  # type: ignore[attr-defined]
         # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
@@ -393,13 +393,17 @@ class KqueueLoop(LoopBase):
     def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(fd, eventmask, select.KQ_EV_ADD | select.KQ_EV_ENABLE)
+            ev = select.kevent(
+                fd,
+                eventmask,
+                select.KQ_EV_ADD | select.KQ_EV_ENABLE,  # type: ignore[attr-defined]
+            )
             self._kq.control([ev], 0, 0)
 
     def event_del(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(fd, eventmask, select.KQ_EV_DELETE)
+            ev = select.kevent(fd, eventmask, select.KQ_EV_DELETE)  # type: ignore[attr-defined]
             self._kq.control([ev], 0, 0)
 
     def _run_fd_events(self) -> None:
@@ -408,9 +412,9 @@ class KqueueLoop(LoopBase):
             event_types = self._filter2events(ev.filter)
             for event_type in event_types:
                 self._fd_event(event_type, int(ev.ident))
-            if ev.flags & select.KQ_EV_EOF:
+            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined]
                 self._fd_event("fd_close", int(ev.ident))
-            if ev.flags & select.KQ_EV_ERROR:
+            if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined]
                 pass
 
 
