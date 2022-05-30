@@ -68,7 +68,7 @@ class UdpEndpoint(EventSource):
 
     def shutdown(self) -> None:
         "Close the listening socket."
-        self.removeListeners("fd_readable")
+        self.remove_listeners("fd_readable")
         self.sock.close()
 
     def pause(self, paused: bool) -> None:

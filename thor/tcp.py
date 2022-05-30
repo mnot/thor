@@ -204,7 +204,7 @@ class TcpConnection(EventSource):
 
     def _close(self) -> None:
         self.tcp_connected = False
-        self.removeListeners("fd_readable", "fd_writable", "fd_close")
+        self.remove_listeners("fd_readable", "fd_writable", "fd_close")
         self.unregister_fd()
         if self.socket:
             self.socket.close()
@@ -251,7 +251,7 @@ class TcpServer(EventSource):
 
     def shutdown(self) -> None:
         "Stop accepting requests and close the listening socket."
-        self.removeListeners("fd_readable")
+        self.remove_listeners("fd_readable")
         if self.sock:
             self.sock.close()
         self.emit("stop")

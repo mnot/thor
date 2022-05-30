@@ -34,7 +34,7 @@ class TestEventEmitter(unittest.TestCase):
 
             def handle_rem1(self):
                 self.rem1_count += 1
-                self.removeListeners()
+                self.remove_listeners()
                 self.emit("foo")
 
             def handle_rem1a(self):
@@ -42,7 +42,7 @@ class TestEventEmitter(unittest.TestCase):
 
             def handle_rem2(self):
                 self.rem2_count += 1
-                self.removeListener("rem2", self.handle_rem2a)
+                self.remove_listener("rem2", self.handle_rem2a)
 
             def handle_rem2a(self):
                 self.rem2_count += 1
@@ -63,24 +63,24 @@ class TestEventEmitter(unittest.TestCase):
         self.t.emit("bar")
         self.assertEqual(self.t.bar_count, 1)
 
-    def test_removeListener(self):
-        self.t.removeListener("foo", self.t.handle_foo)
+    def test_remove_listener(self):
+        self.t.remove_listener("foo", self.t.handle_foo)
         self.t.emit("foo")
         self.assertEqual(self.t.foo_count, 0)
 
-    def test_removeListeners_named(self):
-        self.t.removeListeners("baz")
+    def test_remove_listeners_named(self):
+        self.t.remove_listeners("baz")
         self.t.emit("baz")
 
-    def test_removeListeners_named_multiple(self):
-        self.t.removeListeners("baz", "foo")
+    def test_remove_listeners_named_multiple(self):
+        self.t.remove_listeners("baz", "foo")
         self.t.emit("baz")
         self.t.emit("foo")
         self.assertEqual(self.t.foo_count, 0)
 
-    def test_removeListeners_all(self):
+    def test_remove_listeners_all(self):
         self.t.emit("foo")
-        self.t.removeListeners()
+        self.t.remove_listeners()
         self.t.emit("foo")
         self.assertEqual(self.t.foo_count, 1)
         self.t.emit("baz")
@@ -124,18 +124,18 @@ class TestEventEmitter(unittest.TestCase):
         self.t.emit("boom")
         self.assertEqual(self.t.boom_count, 1)
 
-    def test_removeListeners_recursion(self):
+    def test_remove_listeners_recursion(self):
         """
         All event listeners are called for a given
         event, even if one of the previous listeners
-        calls removeListeners().
+        calls remove_listeners().
         """
         self.assertEqual(self.t.rem1_count, 0)
         self.t.emit("rem1")
         self.assertEqual(self.t.foo_count, 0)
         self.assertEqual(self.t.rem1_count, 2)
 
-    def test_removeListener_recursion(self):
+    def test_remove_listener_recursion(self):
         """
         Removing a later listener specifically for
         a given event causes it not to be run.

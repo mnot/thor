@@ -88,7 +88,7 @@ class HttpClient:
                 self._new_conn(origin, handle_connect, handle_connect_error)
                 break
             if tcp_conn.tcp_connected:
-                tcp_conn.removeListeners("data", "pause", "close")
+                tcp_conn.remove_listeners("data", "pause", "close")
                 tcp_conn.pause(True)
                 if hasattr(tcp_conn, "idler"):
                     tcp_conn.idler.delete()  # type: ignore
@@ -99,7 +99,7 @@ class HttpClient:
         "Add an idle connection back to the pool."
         tcp_conn = exchange.tcp_conn
         if tcp_conn:
-            tcp_conn.removeListeners("data", "pause", "close")
+            tcp_conn.remove_listeners("data", "pause", "close")
             exchange.tcp_conn = None
             if tcp_conn.tcp_connected:
                 origin = exchange.origin

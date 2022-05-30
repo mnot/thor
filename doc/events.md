@@ -15,12 +15,12 @@ Add the callable _listenter_ to the list of listeners that will be called when _
 Call _listener_ exactly once, the next time that _event_ is emitted.
 
 
-### _void_ thor.events.EventEmitter.removeListener (  _str_ `event`, _func_ `listener` )
+### _void_ thor.events.EventEmitter.remove_listener (  _str_ `event`, _func_ `listener` )
 
 Remove the callable _listener_ from the list of those that will be called when _event_ is emitted.
 
 
-### _void_ thor.events.EventEmitter.removeListeners (  _str_ `event`+ )
+### _void_ thor.events.EventEmitter.remove_listeners (  _str_ `event`+ )
 
 Remove all listeners for _event_. Additional _event_s can be passed as following arguments.
 

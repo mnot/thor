@@ -38,12 +38,12 @@ class EventEmitter:
         """
 
         def mycall(*args: Any) -> None:
-            self.removeListener(event, mycall)
+            self.remove_listener(event, mycall)
             listener(*args)
 
         self.on(event, mycall)
 
-    def removeListener(self, event: str, listener: Callable) -> None:
+    def remove_listener(self, event: str, listener: Callable) -> None:
         """
         Remove a specific listener from an event.
 
@@ -52,7 +52,7 @@ class EventEmitter:
         """
         self.__events.get(event, [listener]).remove(listener)
 
-    def removeListeners(self, *events: str) -> None:
+    def remove_listeners(self, *events: str) -> None:
         """
         Remove all listeners from an event; if no event
         is specified, remove all listeners for all events.
