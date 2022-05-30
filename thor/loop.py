@@ -9,7 +9,7 @@ Python's built-in poll / epoll / kqueue support.
 
 import cProfile
 import io
-from pstats import SortKey, Stats  # type: ignore
+from pstats import SortKey, Stats  # type: ignore[attr-defined]
 import select
 import sys
 import time as systime
@@ -280,10 +280,10 @@ class PollLoop(LoopBase):
     def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
-            select.POLLIN: "fd_readable",
-            select.POLLOUT: "fd_writable",
-            select.POLLERR: "fd_error",
-            select.POLLHUP: "fd_close",
+            select.POLLIN: "fd_readable",  # type: ignore[attr-defined]
+            select.POLLOUT: "fd_writable",  # type: ignore[attr-defined]
+            select.POLLERR: "fd_error",  # type: ignore[attr-defined]
+            select.POLLHUP: "fd_close",  # type: ignore[attr-defined]
         }
 
         LoopBase.__init__(self, *args)
@@ -321,10 +321,10 @@ class EpollLoop(LoopBase):
     def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
-            select.EPOLLIN: "fd_readable",  # type: ignore
-            select.EPOLLOUT: "fd_writable",  # type: ignore
-            select.EPOLLHUP: "fd_close",  # type: ignore
-            select.EPOLLERR: "fd_error",  # type: ignore
+            select.EPOLLIN: "fd_readable",  # type: ignore[attr-defined]
+            select.EPOLLOUT: "fd_writable",  # type: ignore[attr-defined]
+            select.EPOLLHUP: "fd_close",  # type: ignore[attr-defined]
+            select.EPOLLERR: "fd_error",  # type: ignore[attr-defined]
         }
         LoopBase.__init__(self, *args)
         self._epoll = select.epoll()  # type: ignore
@@ -366,13 +366,15 @@ class KqueueLoop(LoopBase):
     """
 
     def __init__(self, *args: Any) -> None:
+        # pylint: disable=E1101
         self._event_types = {
-            select.KQ_FILTER_READ: "fd_readable",
-            select.KQ_FILTER_WRITE: "fd_writable",
+            select.KQ_FILTER_READ: "fd_readable",  # type: ignore[attr-defined]
+            select.KQ_FILTER_WRITE: "fd_writable",  # type: ignore[attr-defined]
         }
         LoopBase.__init__(self, *args)
         self.max_ev = 50  # maximum number of events to pull from the queue
         self._kq = select.kqueue()
+        # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         self._fd_targets[fd] = target
