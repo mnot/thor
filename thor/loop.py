@@ -84,7 +84,7 @@ class LoopBase(EventEmitter):
 
     def __init__(self, precision: float = None) -> None:
         EventEmitter.__init__(self)
-        self.precision = precision or 0.25  # of running scheduled queue (secs)
+        self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
