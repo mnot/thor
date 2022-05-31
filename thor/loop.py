@@ -89,6 +89,7 @@ class LoopBase(EventEmitter):
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__now: float = None
+        self.__urgent = True  # if there's a scheduled event that needs to be processed soon
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
         self.__event_cache: Dict[int, Set[str]] = {}
 
@@ -110,24 +111,23 @@ class LoopBase(EventEmitter):
                 pr = cProfile.Profile()
                 fd_start = systime.time()
                 pr.enable()
-                self._run_fd_events()
+            self._run_fd_events()
+            if debug:
                 pr.disable()
-                self.__now = systime.time()
+            self.__now = systime.time()
+            if debug:
                 delay = self.__now - fd_start
                 if delay > self.precision * 2:
                     sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
-
                     st = io.StringIO()
                     sortby = SortKey.CUMULATIVE
                     ps = Stats(pr, stream=st).sort_stats(sortby)
                     ps.print_callers()
                     print(st.getvalue())
-            else:
-                self._run_fd_events()
-                self.__now = systime.time()
             # find scheduled events
             delay = self.__now - last_event_check
-            if delay >= self.precision * 0.90:
+            if delay >= self.precision * 0.90 or self.__urgent:
+                self.__urgent = False
                 if debug:
                     if last_event_check and (delay >= self.precision * 4):
                         sys.stderr.write(f"WARNING: long loop delay ({delay:.2f})\n")
@@ -216,6 +216,8 @@ class LoopBase(EventEmitter):
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
+        if delta < self.precision:
+            self._urgent = True
         return ScheduledEvent(self, new_event)
 
     def schedule_del(self, event: Tuple[float, Callable]) -> None:
