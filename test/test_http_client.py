@@ -10,8 +10,6 @@ import sys
 import time
 import unittest
 
-import pytest
-
 import framework
 
 import thor
@@ -163,7 +161,6 @@ Transfer-Encoding: chunked
 
         self.go([server_side], [client_side])
 
-    @pytest.mark.xfail
     def test_chunked_request(self):
         req_body = b"54321"
 
@@ -237,7 +234,6 @@ Connection: close
 
         self.go([server_side], [client_side])
 
-    @pytest.mark.xfail
     def test_1xx(self):
         req_body = b"54321"
 
@@ -620,7 +616,6 @@ Connection: close
 
         self.go([server_side], [client_side])
 
-    @pytest.mark.xfail
     def test_http_protoname_err(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
@@ -691,7 +686,6 @@ Connection: close
 
         self.go([server_side], [client_side])
 
-    @pytest.mark.xfail
     def test_conn_reuse(self):
         self.conn_checked = False
 
@@ -766,7 +760,6 @@ Connection: close
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
 
-    @pytest.mark.xfail
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
 
@@ -834,7 +827,6 @@ Connection: close
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
 
-    @pytest.mark.xfail
     def test_req_retry(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
