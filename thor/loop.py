@@ -217,7 +217,7 @@ class LoopBase(EventEmitter):
         events = self.__sched_events
         self._insort(events, new_event)
         if delta < self.precision:
-            self._urgent = True
+            self.__urgent = True
         return ScheduledEvent(self, new_event)
 
     def schedule_del(self, event: Tuple[float, Callable]) -> None:
