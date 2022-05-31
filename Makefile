@@ -1,37 +1,6 @@
+PROJECT=thor
 GITHUB_STEP_SUMMARY ?= throwaway
 
-all:
-	@echo "make dist to 1) push and tag to github, and 2) upload to pypi."
-
-# for running from IDEs (e.g., TextMate)
-.PHONY: run
-run: test
-
-
-##########################################################################################
-## Tasks
-
-.PHONY: tidy
-tidy: venv
-	$(VENV)/black thor test
-
-.PHONY: lint
-lint: venv
-	PYTHONPATH=$(VENV) $(VENV)/pylint --output-format=colorized thor
-
-.PHONY: typecheck
-typecheck: venv
-	PYTHONPATH=$(VENV) $(VENV)/python -m mypy thor
-
-.PHONY: clean
-clean:
-	rm -rf build dist MANIFEST thor.egg-info .venv
-	find . -type f -name \*.pyc -exec rm {} \;
-	find . -d -type d -name __pycache__ -exec rm -rf {} \;
-
-.PHONY: loop_type
-loop_type:
-	PYTHONPATH=$(VENV) $(VENV)/python -c "import thor.loop; print(thor.loop._loop.__class__)"
 
 ##########################################################################################
 ## Tests
@@ -45,20 +14,48 @@ test:
 test/*.py:
 	PYTHONPATH=.:$(VENV) $(VENV)/pytest $@
 
+
+#############################################################################
+## Tasks
+
+.PHONY: cli
+cli: venv
+	PYTHONPATH=$(VENV) $(VENV)/pip install .
+	PYTHONPATH=$(VENV):. sh
+
+.PHONY: clean
+clean:
+	find . -d -type d -name __pycache__ -exec rm -rf {} \;
+	rm -rf build dist MANIFEST $(PROJECT).egg-info .venv .mypy_cache *.log
+
+.PHONY: tidy
+tidy: venv
+	$(VENV)/black $(PROJECT) test
+
+.PHONY: lint
+lint: venv
+	PYTHONPATH=$(VENV) $(VENV)/pylint --output-format=colorized $(PROJECT)
+
+.PHONY: typecheck
+typecheck: venv
+	PYTHONPATH=$(VENV) $(VENV)/python -m mypy $(PROJECT)
+
+
+
 #############################################################################
 ## Distribution
 
 .PHONY: version
 version: venv
-	$(eval VERSION=$(shell $(VENV)/python -c "import thor; print(thor.__version__)"))
+	$(eval VERSION=$(shell $(VENV)/python -c "import $(PROJECT); print($(PROJECT).__version__)"))
 
 .PHONY: build
 build: clean venv
 	$(VENV)/python -m build
 
 .PHONY: upload
-upload: build typecheck test version
-	git tag thor-$(VERSION)
+upload: build test version venv
+	git tag $(PROJECT)-$(VERSION)
 	git push
 	git push --tags origin
 	$(VENV)/python -m twine upload dist/*
