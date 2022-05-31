@@ -89,6 +89,7 @@ class LoopBase(EventEmitter):
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__now: float = None
+        self.__last_event_check: float = 0.0
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
         self.__event_cache: Dict[int, Set[str]] = {}
 
@@ -102,7 +103,6 @@ class LoopBase(EventEmitter):
     def run(self) -> None:
         "Start the loop."
         self.running = True
-        last_event_check: float = 0.0
         self.__now = systime.time()
         self.emit("start")
         while self.running:  # pylint: disable=too-many-nested-blocks
@@ -126,25 +126,28 @@ class LoopBase(EventEmitter):
                 self._run_fd_events()
                 self.__now = systime.time()
             # find scheduled events
-            delay = self.__now - last_event_check
+            delay = self.__now - self.__last_event_check
             if delay >= self.precision * 0.90:
-                self._run_scheduled_events(last_event_check)
+                self._run_scheduled_events()
 
     def _run_fd_events(self) -> None:
         "Run loop-specific FD events."
         raise NotImplementedError
 
-    def _run_scheduled_events(self, last_event_check: float) -> float:
+    def _run_scheduled_events(self) -> None:
         "Run scheduled events."
         if debug:
-            delay = self.__now - last_event_check
-            if last_event_check and (delay >= self.precision * 4):
-                sys.stderr.write(f"WARNING: long loop delay ({delay:.2f})\n")
+            if self.__last_event_check and (
+                self.__now - self.__last_event_check >= self.precision * 4
+            ):
+                sys.stderr.write(
+                    f"WARNING: long loop delay ({self.__now - self.__last_event_check:.2f})\n"
+                )
             if len(self.__sched_events) > 500:
                 sys.stderr.write(
                     f"WARNING: {len(self.__sched_events)} events scheduled\n"
                 )
-        last_event_check = self.__now
+        self.__last_event_check = self.__now
         for event in self.__sched_events:
             when, what = event
             if self.running and self.__now >= when:
@@ -164,7 +167,6 @@ class LoopBase(EventEmitter):
                         )
             else:
                 break
-        return last_event_check
 
     def stop(self) -> None:
         "Stop the loop and unregister all fds."
