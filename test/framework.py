@@ -28,7 +28,7 @@ timeout_port = 31000
 refuse_host = test_host
 refuse_port = 45000
 udp_port = 48500
-timeout = 20
+timeout = 10
 
 
 class ClientServerTestCase(unittest.TestCase):
