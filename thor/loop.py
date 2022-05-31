@@ -89,7 +89,9 @@ class LoopBase(EventEmitter):
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__now: float = None
-        self.__urgent = True  # if there's a scheduled event that needs to be processed soon
+        self.__urgent = (
+            True  # if there's a scheduled event that needs to be processed soon
+        )
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
         self.__event_cache: Dict[int, Set[str]] = {}
 
@@ -395,7 +397,7 @@ class KqueueLoop(LoopBase):
     def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent( # type: ignore[attr-defined]
+            ev = select.kevent(  # type: ignore[attr-defined]
                 fd,
                 eventmask,
                 select.KQ_EV_ADD | select.KQ_EV_ENABLE,  # type: ignore[attr-defined]
