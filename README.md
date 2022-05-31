@@ -51,7 +51,7 @@ Thor.
 For example, a very simple HTTP server looks like this:
 
 ```python
-import thor
+import thor, thor.http
 def test_handler(exch):
     @thor.events.on(exch)
     def request_start(*args):
@@ -60,7 +60,7 @@ def test_handler(exch):
         exch.response_done([])
 
 if __name__ == "__main__":
-    demo_server = thor.HttpServer('127.0.0.1', 8000)
+    demo_server = thor.http.HttpServer('127.0.0.1', 8000)
     demo_server.on('exchange', test_handler)
     thor.run()
 ```
