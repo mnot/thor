@@ -105,7 +105,7 @@ class LoopBase(EventEmitter):
         self.running = True
         self.__now = systime.time()
         self.emit("start")
-        while self.running:  # pylint: disable=too-many-nested-blocks
+        while self.running:
             if debug:
                 pr = cProfile.Profile()
                 fd_start = systime.time()
@@ -137,8 +137,10 @@ class LoopBase(EventEmitter):
     def _run_scheduled_events(self) -> None:
         "Run scheduled events."
         if debug:
-            if self.__last_event_check and (
-                self.__now - self.__last_event_check >= self.precision * 4
+            if (
+                self.__now
+                and self.__last_event_check
+                and (self.__now - self.__last_event_check >= self.precision * 4)
             ):
                 sys.stderr.write(
                     f"WARNING: long loop delay ({self.__now - self.__last_event_check:.2f})\n"
@@ -147,7 +149,7 @@ class LoopBase(EventEmitter):
                 sys.stderr.write(
                     f"WARNING: {len(self.__sched_events)} events scheduled\n"
                 )
-        self.__last_event_check = self.__now
+        self.__last_event_check = self.time()
         for event in self.__sched_events:
             when, what = event
             if self.running and self.__now >= when:
@@ -224,6 +226,8 @@ class LoopBase(EventEmitter):
         new_event = (self.time() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
+        if delta > self.precision:
+            self._run_scheduled_events()
         return ScheduledEvent(self, new_event)
 
     def schedule_del(self, event: Tuple[float, Callable]) -> None:
