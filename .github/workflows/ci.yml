@@ -6,6 +6,7 @@ on:
     paths:
     - '**.py'
     - '**.yml'
+    - 'Makefile'
   pull_request:
     branches: [ main ]
     paths:
