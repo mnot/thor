@@ -40,7 +40,9 @@ lint: venv
 typecheck: venv
 	PYTHONPATH=$(VENV) $(VENV)/python -m mypy $(PROJECT)
 
-
+.PHONY: loop_type
+loop_type:
+	PYTHONPATH=$(VENV) $(VENV)/python -c "import thor.loop; print(thor.loop._loop.__class__)"
 
 #############################################################################
 ## Distribution
