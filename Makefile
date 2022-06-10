@@ -6,12 +6,12 @@ GITHUB_STEP_SUMMARY ?= throwaway
 ## Tests
 
 .PHONY: test
-test:
+test: venv
 	PYTHONPATH=.:$(VENV) $(VENV)/pytest --md $(GITHUB_STEP_SUMMARY) --workers auto test
 	rm -f throwaway
 
 .PHONY: test/*.py
-test/*.py:
+test/*.py: venv
 	PYTHONPATH=.:$(VENV) $(VENV)/pytest $@
 
 
