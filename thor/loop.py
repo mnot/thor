@@ -111,9 +111,8 @@ class LoopBase(EventEmitter):
                 self._run_fd_events()
                 pr.disable()
                 delay = systime.monotonic() - fd_start
-                if delay > self.precision * 2:
+                if delay > self.precision:
                     sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
-
                     st = io.StringIO()
                     sortby = SortKey.CUMULATIVE
                     ps = Stats(pr, stream=st).sort_stats(sortby)
@@ -122,8 +121,7 @@ class LoopBase(EventEmitter):
             else:
                 self._run_fd_events()
             # find scheduled events
-            delay = systime.monotonic() - self.__last_event_check
-            if delay >= self.precision * 0.90:
+            if systime.monotonic() - self.__last_event_check >= self.precision:
                 self._run_scheduled_events()
 
     def _run_fd_events(self) -> None:
@@ -133,9 +131,6 @@ class LoopBase(EventEmitter):
     def _run_scheduled_events(self) -> None:
         "Run scheduled events."
         if debug:
-            lag = systime.monotonic() - self.__last_event_check
-            if self.__last_event_check and (lag >= self.precision * 4):
-                sys.stderr.write(f"WARNING: long loop delay ({lag:.2f})\n")
             if len(self.__sched_events) > 500:
                 sys.stderr.write(
                     f"WARNING: {len(self.__sched_events)} events scheduled\n"
@@ -143,7 +138,7 @@ class LoopBase(EventEmitter):
         self.__last_event_check = systime.monotonic()
         for event in self.__sched_events:
             when, what = event
-            if self.running and self.__last_event_check >= when:
+            if self.running and when <= self.__last_event_check:
                 try:
                     self.__sched_events.remove(event)
                 except ValueError:
@@ -154,9 +149,9 @@ class LoopBase(EventEmitter):
                 what()
                 if debug:
                     delay = systime.monotonic() - ev_start
-                    if delay > self.precision * 2:
+                    if delay > self.precision:
                         sys.stderr.write(
-                            f"WARNING: long event delay ({delay:.2f}): {what.__name__}\n"
+                            f"WARNING: long scheduled event delay ({delay:.2f}): {what.__name__}\n"
                         )
             else:
                 break
