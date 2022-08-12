@@ -111,7 +111,7 @@ class LoopBase(EventEmitter):
                 pr.disable()
                 delay = systime.monotonic() - fd_start
                 if delay > self.precision:
-                    self.debug_out(f"WARNING: long fd delay ({delay:.2f})\n", pr)
+                    self.debug_out(f"long fd delay ({delay:.2f})", pr)
             else:
                 self._run_fd_events()
             # find scheduled events
@@ -129,9 +129,7 @@ class LoopBase(EventEmitter):
         "Run scheduled events."
         if self.debug:
             if len(self.__sched_events) > 500:
-                self.debug_out(
-                    f"WARNING: {len(self.__sched_events)} events scheduled\n", None
-                )
+                self.debug_out(f"{len(self.__sched_events)} events scheduled", None)
         self.__last_event_check = systime.monotonic()
         for event in self.__sched_events:
             when, what = event
@@ -150,7 +148,7 @@ class LoopBase(EventEmitter):
                     delay = systime.monotonic() - ev_start
                     if delay > self.precision:
                         self.debug_out(
-                            f"WARNING: long scheduled event delay ({delay:.2f}): {what.__name__}\n",
+                            f"long scheduled event delay ({delay:.2f}): {what.__name__}",
                             pr,
                         )
                 else:
