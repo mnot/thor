@@ -8,15 +8,13 @@ Python's built-in poll / epoll / kqueue support.
 """
 
 import cProfile
-import io
-from pstats import SortKey, Stats  # type: ignore[attr-defined]
 import select
-import sys
 import time as systime
 from typing import (
     Callable,
     List,
     Dict,
+    Optional,
     Set,
     Iterable,
     Tuple,
@@ -112,18 +110,16 @@ class LoopBase(EventEmitter):
                 self._run_fd_events()
                 pr.disable()
                 delay = systime.monotonic() - fd_start
-                if delay > self.precision * 2:
-                    sys.stderr.write(f"WARNING: long fd delay ({delay:.2f}s)\n")
-                    st = io.StringIO()
-                    sortby = SortKey.CUMULATIVE
-                    ps = Stats(pr, stream=st).sort_stats(sortby)
-                    ps.print_callers()
-                    print(st.getvalue())
+                if delay > self.precision:
+                    self.debug_out(f"WARNING: long fd delay ({delay:.2f})\n", pr)
             else:
                 self._run_fd_events()
             # find scheduled events
             if systime.monotonic() - self.__last_event_check >= self.precision:
                 self._run_scheduled_events()
+
+    def debug_out(self, message: str, profile: Optional[cProfile.Profile]) -> None:
+        "Output a debug message and profile. Should be overridden."
 
     def _run_fd_events(self) -> None:
         "Run loop-specific FD events."
@@ -133,8 +129,8 @@ class LoopBase(EventEmitter):
         "Run scheduled events."
         if self.debug:
             if len(self.__sched_events) > 500:
-                sys.stderr.write(
-                    f"WARNING: {len(self.__sched_events)} events scheduled\n"
+                self.debug_out(
+                    f"WARNING: {len(self.__sched_events)} events scheduled\n", None
                 )
         self.__last_event_check = systime.monotonic()
         for event in self.__sched_events:
@@ -146,14 +142,19 @@ class LoopBase(EventEmitter):
                     # a previous event may have removed this one.
                     continue
                 if self.debug:
+                    pr = cProfile.Profile()
                     ev_start = systime.monotonic()
-                what()
-                if self.debug:
+                    pr.enable()
+                    what()
+                    pr.disable()
                     delay = systime.monotonic() - ev_start
-                    if delay > self.precision * 2:
-                        sys.stderr.write(
-                            f"WARNING: long scheduled event delay ({delay:.2f}s): {what.__name__}\n"
+                    if delay > self.precision:
+                        self.debug_out(
+                            f"WARNING: long scheduled event delay ({delay:.2f}): {what.__name__}\n",
+                            pr,
                         )
+                else:
+                    what()
             else:
                 break
 
