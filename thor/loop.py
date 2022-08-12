@@ -110,7 +110,7 @@ class LoopBase(EventEmitter):
                 self._run_fd_events()
                 pr.disable()
                 delay = systime.monotonic() - fd_start
-                if delay > self.precision:
+                if delay > self.precision * 2:
                     self.debug_out(f"long fd delay ({delay:.2f})", pr)
             else:
                 self._run_fd_events()
@@ -146,7 +146,7 @@ class LoopBase(EventEmitter):
                     what()
                     pr.disable()
                     delay = systime.monotonic() - ev_start
-                    if delay > self.precision:
+                    if delay > self.precision * 2:
                         self.debug_out(
                             f"long scheduled event delay ({delay:.2f}): {what.__name__}",
                             pr,
