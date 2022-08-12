@@ -88,7 +88,6 @@ class LoopBase(EventEmitter):
         self.running = False  # whether or not the loop is running (read-only)
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
-        self.__now: float = None
         self.__last_event_check: float = 0.0
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
         self.__event_cache: Dict[int, Set[str]] = {}
@@ -103,17 +102,15 @@ class LoopBase(EventEmitter):
     def run(self) -> None:
         "Start the loop."
         self.running = True
-        self.__now = systime.time()
         self.emit("start")
         while self.running:
             if debug:
                 pr = cProfile.Profile()
-                fd_start = systime.time()
+                fd_start = systime.monotonic()
                 pr.enable()
                 self._run_fd_events()
                 pr.disable()
-                self.__now = systime.time()
-                delay = self.__now - fd_start
+                delay = systime.monotonic() - fd_start
                 if delay > self.precision * 2:
                     sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
 
@@ -124,9 +121,8 @@ class LoopBase(EventEmitter):
                     print(st.getvalue())
             else:
                 self._run_fd_events()
-                self.__now = systime.time()
             # find scheduled events
-            delay = self.__now - self.__last_event_check
+            delay = systime.monotonic() - self.__last_event_check
             if delay >= self.precision * 0.90:
                 self._run_scheduled_events()
 
@@ -137,32 +133,27 @@ class LoopBase(EventEmitter):
     def _run_scheduled_events(self) -> None:
         "Run scheduled events."
         if debug:
-            if (
-                self.__now
-                and self.__last_event_check
-                and (self.__now - self.__last_event_check >= self.precision * 4)
-            ):
-                sys.stderr.write(
-                    f"WARNING: long loop delay ({self.__now - self.__last_event_check:.2f})\n"
-                )
+            lag = systime.monotonic() - self.__last_event_check
+            if self.__last_event_check and (lag >= self.precision * 4):
+                sys.stderr.write(f"WARNING: long loop delay ({lag:.2f})\n")
             if len(self.__sched_events) > 500:
                 sys.stderr.write(
                     f"WARNING: {len(self.__sched_events)} events scheduled\n"
                 )
-        self.__last_event_check = self.time()
+        self.__last_event_check = systime.monotonic()
         for event in self.__sched_events:
             when, what = event
-            if self.running and self.__now >= when:
+            if self.running and self.__last_event_check >= when:
                 try:
                     self.__sched_events.remove(event)
                 except ValueError:
                     # a previous event may have removed this one.
                     continue
                 if debug:
-                    ev_start = systime.time()
+                    ev_start = systime.monotonic()
                 what()
                 if debug:
-                    delay = systime.time() - ev_start
+                    delay = systime.monotonic() - ev_start
                     if delay > self.precision * 2:
                         sys.stderr.write(
                             f"WARNING: long event delay ({delay:.2f}): {what.__name__}\n"
@@ -173,7 +164,6 @@ class LoopBase(EventEmitter):
     def stop(self) -> None:
         "Stop the loop and unregister all fds."
         self.__sched_events = []
-        self.__now = None
         self.running = False
         for fd in list(self._fd_targets):
             self.unregister_fd(fd)
@@ -205,8 +195,8 @@ class LoopBase(EventEmitter):
             self._fd_targets[fd].emit(event)
 
     def time(self) -> float:
-        "Return the current time (to avoid a system call)."
-        return self.__now or systime.time()
+        "Return the current time (deprecated)."
+        return systime.time()
 
     def schedule(
         self, delta: float, callback: Callable, *args: Any
@@ -223,7 +213,7 @@ class LoopBase(EventEmitter):
                 callback(*args)
 
         cb.__name__ = callback.__name__
-        new_event = (self.time() + delta, cb)
+        new_event = (systime.monotonic() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
         if delta > self.precision:
