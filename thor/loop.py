@@ -112,7 +112,7 @@ class LoopBase(EventEmitter):
                 self._run_fd_events()
                 pr.disable()
                 delay = systime.monotonic() - fd_start
-                if delay > self.precision:
+                if delay > self.precision * 2:
                     sys.stderr.write(f"WARNING: long fd delay ({delay:.2f})\n")
                     st = io.StringIO()
                     sortby = SortKey.CUMULATIVE
@@ -150,7 +150,7 @@ class LoopBase(EventEmitter):
                 what()
                 if self.debug:
                     delay = systime.monotonic() - ev_start
-                    if delay > self.precision:
+                    if delay > self.precision * 2:
                         sys.stderr.write(
                             f"WARNING: long scheduled event delay ({delay:.2f}): {what.__name__}\n"
                         )
