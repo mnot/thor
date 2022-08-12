@@ -16,8 +16,6 @@ import thor
 from thor.events import on
 from thor.http import HttpClient
 
-thor.loop.debug = True
-
 
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True

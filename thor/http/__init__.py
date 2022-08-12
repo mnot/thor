@@ -11,5 +11,3 @@ from thor.http.common import (
     idempotent_methods,
     hop_by_hop_hdrs,
 )
-
-debug = False  # pylint: disable=invalid-name

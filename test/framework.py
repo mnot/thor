@@ -34,6 +34,7 @@ timeout = 10
 class ClientServerTestCase(unittest.TestCase):
     def setUp(self):
         self.loop = thor.loop.make()
+        self.loop.debug = True
         self.timeout_hit = False
 
     def tearDown(self):

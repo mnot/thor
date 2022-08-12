@@ -26,7 +26,7 @@ from typing import (
 from thor.events import EventEmitter
 
 
-__all__ = ["run", "stop", "schedule", "time", "debug"]
+__all__ = ["run", "stop", "schedule", "time"]
 
 
 class EventSource(EventEmitter):
@@ -86,6 +86,7 @@ class LoopBase(EventEmitter):
         EventEmitter.__init__(self)
         self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
+        self.debug = False
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__last_event_check: float = 0.0
@@ -104,7 +105,7 @@ class LoopBase(EventEmitter):
         self.running = True
         self.emit("start")
         while self.running:
-            if debug:
+            if self.debug:
                 pr = cProfile.Profile()
                 fd_start = systime.monotonic()
                 pr.enable()
@@ -130,7 +131,7 @@ class LoopBase(EventEmitter):
 
     def _run_scheduled_events(self) -> None:
         "Run scheduled events."
-        if debug:
+        if self.debug:
             if len(self.__sched_events) > 500:
                 sys.stderr.write(
                     f"WARNING: {len(self.__sched_events)} events scheduled\n"
@@ -144,10 +145,10 @@ class LoopBase(EventEmitter):
                 except ValueError:
                     # a previous event may have removed this one.
                     continue
-                if debug:
+                if self.debug:
                     ev_start = systime.monotonic()
                 what()
-                if debug:
+                if self.debug:
                     delay = systime.monotonic() - ev_start
                     if delay > self.precision:
                         sys.stderr.write(
@@ -440,4 +441,3 @@ run = _loop.run
 stop = _loop.stop
 schedule = _loop.schedule
 time = _loop.time
-debug = False  # pylint: disable=invalid-name
