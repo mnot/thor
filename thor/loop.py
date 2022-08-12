@@ -312,7 +312,7 @@ class PollLoop(LoopBase):
 
 class EpollLoop(LoopBase):
     """
-    An epoll()-based async loop.
+    An epoll()-based async loop. Currently level-triggered.
     """
 
     def __init__(self, *args: Any) -> None:
