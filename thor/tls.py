@@ -41,16 +41,17 @@ class TlsClient(TcpClient):
     when the connection is made.
     """
 
+    _tls_context = sys_ssl.create_default_context()
+
     def __init__(self, loop: LoopBase = None) -> None:
         TcpClient.__init__(self, loop)
         self.tls_sock: sys_ssl.SSLSocket = None
+        self._tls_context.check_hostname = False
+        self._tls_context.verify_mode = sys_ssl.CERT_NONE
 
     def handle_connect(self) -> None:
-        tls_context = sys_ssl.create_default_context()
-        tls_context.check_hostname = False
-        tls_context.verify_mode = sys_ssl.CERT_NONE
         try:
-            self.tls_sock = tls_context.wrap_socket(
+            self.tls_sock = self._tls_context.wrap_socket(
                 self.sock,
                 do_handshake_on_connect=False,
                 server_hostname=self.hostname.decode("idna"),
