@@ -91,7 +91,7 @@ class HttpClient:
                 tcp_conn.remove_listeners("data", "pause", "close")
                 tcp_conn.pause(True)
                 if hasattr(tcp_conn, "idler"):
-                    tcp_conn.idler.delete()  # type: ignore[attr-defined]
+                    tcp_conn.idler.delete()
                 handle_connect(tcp_conn)
                 break
 
@@ -107,7 +107,7 @@ class HttpClient:
                 def idle_close() -> None:
                     "Remove the connection from the pool when it closes."
                     if hasattr(tcp_conn, "idler"):
-                        tcp_conn.idler.delete()  # type: ignore[attr-defined]
+                        tcp_conn.idler.delete()
                     self.dead_conn(exchange)
                     try:
                         self._idle_conns[origin].remove(tcp_conn)
