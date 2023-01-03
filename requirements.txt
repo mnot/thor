@@ -1,6 +1,7 @@
 mypy
 black
 pylint
+py
 pytest
 pytest-md
 pytest-parallel
