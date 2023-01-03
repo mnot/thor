@@ -502,7 +502,7 @@ class HttpMessageHandler:
     def output_end(self, trailers: RawHeaderListType) -> bool:
         """
         Finish outputting a HTTP message, including trailers if appropriate.
-        Return value incicates whether the connection should be closed.
+        Return value indicates whether the connection should be closed.
         """
         if self._output_delimit == Delimiters.NOBODY:
             pass  # didn't have a body at all.
