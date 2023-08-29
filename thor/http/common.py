@@ -26,6 +26,7 @@ class Delimiters(Enum):
     COUNTED = "counted"
     CHUNKED = "chunked"
     NOBODY = "nobody"
+    NONE = "none"
 
 
 class States(Enum):
@@ -115,10 +116,10 @@ class HttpMessageHandler:
         self.input_transfer_length = 0
         self._input_buffer: List[bytes] = []
         self._input_state = self.default_state
-        self._input_delimit: Delimiters = None
+        self._input_delimit: Delimiters = Delimiters.NONE
         self._input_body_left = 0
         self._output_state = States.WAITING
-        self._output_delimit: Delimiters = None
+        self._output_delimit: Delimiters = Delimiters.NONE
 
     def __repr__(self) -> str:
         return f"input {self._input_state} output {self._output_state}"
@@ -493,7 +494,7 @@ class HttpMessageHandler:
         """
         Output a part of a HTTP message. Takes bytes.
         """
-        if not chunk or self._output_delimit is None:
+        if not chunk or self._output_delimit is Delimiters.NONE:
             return
         if self._output_delimit == Delimiters.CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode("ascii"), chunk)
@@ -515,7 +516,7 @@ class HttpMessageHandler:
             pass
         elif self._output_delimit == Delimiters.CLOSE:
             return True
-        elif self._output_delimit is None:
+        elif self._output_delimit is Delimiters.NONE:
             return True  # encountered an error before we found a delimiter
         else:
             raise AssertionError(f"Unknown request delimiter {self._output_delimit}")
