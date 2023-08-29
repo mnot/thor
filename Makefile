@@ -24,9 +24,9 @@ cli: venv
 	PYTHONPATH=$(VENV):. sh
 
 .PHONY: clean
-clean:
+clean: clean-venv
 	find . -d -type d -name __pycache__ -exec rm -rf {} \;
-	rm -rf build dist MANIFEST $(PROJECT).egg-info .venv .mypy_cache *.log
+	rm -rf build dist MANIFEST $(PROJECT).egg-info .mypy_cache *.log
 
 .PHONY: tidy
 tidy: venv
