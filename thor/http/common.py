@@ -69,7 +69,7 @@ def header_dict(
     returned in the dictionary.
     """
     out: Dict[bytes, List[bytes]] = defaultdict(list)
-    for (name, val) in hdr_tuples:
+    for name, val in hdr_tuples:
         name = name.lower()
         if name in (omit or []):
             continue

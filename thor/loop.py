@@ -246,7 +246,7 @@ class LoopBase(EventEmitter):
         "Calculate the events implied by a given filter."
         if evfilter not in self.__event_cache:
             events = set()
-            for (et, ev) in self._event_types.items():
+            for et, ev in self._event_types.items():
                 if et & evfilter:
                     events.add(ev)
             self.__event_cache[evfilter] = events
