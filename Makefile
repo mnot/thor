@@ -39,15 +39,5 @@ typecheck: typecheck_py
 loop_type:
 	PYTHONPATH=$(VENV) $(VENV)/python -c "import thor.loop; print(thor.loop._loop.__class__)"
 
-#############################################################################
-## Distribution
-
-.PHONY: upload
-upload: build test version venv
-	git tag $(PROJECT)-$(VERSION)
-	git push
-	git push --tags origin
-	$(VENV)/python -m twine upload dist/*
-
 
 include Makefile.pyproject
