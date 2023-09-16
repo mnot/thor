@@ -198,12 +198,12 @@ class HttpMessageHandler:
             try:
                 body_handler = getattr(self, f"_handle_{self._input_delimit.value}")
             except AttributeError:
-                raise Exception(f"Unknown input delimiter {self._input_delimit}")
+                raise RuntimeError(f"Unknown input delimiter {self._input_delimit}")
             body_handler(inbytes)
         elif self._input_state == States.ERROR:  # something bad happened.
             pass  # I'm silently ignoring input that I don't understand.
         else:
-            raise Exception(f"Unknown state {self._input_state}")
+            raise RuntimeError(f"Unknown state {self._input_state}")
 
     def _handle_nobody(self, inbytes: bytes) -> None:
         "Handle input that shouldn't have a body."
@@ -288,9 +288,8 @@ class HttpMessageHandler:
                 except ValueError:
                     self._input_state = States.ERROR
                     return
-                else:
-                    self.input_end(trailers)
-                    self.handle_input(rest)
+                self.input_end(trailers)
+                self.handle_input(rest)
             else:  # don't have full trailers yet
                 self._input_buffer.append(inbytes)
 
