@@ -1,3 +1,31 @@
+[project]
+name = "thor"
+dynamic = ["version", "readme"]
+authors = [
+    {name="Mark Nottingham", email="mnot@mnot.net"}
+]
+description = "Simple Event-Driven IO for Python"
+requires-python = ">=3.8"
+license = {file = "LICENSE.md"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Operating System :: POSIX",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+[project.urls]
+homepage = "https://github.com/mnot/thor/"
+
+[project.optional-dependencies]
+systemd = ["cysystemd"]
+dev = ["mypy", "black", "pytest", "pytest-md", "validate-pyproject"]
+
 [build-system]
 requires = [
     "setuptools>=42",
@@ -5,9 +33,17 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.dynamic]
+version = {attr = "thor.__version__"}
+readme = {file = ["README.md"], content-type = "text/markdown"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.mypy]
-python_version = 3.8
 follow_imports = "normal"
 incremental = true
 disallow_untyped_defs = true

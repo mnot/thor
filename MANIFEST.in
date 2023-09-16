@@ -1,2 +1,2 @@
-include README.rst
+include thor/py.typed
 recursive-include doc *.md
