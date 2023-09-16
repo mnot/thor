@@ -24,21 +24,16 @@ cli: venv
 	PYTHONPATH=$(VENV):. sh
 
 .PHONY: clean
-clean: clean-venv
-	find . -d -type d -name __pycache__ -exec rm -rf {} \;
-	rm -rf build dist MANIFEST $(PROJECT).egg-info .mypy_cache *.log
+clean: clean_py
 
 .PHONY: tidy
-tidy: venv
-	$(VENV)/black $(PROJECT) test
+tidy: tidy_py
 
 .PHONY: lint
-lint: venv
-	PYTHONPATH=$(VENV) $(VENV)/pylint --output-format=colorized $(PROJECT)
+lint: lint_py
 
 .PHONY: typecheck
-typecheck: venv
-	PYTHONPATH=$(VENV) $(VENV)/python -m mypy $(PROJECT)
+typecheck: typecheck_py
 
 .PHONY: loop_type
 loop_type:
@@ -46,14 +41,6 @@ loop_type:
 
 #############################################################################
 ## Distribution
-
-.PHONY: version
-version: venv
-	$(eval VERSION=$(shell $(VENV)/python -c "import $(PROJECT); print($(PROJECT).__version__)"))
-
-.PHONY: build
-build: clean venv
-	$(VENV)/python -m build
 
 .PHONY: upload
 upload: build test version venv
@@ -63,4 +50,4 @@ upload: build test version venv
 	$(VENV)/python -m twine upload dist/*
 
 
-include Makefile.venv
+include Makefile.pyproject
