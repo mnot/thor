@@ -103,6 +103,11 @@ class ConnectError(HttpError):
     server_status = (b"504", b"Gateway Timeout")
 
 
+class AccessError(HttpError):
+    desc = "Access Error"
+    server_status = (b"403", b"Forbidden")
+
+
 # server-specific errors
 
 

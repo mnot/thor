@@ -43,6 +43,7 @@ from thor.http.error import (
     ReadTimeoutError,
     HttpVersionError,
     StartLineError,
+    AccessError,
 )
 from thor.http.error import HttpError
 
@@ -232,7 +233,9 @@ class HttpConnectionInitiate:  # pylint: disable=too-few-public-methods
         """
         A connection failed.
         """
-        if self._attempts > self.client.connect_attempts:
+        if err_type in ["access"]:
+            self.handle_error(err_type, err_id, err_str)
+        elif self._attempts > self.client.connect_attempts:
             self.handle_error("retry", self._attempts, "Too many connection attempts")
         else:
             self.client.loop.schedule(0, self._initiate_connection)
@@ -458,6 +461,8 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         self.client.dead_conn(self)
         if err_type == "gai":
             self.input_error(DnsError(err_str), False)
+        elif err_type == "access":
+            self.input_error(AccessError(err_str), False)
         elif err_type == "retry":
             self.input_error(ConnectError(err_str), False)
         elif self._retries < self.client.retry_limit:
