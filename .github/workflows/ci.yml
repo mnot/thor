@@ -1,31 +1,24 @@
-name: CI
+name: Test
 
 on:
   push:
     branches: [ main ]
-    paths:
-    - '**.py'
-    - '**.yml'
-    - 'Makefile'
-    - 'requirements.txt'
+
   pull_request:
     branches: [ main ]
-    paths:
-    - '**.py'
-
 
 jobs:
-  build:
-
+  test:
     strategy:
-      max-parallel: 4
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
         os: ["ubuntu-latest", "macos-12"]
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@main
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -34,12 +27,12 @@ jobs:
       uses: actions/cache@v3
       with:
         path: .venv
-        key: ${{ runner.os }}-${{ matrix.python-version }}-venv-${{ hashFiles('**/requirements.txt') }}
+        key: ${{ runner.os }}-${{ matrix.python-version }}-venv-${{ hashFiles('pyproject.toml') }}
     - name: Set up venv
       run: make venv
-    - name: Loop Type
-      run: make loop_type
     - name: Typecheck
       run: make typecheck
+    - name: Lint
+      run: make lint
     - name: Test
       run: make -e test
