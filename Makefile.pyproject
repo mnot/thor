@@ -115,10 +115,10 @@ version: typecheck lint test bump-$(VERSIONING)
 build: clean venv
 	$(VENV)/python -m build
 
+.PHONY: changelog.md
 changelog.md:
-	$(eval PREV_RELEASE=$(shell git tag --sort=-taggerdate -l v* | head -1))
-	git log --pretty="- %s" $(PREV_RELEASE)..HEAD --grep "^Changed:" --grep "^Fixed:" --grep "^Added:" --grep "^Changed:" --grep "^Removed:" --output=$@
-	sed -i "" -e "1s/^/\n\n/" $@
+	$(eval PREV_RELEASE=$(shell git tag -l v* | tail -1))
+	$(shell git log --pretty="- %s (%h)" $(PREV_RELEASE)..HEAD --grep "^Changed:" --grep "^Fixed:" --grep "^Added:" --grep "^Changed:" --grep "^Removed:" --output=changelog.md)
 
 # requires /.github/workflows/release.yml
 .PHONY: release
