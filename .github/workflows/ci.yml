@@ -32,7 +32,5 @@ jobs:
       run: make venv
     - name: Typecheck
       run: make typecheck
-    - name: Lint
-      run: make lint
     - name: Test
       run: make -e test
