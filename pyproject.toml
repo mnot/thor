@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy", "black", "pylint", "pytest", "pytest-md", "validate-pyproject", "build"]
+dev = ["mypy", "black", "pylint", "pytest", "pytest-parallel", "pytest-md", "validate-pyproject", "build"]
 
 [project.urls]
 homepage = "https://github.com/mnot/thor/"
