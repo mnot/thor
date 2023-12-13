@@ -23,7 +23,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy", "black", "pylint", "pytest", "pytest-parallel", "pytest-md", "validate-pyproject", "build"]
+dev = ["mypy", "black", "pylint", "pytest", "pytest-parallel",
+    "py", "pytest-md", "validate-pyproject", "build"]
+# See https://github.com/kevlened/pytest-parallel/issues/118
 
 [project.urls]
 homepage = "https://github.com/mnot/thor/"
