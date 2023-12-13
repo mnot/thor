@@ -36,30 +36,31 @@ class EventSource(EventEmitter):
     descriptor, registered with register_fd.
     """
 
-    def __init__(self, loop: "LoopBase" = None) -> None:
+    def __init__(self, loop: Optional["LoopBase"] = None) -> None:
         EventEmitter.__init__(self)
         self._loop = loop or _loop
         self._interesting_events: Set[str] = set()
-        self._fd: int = None
+        self._fd: int = -1
 
-    def register_fd(self, fd: int, event: str = None) -> None:
+    def register_fd(self, fd: int, event: Optional[str] = None) -> None:
         """
         Register myself with the loop using file descriptor fd.
         If event is specified, start emitting it.
         """
         self._fd = fd
         self._loop.register_fd(self._fd, [], self)
-        self.event_add(event)
+        if event:
+            self.event_add(event)
 
     def unregister_fd(self) -> None:
         "Unregister myself from the loop."
-        if self._fd:
+        if self._fd >= 0:
             self._loop.unregister_fd(self._fd)
-            self._fd = None
+            self._fd = -1
 
     def event_add(self, event: str) -> None:
         "Start emitting the given event."
-        if event and event not in self._interesting_events:
+        if event not in self._interesting_events:
             self._interesting_events.add(event)
             self._loop.event_add(self._fd, event)
 
@@ -80,7 +81,7 @@ class LoopBase(EventEmitter):
 
     _event_types: Dict[int, str] = {}  # map of event types to names; override.
 
-    def __init__(self, precision: float = None) -> None:
+    def __init__(self, precision: Optional[float] = None) -> None:
         EventEmitter.__init__(self)
         self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
@@ -204,8 +205,7 @@ class LoopBase(EventEmitter):
         """
 
         def cb() -> None:
-            if callback:
-                callback(*args)
+            callback(*args)
 
         cb.__name__ = callback.__name__
         new_event = (systime.monotonic() + delta, cb)
@@ -222,7 +222,7 @@ class LoopBase(EventEmitter):
             pass
 
     @staticmethod
-    def _insort(li: List, thing: Any, lo: int = 0, hi: int = None) -> None:
+    def _insort(li: List, thing: Any, lo: int = 0, hi: Optional[int] = None) -> None:
         if lo < 0:
             raise ValueError("lo must be non-negative")
         if hi is None:
@@ -415,7 +415,7 @@ class KqueueLoop(LoopBase):
                 pass
 
 
-def make(precision: float = None) -> LoopBase:
+def make(precision: Optional[float] = None) -> LoopBase:
     """
     Create and return a named loop that is suitable for the current system. If
     _precision_ is given, it indicates how often scheduled events will be run.
@@ -423,7 +423,7 @@ def make(precision: float = None) -> LoopBase:
     Returned loop instances have all of the methods and instance variables
     that *thor.loop* has.
     """
-    loop: LoopBase = None
+    loop: LoopBase
     if hasattr(select, "epoll"):
         loop = EpollLoop(precision)
     elif hasattr(select, "kqueue"):

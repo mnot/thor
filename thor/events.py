@@ -8,7 +8,7 @@ Event utilities, including:
 """
 
 from collections import defaultdict
-from typing import Any, Callable, Dict, List
+from typing import Optional, Any, Callable, Dict, List
 
 
 class EventEmitter:
@@ -101,7 +101,7 @@ class EventEmitter:
         self.__sink = sink
 
 
-def on(obj: EventEmitter, event: str = None) -> Callable:
+def on(obj: EventEmitter, event: Optional[str] = None) -> Callable:
     """
     Decorator to call a function when an object emits
     the specified event.

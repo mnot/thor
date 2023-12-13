@@ -10,6 +10,7 @@ SSL/TLS servers and clients.
 
 import socket
 import ssl as sys_ssl
+from typing import Optional
 
 from thor.loop import LoopBase
 from thor.tcp import TcpClient, TcpConnection
@@ -43,13 +44,15 @@ class TlsClient(TcpClient):
 
     _tls_context = sys_ssl.create_default_context()
 
-    def __init__(self, loop: LoopBase = None) -> None:
+    def __init__(self, loop: Optional[LoopBase] = None) -> None:
         TcpClient.__init__(self, loop)
-        self.tls_sock: sys_ssl.SSLSocket = None
+        self.tls_sock: Optional[sys_ssl.SSLSocket] = None
         self._tls_context.check_hostname = False
         self._tls_context.verify_mode = sys_ssl.CERT_NONE
 
     def handle_connect(self) -> None:
+        assert self.sock, "self.sock not found in handle_connect"
+        assert self.hostname, "hostname not found in handle_connect"
         try:
             self.tls_sock = self._tls_context.wrap_socket(
                 self.sock,
@@ -62,6 +65,7 @@ class TlsClient(TcpClient):
         self.once("fd_writable", self.handshake)
 
     def handshake(self) -> None:
+        assert self.tls_sock, "tls_sock not found in handshake"
         try:
             self.tls_sock.do_handshake()
             self.once("fd_writable", self.handle_tls_connect)
@@ -82,5 +86,7 @@ class TlsClient(TcpClient):
         self.unregister_fd()
         if self._timeout_ev:
             self._timeout_ev.delete()
+        assert self.tls_sock, "tls_sock not found in handle_tls_connect"
+        assert self.address, "address not found in handle_tls_connect"
         tls_conn = TcpConnection(self.tls_sock, self.address, self._loop)
         self.emit("connect", tls_conn)

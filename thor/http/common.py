@@ -9,7 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, Set, Tuple
+from typing import Optional, Dict, List, Set, Tuple
 
 from thor.http import error
 
@@ -60,7 +60,7 @@ def header_names(hdr_tuples: RawHeaderListType) -> Set[bytes]:
 
 
 def header_dict(
-    hdr_tuples: RawHeaderListType, omit: List[bytes] = None
+    hdr_tuples: RawHeaderListType, omit: Optional[List[bytes]] = None
 ) -> Dict[bytes, List[bytes]]:
     """
     Given a list of header tuples, return a dictionary keyed upon the
@@ -109,7 +109,7 @@ class HttpMessageHandler:
     """
 
     careful = True  # if False, don't fail on errors, but preserve them.
-    default_state: States = None  # QUIET or WAITING
+    default_state: States  # QUIET or WAITING
 
     def __init__(self) -> None:
         self.input_header_length = 0
@@ -132,7 +132,7 @@ class HttpMessageHandler:
         hdr_tuples: RawHeaderListType,
         conn_tokens: List[bytes],
         transfer_codes: List[bytes],
-        content_length: int,
+        content_length: Optional[int],
     ) -> Tuple[bool, bool]:
         """
         Take the top set of headers from the input stream, parse them
@@ -309,7 +309,7 @@ class HttpMessageHandler:
 
     def _parse_fields(
         self, header_lines: List[bytes], gather_conn_info: bool = False
-    ) -> Tuple[RawHeaderListType, List[bytes], List[bytes], int]:
+    ) -> Tuple[RawHeaderListType, List[bytes], List[bytes], Optional[int]]:
         """
         Given a list of raw header lines (without the top line,
         and without the trailing CRLFCRLF), return its header tuples.
@@ -318,7 +318,7 @@ class HttpMessageHandler:
         hdr_tuples: RawHeaderListType = []
         conn_tokens: List[bytes] = []
         transfer_codes: List[bytes] = []
-        content_length: int = None
+        content_length: Optional[int] = None
 
         for line in header_lines:  # pylint: disable=too-many-nested-blocks
             if line[:1] in [b" ", b"\t"]:  # Fold LWS
@@ -377,7 +377,7 @@ class HttpMessageHandler:
         return hdr_tuples, conn_tokens, transfer_codes, content_length
 
     @staticmethod
-    def _split_headers(inbytes: bytes) -> Tuple[bytes, bytes]:
+    def _split_headers(inbytes: bytes) -> Tuple[Optional[bytes], bytes]:
         """
         Given a bytes, split out and return (headers, rest),
         consuming the whitespace between them.

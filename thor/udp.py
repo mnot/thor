@@ -9,7 +9,7 @@ UDP servers and clients.
 
 import errno
 import socket
-from typing import Union
+from typing import Optional, Union
 
 from thor.dns import lookup, DnsResultList
 from thor.loop import EventSource, LoopBase
@@ -31,10 +31,10 @@ class UdpEndpoint(EventSource):
     recv_buffer = 8192
     _block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK])
 
-    def __init__(self, loop: LoopBase = None) -> None:
+    def __init__(self, loop: Optional[LoopBase] = None) -> None:
         EventSource.__init__(self, loop)
-        self.host: bytes = None
-        self.port: int = None
+        self.host: Optional[bytes] = None
+        self.port: Optional[int] = None
         self._error_sent = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)

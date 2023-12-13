@@ -4,16 +4,16 @@
 Thor HTTP Errors
 """
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 class HttpError(Exception):
     desc = "Unknown Error"
-    server_status: Tuple[bytes, bytes] = None  # status this produces in a server
+    server_status: Tuple[bytes, bytes]  # status this produces in a server
     server_recoverable = False  # whether a server can recover the connection
     client_recoverable = False  # whether a client can recover the connection
 
-    def __init__(self, detail: str = None) -> None:
+    def __init__(self, detail: Optional[str] = None) -> None:
         Exception.__init__(self)
         self.detail = detail
 

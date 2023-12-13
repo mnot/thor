@@ -15,7 +15,7 @@ import errno
 import os
 import sys
 import socket
-from typing import List, Callable
+from typing import Optional, List, Callable
 
 from thor.dns import DnsResult, Address
 from thor.loop import EventSource, LoopBase, schedule
@@ -99,7 +99,7 @@ class TcpConnection(EventSource):
     )
 
     def __init__(
-        self, sock: socket.socket, address: Address, loop: LoopBase = None
+        self, sock: socket.socket, address: Address, loop: Optional[LoopBase] = None
     ) -> None:
         EventSource.__init__(self, loop)
         self.socket = sock
@@ -226,7 +226,11 @@ class TcpServer(EventSource):
     """
 
     def __init__(
-        self, host: bytes, port: int, sock: socket.socket = None, loop: LoopBase = None
+        self,
+        host: bytes,
+        port: int,
+        sock: Optional[socket.socket] = None,
+        loop: Optional[LoopBase] = None,
     ) -> None:
         EventSource.__init__(self, loop)
         self.host = host
@@ -257,7 +261,9 @@ class TcpServer(EventSource):
         self.emit("stop")
 
 
-def server_listen(host: bytes, port: int, backlog: int = None) -> socket.socket:
+def server_listen(
+    host: bytes, port: int, backlog: Optional[int] = None
+) -> socket.socket:
     "Return a socket listening to host:port."
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setblocking(False)
@@ -289,16 +295,18 @@ class TcpClient(EventSource):
     when the connection is made.
     """
 
-    def __init__(self, loop: LoopBase = None) -> None:
+    def __init__(self, loop: Optional[LoopBase] = None) -> None:
         EventSource.__init__(self, loop)
-        self.hostname: bytes = None
-        self.address: Address = None
-        self.sock: socket.socket = None
-        self.check_ip: Callable[[str], bool] = None
-        self._timeout_ev: ScheduledEvent = None
+        self.hostname: Optional[bytes] = None
+        self.address: Optional[Address] = None
+        self.sock: Optional[socket.socket] = None
+        self.check_ip: Optional[Callable[[str], bool]] = None
+        self._timeout_ev: Optional[ScheduledEvent] = None
         self._error_sent = False
 
-    def connect(self, host: bytes, port: int, connect_timeout: float = None) -> None:
+    def connect(
+        self, host: bytes, port: int, connect_timeout: Optional[float] = None
+    ) -> None:
         """
         Connect to an IPv4 host/port. Does not work with IPv6; see connect_dns().
         """
@@ -312,7 +320,10 @@ class TcpClient(EventSource):
         self.connect_dns(host, dns_result, connect_timeout)
 
     def connect_dns(
-        self, hostname: bytes, dns_result: DnsResult, connect_timeout: float = None
+        self,
+        hostname: bytes,
+        dns_result: DnsResult,
+        connect_timeout: Optional[float] = None,
     ) -> None:
         """
         Connect to DnsResult (with an optional connect timeout)
@@ -321,7 +332,7 @@ class TcpClient(EventSource):
         """
         self.hostname = hostname
         family = dns_result[0]
-        address = dns_result[4]
+        self.address = dns_result[4]
         if connect_timeout:
             self._timeout_ev = self._loop.schedule(
                 connect_timeout,
@@ -330,7 +341,7 @@ class TcpClient(EventSource):
             )
 
         if callable(self.check_ip):
-            if not self.check_ip(address[0]):  # pylint: disable=not-callable
+            if not self.check_ip(self.address[0]):
                 self.handle_conn_error("access", 0, "IP Check failed")
                 return
 
@@ -341,7 +352,7 @@ class TcpClient(EventSource):
         self.event_add("fd_error")
         self.once("fd_writable", self.handle_connect)
         try:
-            err = self.sock.connect_ex(address)
+            err = self.sock.connect_ex(self.address)
         except socket.error as why:
             self.handle_socket_error(why)
             return
@@ -355,14 +366,17 @@ class TcpClient(EventSource):
             self._timeout_ev.delete()
         if self._error_sent:
             return
+        assert self.sock, "Socket not found in handle_connect"
         err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
         else:
+            assert self.address, "address not found in handle_connect"
             tcp_conn = TcpConnection(self.sock, self.address, self._loop)
             self.emit("connect", tcp_conn)
 
     def handle_fd_error(self) -> None:
+        assert self.sock, "Socket not found in handle_fd_error"
         try:
             err_id = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         except OSError:

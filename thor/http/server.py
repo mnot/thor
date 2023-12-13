@@ -13,7 +13,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import List, Tuple, Any
+from typing import Optional, List, Tuple, Any
 
 from thor.events import EventEmitter, on
 from thor.loop import LoopBase, ScheduledEvent
@@ -43,7 +43,7 @@ class HttpServer(EventEmitter):
     tcp_server_class = TcpServer
     idle_timeout = 60  # in seconds
 
-    def __init__(self, host: bytes, port: int, loop: LoopBase = None) -> None:
+    def __init__(self, host: bytes, port: int, loop: Optional[LoopBase] = None) -> None:
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
         self.loop = self.tcp_server._loop
@@ -70,18 +70,19 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def __init__(self, tcp_conn: TcpConnection, server: HttpServer) -> None:
         HttpMessageHandler.__init__(self)
         EventEmitter.__init__(self)
-        self.tcp_conn = tcp_conn
+        self.tcp_conn: Optional[TcpConnection] = tcp_conn
         self.server = server
         self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
         self.output_paused = False
-        self._idler: ScheduledEvent = None
+        self._idler: Optional[ScheduledEvent] = None
 
     def req_body_pause(self, paused: bool) -> None:
         """
         Indicate that the server should pause (True) or unpause (False) the
         request.
         """
-        self.tcp_conn.pause(paused)
+        if self.tcp_conn:
+            self.tcp_conn.pause(paused)
 
     def close_conn(self) -> None:
         "Close the connection."
@@ -120,7 +121,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         hdr_tuples: RawHeaderListType,
         conn_tokens: List[bytes],
         transfer_codes: List[bytes],
-        content_length: int,
+        content_length: Optional[int],
     ) -> Tuple[bool, bool]:
         """
         Take the top set of headers from the input stream, parse them
@@ -173,10 +174,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.emit("error", err)
         else:
             self._input_state = States.ERROR
-            status_code, status_phrase = err.server_status or (
-                b"500",
-                b"Internal Server Error",
-            )
+            status_code, status_phrase = err.server_status
             hdrs = [(b"Content-Type", b"text/plain")]
             body = err.desc.encode("utf-8")
             if err.detail:
