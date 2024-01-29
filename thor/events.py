@@ -22,7 +22,10 @@ class EventEmitter:
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
-        del state["_EventEmitter__events"]
+        try:
+            del state["_EventEmitter__events"]
+        except KeyError:
+            pass
         return state
 
     def on(self, event: str, listener: Callable) -> None:
