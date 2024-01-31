@@ -12,6 +12,8 @@ import socket
 import ssl as sys_ssl
 from typing import Optional
 
+import certifi
+
 from thor.loop import LoopBase
 from thor.tcp import TcpClient, TcpConnection
 
@@ -42,7 +44,7 @@ class TlsClient(TcpClient):
     when the connection is made.
     """
 
-    _tls_context = sys_ssl.create_default_context()
+    _tls_context = sys_ssl.create_default_context(cadata=certifi.contents())
 
     def __init__(self, loop: Optional[LoopBase] = None) -> None:
         TcpClient.__init__(self, loop)
