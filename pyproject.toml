@@ -20,7 +20,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "certifi"
+    "certifi",
+    "dnspython"
 ]
 
 [project.optional-dependencies]

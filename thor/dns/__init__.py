@@ -3,7 +3,12 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 from itertools import cycle, islice
 import socket
-from typing import Callable, Union, Tuple, List, Iterable, Any
+import sys
+from typing import Callable, Union, Tuple, List, Iterable, Any, cast
+
+import dns.inet
+import dns.resolver
+from dns.exception import DNSException
 
 POOL_SIZE = 10
 
@@ -28,15 +33,42 @@ def lookup(host: bytes, port: int, proto: int, cb: Callable[..., None]) -> None:
 
 
 def _lookup(host: bytes, port: int, socktype: int) -> Union[DnsResultList, Exception]:
-    family = 0
-    if not socket.has_ipv6:
+    host_str = host.decode("idna")
+    family: socket.AddressFamily  # pylint: disable=no-member
+    if socket.has_ipv6:
+        family = socket.AF_INET6
+    else:
         family = socket.AF_INET
 
+    if dns.inet.is_address(host_str):
+        return [
+            (
+                family,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_IP,
+                "",
+                (host_str, port),
+            )
+        ]
+
     try:
-        results = socket.getaddrinfo(host, port, type=socktype, family=family)
-    except socket.error as why:
-        return why
-    return _sort_dns_results(results)
+        results = dns.resolver.resolve_name(host_str).addresses_and_families()
+    except DNSException as why:
+        sys.stderr.write(f"\n\n***** DNS ERROR\n{why}\n\n")
+        return socket.gaierror(1, str(why))
+
+    return _sort_dns_results(
+        [
+            (
+                cast(socket.AddressFamily, family),  # pylint: disable=no-member
+                cast(socket.SocketKind, socktype),  # pylint: disable=no-member
+                socket.IPPROTO_IP,
+                "",
+                (address, port),
+            )
+            for (address, family) in results
+        ]
+    )
 
 
 def _sort_dns_results(results: DnsResultList) -> DnsResultList:
