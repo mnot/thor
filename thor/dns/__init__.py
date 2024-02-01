@@ -34,13 +34,13 @@ def lookup(host: bytes, port: int, proto: int, cb: Callable[..., None]) -> None:
 
 def _lookup(host: bytes, port: int, socktype: int) -> Union[DnsResultList, Exception]:
     host_str = host.decode("idna")
-    family: socket.AddressFamily  # pylint: disable=no-member
-    if socket.has_ipv6:
-        family = socket.AF_INET6
-    else:
-        family = socket.AF_INET
 
     if dns.inet.is_address(host_str):
+        family: socket.AddressFamily  # pylint: disable=no-member
+        if ":" in host_str:
+            family = socket.AF_INET6
+        else:
+            family = socket.AF_INET
         return [
             (
                 family,
