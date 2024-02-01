@@ -54,7 +54,6 @@ def _lookup(host: bytes, port: int, socktype: int) -> Union[DnsResultList, Excep
     try:
         results = dns.resolver.resolve_name(host_str).addresses_and_families()
     except DNSException as why:
-        sys.stderr.write(f"\n\n***** DNS ERROR\n{why}\n\n")
         return socket.gaierror(1, str(why))
 
     return _sort_dns_results(
