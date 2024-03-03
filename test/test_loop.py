@@ -22,8 +22,8 @@ class IOStopper(thor.loop.EventSource):
         self.register_fd(self.w_fd, "fd_writable")
 
     def write(self):
-        self.testcase.assertTrue(self._loop.running)
-        self._loop.stop()
+        self.testcase.assertTrue(self.loop.running)
+        self.loop.stop()
         os.close(self.r_fd)
         os.close(self.w_fd)
         os.unlink(f"tmp_fifo_{self.testcase.id()}")
