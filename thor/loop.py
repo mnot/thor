@@ -8,6 +8,7 @@ Python's built-in poll / epoll / kqueue support.
 """
 
 import cProfile
+from functools import partial
 import select
 import time as systime
 from typing import (
@@ -216,10 +217,7 @@ class LoopBase(EventEmitter):
         calling its delete() method.
         """
 
-        def cb() -> None:
-            callback(*args)
-
-        cb.__name__ = callback.__name__
+        cb = partial(callback, *args)
         new_event = (systime.monotonic() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
