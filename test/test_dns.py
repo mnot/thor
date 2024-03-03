@@ -41,6 +41,7 @@ class TestDns(unittest.TestCase):
         lookup(b"www.mnot.net", 443, socket.SOCK_STREAM, self.check_success)
         lookup(b"www.eff.org", 443, socket.SOCK_STREAM, self.check_success)
         lookup(b"www.aclu.org", 443, socket.SOCK_STREAM, self.check_success)
+        lookup(b"localhost", 80, socket.SOCK_STREAM, self.check_success)
         self.loop.run()
 
     def test_gai(self):
