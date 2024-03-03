@@ -46,7 +46,7 @@ class HttpServer(EventEmitter):
     def __init__(self, host: bytes, port: int, loop: Optional[LoopBase] = None) -> None:
         EventEmitter.__init__(self)
         self.tcp_server = self.tcp_server_class(host, port, loop=loop)
-        self.loop = self.tcp_server._loop
+        self.loop = self.tcp_server.loop
         self.tcp_server.on("connect", self.handle_conn)
         self.loop.schedule(0, self.emit, "start")
 

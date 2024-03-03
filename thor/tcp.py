@@ -248,9 +248,7 @@ class TcpServer(EventSource):
             # multiple processes listening
             return
         conn.setblocking(False)
-        tcp_conn = TcpConnection(
-            conn, (self.host.decode("idna"), self.port), self._loop
-        )
+        tcp_conn = TcpConnection(conn, (self.host.decode("idna"), self.port), self.loop)
         self.emit("connect", tcp_conn)
 
     def shutdown(self) -> None:
@@ -334,7 +332,7 @@ class TcpClient(EventSource):
         family = dns_result[0]
         self.address = dns_result[4]
         if connect_timeout:
-            self._timeout_ev = self._loop.schedule(
+            self._timeout_ev = self.loop.schedule(
                 connect_timeout,
                 self.handle_socket_error,
                 socket.error(errno.ETIMEDOUT, os.strerror(errno.ETIMEDOUT)),
@@ -372,7 +370,7 @@ class TcpClient(EventSource):
             self.handle_socket_error(socket.error(err, os.strerror(err)))
         else:
             assert self.address, "address not found in handle_connect"
-            tcp_conn = TcpConnection(self.sock, self.address, self._loop)
+            tcp_conn = TcpConnection(self.sock, self.address, self.loop)
             self.emit("connect", tcp_conn)
 
     def handle_fd_error(self) -> None:

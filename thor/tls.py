@@ -90,5 +90,5 @@ class TlsClient(TcpClient):
             self._timeout_ev.delete()
         assert self.tls_sock, "tls_sock not found in handle_tls_connect"
         assert self.address, "address not found in handle_tls_connect"
-        tls_conn = TcpConnection(self.tls_sock, self.address, self._loop)
+        tls_conn = TcpConnection(self.tls_sock, self.address, self.loop)
         self.emit("connect", tls_conn)

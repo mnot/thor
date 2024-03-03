@@ -38,7 +38,7 @@ class EventSource(EventEmitter):
 
     def __init__(self, loop: Optional["LoopBase"] = None) -> None:
         EventEmitter.__init__(self)
-        self._loop = loop or _loop
+        self.loop = loop or _loop
         self._interesting_events: Set[str] = set()
         self._fd: int = -1
 
@@ -48,27 +48,27 @@ class EventSource(EventEmitter):
         If event is specified, start emitting it.
         """
         self._fd = fd
-        self._loop.register_fd(self._fd, [], self)
+        self.loop.register_fd(self._fd, [], self)
         if event:
             self.event_add(event)
 
     def unregister_fd(self) -> None:
         "Unregister myself from the loop."
         if self._fd >= 0:
-            self._loop.unregister_fd(self._fd)
+            self.loop.unregister_fd(self._fd)
             self._fd = -1
 
     def event_add(self, event: str) -> None:
         "Start emitting the given event."
         if event not in self._interesting_events:
             self._interesting_events.add(event)
-            self._loop.event_add(self._fd, event)
+            self.loop.event_add(self._fd, event)
 
     def event_del(self, event: str) -> None:
         "Stop emitting the given event."
         if event in self._interesting_events:
             self._interesting_events.remove(event)
-            self._loop.event_del(self._fd, event)
+            self.loop.event_del(self._fd, event)
 
     def interesting_events(self) -> Set[str]:
         return self._interesting_events
