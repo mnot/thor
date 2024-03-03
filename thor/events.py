@@ -44,6 +44,7 @@ class EventEmitter:
             self.remove_listener(event, mycall)
             listener(*args)
 
+        mycall.__name__ = listener.__name__
         self.on(event, mycall)
 
     def remove_listener(self, event: str, listener: Callable) -> None:
