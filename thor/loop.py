@@ -161,6 +161,10 @@ class LoopBase(EventEmitter):
             else:
                 break
 
+    def scheduled_events(self) -> List[Tuple[float, Callable]]:
+        ""Return a list of (time, callback) tuples for currently scheduled events.""
+        return self.__sched_events
+
     def stop(self) -> None:
         "Stop the loop and unregister all fds."
         self.__sched_events = []
