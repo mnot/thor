@@ -122,6 +122,10 @@ class LoopBase(EventEmitter):
     def debug_out(self, message: str, profile: Optional[cProfile.Profile]) -> None:
         "Output a debug message and profile. Should be overridden."
 
+    def registered_fd_handlers(self) -> List[EventSource]:
+        "Returns a list of registered fd EventSources."
+        return list(self._fd_targets.values())
+
     def _run_fd_events(self) -> None:
         "Run loop-specific FD events."
         raise NotImplementedError
