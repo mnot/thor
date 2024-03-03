@@ -162,8 +162,12 @@ class LoopBase(EventEmitter):
                 break
 
     def scheduled_events(self) -> List[Tuple[float, Callable]]:
-        """Return a list of (time, callback) tuples for currently scheduled events."""
-        return self.__sched_events
+        """
+        Return a list of (delay, callback) tuples for currently scheduled events.
+        Delay is in seconds, measured from call time.
+        """
+        now = systime.monotonic()
+        return [(when - now, what) for when, what in self.__sched_events]
 
     def stop(self) -> None:
         "Stop the loop and unregister all fds."
