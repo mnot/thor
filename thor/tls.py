@@ -61,11 +61,11 @@ class TlsClient(TcpClient):
                 do_handshake_on_connect=False,
                 server_hostname=self.hostname.decode("idna"),
             )
-        except OSError as why:
-            self.handle_socket_error(why, "ssl")
-            return
         except BlockingIOError:
             self.once("fd_writable", self.handle_connect)
+            return
+        except OSError as why:
+            self.handle_socket_error(why, "ssl")
             return
         self.once("fd_writable", self.handshake)
 
