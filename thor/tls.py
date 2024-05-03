@@ -64,6 +64,9 @@ class TlsClient(TcpClient):
         except OSError as why:
             self.handle_socket_error(why, "ssl")
             return
+        except BlockingIOError:
+            self.once("fd_writable", self.handle_connect)
+            return
         self.once("fd_writable", self.handshake)
 
     def handshake(self) -> None:
