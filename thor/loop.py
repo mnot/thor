@@ -352,7 +352,7 @@ class EpollLoop(LoopBase):
         except OSError as why:
             if why == errno.EBADF:
                 return  # already unregistered
-            del self._fd_targets[fd]
+        del self._fd_targets[fd]
 
     def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
