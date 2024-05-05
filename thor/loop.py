@@ -8,6 +8,7 @@ Python's built-in poll / epoll / kqueue support.
 """
 
 import cProfile
+import errno
 from functools import partial
 import select
 import time as systime
@@ -346,8 +347,12 @@ class EpollLoop(LoopBase):
             self._epoll.register(fd, eventmask)
 
     def unregister_fd(self, fd: int) -> None:
-        self._epoll.unregister(fd)
-        del self._fd_targets[fd]
+        try:
+            self._epoll.unregister(fd)
+        except OSError as why:
+            if why == errno.EBADF:
+                return  # already unregistered
+            del self._fd_targets[fd]
 
     def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
