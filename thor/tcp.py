@@ -345,10 +345,11 @@ class TcpClient(EventSource):
 
         self.sock = socket.socket(family, socket.SOCK_STREAM)
         self.sock.setblocking(False)
+        self.register_fd(self.sock.fileno())
         self.once("fd_error", self.handle_fd_error)
-        self.register_fd(self.sock.fileno(), "fd_writable")
         self.event_add("fd_error")
         self.once("fd_writable", self.handle_connect)
+        self.event_add("fd_writable")
         try:
             err = self.sock.connect_ex(self.address)
         except socket.error as why:
