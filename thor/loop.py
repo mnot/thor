@@ -421,7 +421,10 @@ class KqueueLoop(LoopBase):
         if eventmask:
             ev = select.kevent(fd, eventmask, select.KQ_EV_DELETE)  # type: ignore[attr-defined]
             if ev:
-                self._kq.control([ev], 0, 0)
+                try:
+                    self._kq.control([ev], 0, 0)
+                except FileNotFoundError:
+                    pass
 
     def _run_fd_events(self) -> None:
         events = self._kq.control([], self.max_ev, self.precision)
