@@ -354,7 +354,7 @@ class EpollLoop(LoopBase):
         try:
             self._epoll.unregister(fd)
         except OSError as why:
-            if why == errno.EBADF:
+            if why.errno == errno.EBADF:
                 return  # already unregistered
             raise
 
