@@ -417,7 +417,8 @@ class KqueueLoop(LoopBase):
         eventmask = self._eventmask([event])
         if eventmask:
             ev = select.kevent(fd, eventmask, select.KQ_EV_DELETE)  # type: ignore[attr-defined]
-            self._kq.control([ev], 0, 0)
+            if ev:
+                self._kq.control([ev], 0, 0)
 
     def _run_fd_events(self) -> None:
         events = self._kq.control([], self.max_ev, self.precision)
