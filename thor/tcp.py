@@ -248,7 +248,12 @@ class TcpServer(EventSource):
             # multiple processes listening
             return
         conn.setblocking(False)
-        tcp_conn = TcpConnection(conn, (self.host.decode("idna"), self.port), self.loop)
+        try:
+            tcp_conn = TcpConnection(
+                conn, (self.host.decode("idna"), self.port), self.loop
+            )
+        except FileNotFoundError:
+            return  # Connection closed in the meantime
         self.emit("connect", tcp_conn)
 
     def shutdown(self) -> None:
