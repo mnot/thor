@@ -23,7 +23,7 @@ Currently, Thor has an event loop as well as TCP, UDP and HTTP APIs (client and 
 
 ## Requirements
 
-Thor just requires Python 3.8 or greater.
+Thor just requires a current version of Python.
 
 Currently, it will run on most Posix platforms; specifically, those that offer one of `poll`,
 `epoll` or `kqueue`.
