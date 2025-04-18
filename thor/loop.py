@@ -353,6 +353,8 @@ class EpollLoop(LoopBase):
             pass
         try:
             self._epoll.unregister(fd)
+        except FileNotFoundError:
+            return  # already unregistered
         except OSError as why:
             if why.errno == errno.EBADF:
                 return  # already unregistered
