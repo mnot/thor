@@ -65,6 +65,7 @@ class HttpServer(EventEmitter):
 
 class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
+
     default_state = States.WAITING
 
     def __init__(self, tcp_conn: TcpConnection, server: HttpServer) -> None:
