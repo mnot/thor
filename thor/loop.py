@@ -88,6 +88,7 @@ class LoopBase(EventEmitter):
         self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
         self.debug = False
+        self.__profiler: cProfile.Profile
         self.__sched_events: List[Tuple[float, Callable]] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__last_event_check: float = 0.0
@@ -105,16 +106,17 @@ class LoopBase(EventEmitter):
         "Start the loop."
         self.running = True
         self.emit("start")
+        if self.debug:
+            self.__profiler = cProfile.Profile()
         while self.running:
             if self.debug:
-                pr = cProfile.Profile()
                 fd_start = systime.monotonic()
-                pr.enable()
+                self.__profiler.enable()
                 self._run_fd_events()
-                pr.disable()
+                self.__profiler.disable()
                 delay = systime.monotonic() - fd_start
                 if delay > self.precision * 2:
-                    self.debug_out(f"long fd delay ({delay:.2f})", pr)
+                    self.debug_out(f"long fd delay ({delay:.2f})", self.__profiler)
             else:
                 self._run_fd_events()
             # find scheduled events
@@ -147,16 +149,15 @@ class LoopBase(EventEmitter):
                     # a previous event may have removed this one.
                     continue
                 if self.debug:
-                    pr = cProfile.Profile()
                     ev_start = systime.monotonic()
-                    pr.enable()
+                    self.__profiler.enable()
                     what()
-                    pr.disable()
+                    self.__profiler.disable()
                     delay = systime.monotonic() - ev_start
                     if delay > self.precision * 2:
                         self.debug_out(
                             f"long scheduled event delay ({delay:.2f}): {what.__name__}",
-                            pr,
+                            self.__profiler,
                         )
                 else:
                     what()
