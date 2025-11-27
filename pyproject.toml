@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy", "black", "pylint", "pytest", "pytest-parallel",
+dev = ["mypy", "black", "pylint", "pytest", "pytest-xdist",
     "py", "pytest-md", "validate-pyproject", "build"]
 # See https://github.com/kevlened/pytest-parallel/issues/118
 
