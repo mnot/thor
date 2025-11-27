@@ -93,7 +93,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
-        self.client.connect(b"does.not.exist", 80)
+        self.client.connect(b"does.not.exist.invalid", 80)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)

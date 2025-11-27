@@ -119,7 +119,7 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
-        self.client.connect(b"does.not.exist", framework.tls_port)
+        self.client.connect(b"does.not.exist.invalid", framework.tls_port)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
