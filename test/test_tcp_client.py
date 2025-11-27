@@ -10,11 +10,12 @@ import socket
 import sys
 import threading
 import unittest
+from unittest.mock import MagicMock
 
 import framework
 
 from thor import loop
-from thor.tcp import TcpClient
+from thor.tcp import TcpClient, TcpConnection
 
 
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -135,6 +136,40 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
 
 #   def test_pause(self):
+
+
+    def test_write_closed_crash(self):
+        # Mock socket
+        mock_sock = MagicMock(spec=socket.socket)
+        mock_sock.fileno.return_value = 10
+        
+        # Create connection and close it
+        conn = TcpConnection(mock_sock, ("127.0.0.1", 80), self.loop)
+        conn._close() # Force internal close
+        
+        # Expectation: write should raise OSError
+        with self.assertRaisesRegex(OSError, "Connection closed"):
+            conn.write(b"foo")
+
+    def test_stuck_close(self):
+        # Mock socket
+        mock_sock = MagicMock(spec=socket.socket)
+        mock_sock.fileno.return_value = 10
+        
+        conn = TcpConnection(mock_sock, ("127.0.0.1", 80), self.loop)
+        # Simulate buffered data
+        conn._write_buffer.append(b"pending")
+        
+        # Call close
+        conn.close()
+        
+        # Expectation: conn.tcp_connected should still be True because it's waiting to flush
+        self.assertTrue(conn.tcp_connected)
+        self.assertTrue(conn._closing)
+        
+        # Use abort to force close
+        conn.abort()
+        self.assertFalse(conn.tcp_connected)
 
 if __name__ == "__main__":
     unittest.main()

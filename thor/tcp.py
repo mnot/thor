@@ -48,6 +48,13 @@ class TcpConnection(EventSource):
 
     Note that this will flush any data already written.
 
+    If you want to close the connection immediately, discarding any buffered
+    data, call abort:
+
+    > tcp_conn.abort()
+
+    If you try to write to a closed connection, an OSError will be raised.
+
     If the other side closes the connection, The 'close' event will be
     emitted;
 
@@ -172,6 +179,8 @@ class TcpConnection(EventSource):
 
     def write(self, data: bytes) -> None:
         "Write data to the connection."
+        if not self.tcp_connected:
+            raise OSError("Connection closed")
         self._write_buffer.append(data)
         if len(self._write_buffer) > self.write_bufsize:
             self._output_paused = True
@@ -196,6 +205,10 @@ class TcpConnection(EventSource):
             self._closing = True
         else:
             self._close()
+
+    def abort(self) -> None:
+        "Close the connection immediately, discarding buffered data."
+        self._close()
 
     def _handle_close(self) -> None:
         "The connection has been closed by the other side."
