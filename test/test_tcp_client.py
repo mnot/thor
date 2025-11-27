@@ -7,10 +7,7 @@ except ImportError:
 
 import errno
 import socket
-import sys
-import threading
 import unittest
-from unittest.mock import MagicMock
 
 import framework
 
@@ -139,24 +136,24 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
 
     def test_write_closed_crash(self):
-        # Mock socket
-        mock_sock = MagicMock(spec=socket.socket)
-        mock_sock.fileno.return_value = 10
+        # Use real sockets to avoid issues with loop registration
+        rsock, wsock = socket.socketpair()
+        rsock.setblocking(False)
         
         # Create connection and close it
-        conn = TcpConnection(mock_sock, ("127.0.0.1", 80), self.loop)
+        conn = TcpConnection(rsock, ("127.0.0.1", 80), self.loop)
         conn._close() # Force internal close
+        wsock.close()
         
         # Expectation: write should raise OSError
         with self.assertRaisesRegex(OSError, "Connection closed"):
             conn.write(b"foo")
 
     def test_stuck_close(self):
-        # Mock socket
-        mock_sock = MagicMock(spec=socket.socket)
-        mock_sock.fileno.return_value = 10
+        rsock, wsock = socket.socketpair()
+        rsock.setblocking(False)
         
-        conn = TcpConnection(mock_sock, ("127.0.0.1", 80), self.loop)
+        conn = TcpConnection(rsock, ("127.0.0.1", 80), self.loop)
         # Simulate buffered data
         conn._write_buffer.append(b"pending")
         
@@ -170,6 +167,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         # Use abort to force close
         conn.abort()
         self.assertFalse(conn.tcp_connected)
+        wsock.close()
 
 if __name__ == "__main__":
     unittest.main()
