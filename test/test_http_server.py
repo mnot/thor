@@ -14,8 +14,8 @@ from thor.http import HttpServer
 
 class TestHttpServer(framework.ClientServerTestCase):
     def create_server(self, server_side):
-        test_port = self.get_port()
-        server = HttpServer(framework.test_host, test_port, loop=self.loop)
+        server = HttpServer(framework.test_host, 0, loop=self.loop)
+        test_port = server.tcp_server.sock.getsockname()[1]
         server_side(server)
 
         def stop():

@@ -53,10 +53,10 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.client.on("connect_error", check_error)
 
     def start_server(self):
-        test_port = self.get_port()
         self.server = LittleServer(
-            (framework.test_host, test_port), framework.LittleRequestHandler
+            (framework.test_host, 0), framework.LittleRequestHandler
         )
+        test_port = self.server.server_address[1]
 
         def serve():
             self.server.serve_forever(poll_interval=0.1)

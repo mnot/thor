@@ -26,8 +26,8 @@ class TestHttpClient(framework.ClientServerTestCase):
         class LittleRequestHandler(SocketServer.BaseRequestHandler):
             handle = server_side
 
-        test_port = self.get_port()
-        server = LittleServer((framework.test_host, test_port), LittleRequestHandler)
+        server = LittleServer((framework.test_host, 0), LittleRequestHandler)
+        test_port = server.server_address[1]
 
         def serve():
             server.serve_forever(poll_interval=0.1)

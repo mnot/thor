@@ -61,7 +61,6 @@ class ClientServerTestCase(unittest.TestCase):
         steps = []
         for server_side in server_sides:
             steps.append(self.create_server(server_side))
-        time.sleep(1)
         i = 0
         for client_side in client_sides:
             self.create_client(test_host, steps[i][1], client_side)
@@ -77,12 +76,6 @@ class ClientServerTestCase(unittest.TestCase):
         finally:
             [step[0]() for step in steps]
         self.assertEqual(self.timeout_hit, False)
-
-    def get_port(self):
-        sock = socket.socket()
-        sock.bind(("", 0))
-        _, port = sock.getsockname()
-        return port
 
     def create_server(self, server_side):
         raise NotImplementedError
