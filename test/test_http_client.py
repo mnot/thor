@@ -8,6 +8,7 @@ except ImportError:
 
 import sys
 import time
+import socket
 import unittest
 
 import framework
@@ -55,7 +56,17 @@ class TestHttpClient(framework.ClientServerTestCase):
         @on(exchange)
         def error(err_msg):
             exchange.test_happened = True
-            self.assertEqual(err_msg, expected.get("error", err_msg))
+            if "error" in expected:
+                exp = expected["error"]
+                if isinstance(exp, type):
+                    self.assertIsInstance(err_msg, exp)
+                elif isinstance(exp, str):
+                    self.assertEqual(str(err_msg), exp)
+                else:
+                    self.assertEqual(str(err_msg), str(exp))
+            else:
+                self.fail(f"Unexpected error: {repr(err_msg)}")
+            self.loop.stop()
 
         @on(exchange)
         def response_start(status, phrase, headers):
@@ -188,6 +199,16 @@ Transfer-Encoding: chunked
             exchange.request_done([])
 
         def server_side(conn):
+            # drain the request first
+            conn.request.settimeout(0.2)
+            while True:
+                try:
+                    if not conn.request.recv(1024):
+                        break
+                except socket.timeout:
+                    break
+
+            conn.request.settimeout(None)
             conn.request.send(
                 b"""\
 HTTP/1.1 200 OK
@@ -219,6 +240,7 @@ Connection: close
             exchange.request_done([])
 
         def server_side(conn):
+            conn.request.recv(1024)  # Eat the request
             conn.request.send(
                 b"""\
 HTTP/1.1 200 OK
@@ -327,6 +349,7 @@ Connection: close
             exchange2.request_done([])
 
         def server_side(conn):
+            conn.request.recv(1024)  # Eat the request
             conn.request.send(
                 b"""\
 HTTP/1.1 200 OK
@@ -654,13 +677,9 @@ Connection: close
                     "version": b"1.1",
                     "status": b"200",
                     "phrase": b"OK",
+                    "error": thor.http.error.ConnectError,
                 },
             )
-
-            @on(exchange)
-            def error(err_msg):
-                self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
-                self.loop.stop()
 
             req_uri = b"http://%s:%i/close_in_body" % (
                 test_host,
@@ -871,20 +890,21 @@ Connection: close
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
-            self.check_exchange(
-                exchange,
-                {
-                    "version": b"1.1",
-                    "status": b"200",
-                    "phrase": b"OK",
-                    "body": b"12345",
-                },
-            )
+            @on(exchange)
+            def response_done(trailers):
+                self.fail("Should have failed")
 
             @on(exchange)
             def error(err_msg):
                 self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
                 self.loop.stop()
+
+            self.check_exchange(
+                exchange,
+                {
+                    "error": thor.http.error.ConnectError,
+                },
+            )
 
             req_uri = b"http://%s:%i/req_retry_fail" % (
                 test_host,
@@ -957,13 +977,9 @@ Connection: close
                     "status": b"304",
                     "phrase": b"Not Modified",
                     "body": b"",
+                    "error": thor.http.error.ExtraDataError,
                 },
             )
-
-            @on(exchange)
-            def error(err_msg):
-                self.assertEqual(err_msg.__class__, thor.http.error.ExtraDataError)
-                self.loop.stop()
 
             req_uri = b"http://%s:%i" % (test_host, test_port)
             exchange.request_start(b"GET", req_uri, [])
@@ -994,13 +1010,9 @@ Connection: close
                     "status": b"200",
                     "phrase": b"OK",
                     "body": b"12345",
+                    "error": thor.http.error.ExtraDataError,
                 },
             )
-
-            @on(exchange)
-            def error(err_msg):
-                self.assertEqual(err_msg.__class__, thor.http.error.ExtraDataError)
-                self.loop.stop()
 
             req_uri = b"http://%s:%i" % (test_host, test_port)
             exchange.request_start(b"GET", req_uri, [])
