@@ -57,6 +57,16 @@ class HttpServer(EventEmitter):
         tcp_conn.on("pause", http_conn.res_body_pause)
         tcp_conn.pause(False)
 
+    def graceful_shutdown(self) -> None:
+        """
+        Stop the server gracefully.
+
+        This stops accepting new connections and waits for all active
+        connections to close before emitting "stop".
+        """
+        self.tcp_server.on("stop", lambda: self.emit("stop"))
+        self.tcp_server.graceful_shutdown()
+
     def shutdown(self) -> None:
         "Stop the server"
         self.tcp_server.shutdown()

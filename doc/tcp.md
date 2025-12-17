@@ -75,9 +75,14 @@ Emitted when a new connection is accepted by the server.
 Emitted when the server stops.
 
 
-### _void_ thor.TcpServer.close () 
+### _void_ thor.TcpServer.shutdown () 
+ 
+Stops the server from accepting new connections. Existing connections will remain active.
 
-Stops the server from accepting new connections.
+
+### _void_ thor.TcpServer.graceful_shutdown () 
+
+Stops the server from accepting new connections, and waits for all active connections to close before emitting [stop](#event-stop-).
 
 
 

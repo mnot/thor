@@ -97,6 +97,16 @@ Emitted when the server stops.
 Emitted when the server starts a new request/response `exchange`.
 
 
+### _void_ thor.http.HttpServer.shutdown ()
+
+Stops the server from accepting new connections. Existing connections will remain active.
+
+
+### _void_ thor.http.HttpServer.graceful_shutdown ()
+
+Stops the server from accepting new connections, and waits for all active connections to close before emitting [stop](#event-stop-).
+
+
 ### thor.http.HttpServerExchange
 
 

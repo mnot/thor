@@ -15,7 +15,7 @@ import errno
 import os
 import sys
 import socket
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Set
 
 from thor.dns import DnsResult, Address
 from thor.loop import EventSource, LoopBase, schedule
@@ -248,12 +248,19 @@ class TcpServer(EventSource):
         EventSource.__init__(self, loop)
         self.host = host
         self.port = port
-        self.sock = sock or server_listen(host, port)
+        self.sock: Optional[socket.socket] = sock or server_listen(host, port)
         self.on("fd_readable", self.handle_accept)
-        self.register_fd(self.sock.fileno(), "fd_readable")
+        # self.sock is guaranteed to be a socket here because of server_listen,
+        # but can become None later.
+        if self.sock:
+            self.register_fd(self.sock.fileno(), "fd_readable")
         schedule(0, self.emit, "start")
+        self.active_connections: Set[TcpConnection] = set()
+        self._shutting_down_gracefully = False
 
     def handle_accept(self) -> None:
+        if not self.sock:
+            return
         try:
             conn, _ = self.sock.accept()
         except (TypeError, IndexError):
@@ -267,13 +274,35 @@ class TcpServer(EventSource):
             )
         except FileNotFoundError:
             return  # Connection closed in the meantime
+        self.active_connections.add(tcp_conn)
+        tcp_conn.on("close", lambda: self._conn_closed(tcp_conn))
         self.emit("connect", tcp_conn)
+
+    def _conn_closed(self, conn: TcpConnection) -> None:
+        self.active_connections.discard(conn)
+        if self._shutting_down_gracefully and not self.active_connections:
+            self.emit("stop")
+
+    def graceful_shutdown(self) -> None:
+        """
+        Stop accepting requests and wait for active connections to close.
+
+        Emits "stop" when all connections are closed.
+        """
+        self.remove_listeners("fd_readable")
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+        self._shutting_down_gracefully = True
+        if not self.active_connections:
+            self.emit("stop")
 
     def shutdown(self) -> None:
         "Stop accepting requests and close the listening socket."
         self.remove_listeners("fd_readable")
         if self.sock:
             self.sock.close()
+            self.sock = None
         self.emit("stop")
 
 
