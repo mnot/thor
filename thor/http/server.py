@@ -49,9 +49,12 @@ class HttpServer(EventEmitter):
         self.loop = self.tcp_server.loop
         self.tcp_server.on("connect", self.handle_conn)
         self.loop.schedule(0, self.emit, "start")
+        self.connections: List["HttpServerConnection"] = []
+        self.shutting_down = False
 
     def handle_conn(self, tcp_conn: TcpConnection) -> None:
         http_conn = HttpServerConnection(tcp_conn, self)
+        self.connections.append(http_conn)
         tcp_conn.on("data", http_conn.handle_input)
         tcp_conn.on("close", http_conn.conn_closed)
         tcp_conn.on("pause", http_conn.res_body_pause)
@@ -64,8 +67,12 @@ class HttpServer(EventEmitter):
         This stops accepting new connections and waits for all active
         connections to close before emitting "stop".
         """
+        self.shutting_down = True
         self.tcp_server.on("stop", lambda: self.emit("stop"))
         self.tcp_server.graceful_shutdown()
+        for conn in list(self.connections):
+            if conn.is_idle:
+                conn.close_conn()
 
     def shutdown(self) -> None:
         "Stop the server"
@@ -87,6 +94,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.output_paused = False
         self._idler: Optional[ScheduledEvent] = None
 
+    @property
+    def is_idle(self) -> bool:
+        return len(self.ex_queue) == 0
+
     def req_body_pause(self, paused: bool) -> None:
         """
         Indicate that the server should pause (True) or unpause (False) the
@@ -101,6 +112,14 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.tcp_conn.close()
             self.tcp_conn = None
 
+    def exchange_done(self, exchange: "HttpServerExchange") -> None:
+        exchange.res_complete = True
+        if exchange.req_complete:
+            if exchange in self.ex_queue:
+                self.ex_queue.remove(exchange)
+            if self.is_idle and self.server.shutting_down:
+                self.close_conn()
+
     # Methods called by tcp
 
     def res_body_pause(self, paused: bool) -> None:
@@ -112,6 +131,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def conn_closed(self) -> None:
         "The server connection has closed."
+        if self in self.server.connections:
+            self.server.connections.remove(self)
         self.ex_queue = []
         self.tcp_conn = None
 
@@ -174,7 +195,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the request body is complete."
-        self.ex_queue[-1].emit("request_done", trailers)
+        ex = self.ex_queue[-1]
+        ex.req_complete = True
+        ex.emit("request_done", trailers)
+        if ex.res_complete:
+            self.ex_queue.remove(ex)
 
     def input_error(self, err: HttpError) -> None:
         """
@@ -227,6 +252,8 @@ class HttpServerExchange(EventEmitter):
         self.req_hdrs = req_hdrs
         self.req_version = req_version
         self.started = False
+        self.req_complete = False
+        self.res_complete = False
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -272,6 +299,7 @@ class HttpServerExchange(EventEmitter):
         be called exactly once for each response.
         """
         close = self.http_conn.output_end(trailers)
+        self.http_conn.exchange_done(self)
         if close and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
 

@@ -216,6 +216,7 @@ class TcpConnection(EventSource):
         self.emit("close")
 
     def _close(self) -> None:
+        self.emit("disconnect")
         self.tcp_connected = False
         self.remove_listeners("fd_readable", "fd_writable", "fd_close")
         self.unregister_fd()
@@ -275,7 +276,7 @@ class TcpServer(EventSource):
         except FileNotFoundError:
             return  # Connection closed in the meantime
         self.active_connections.add(tcp_conn)
-        tcp_conn.on("close", lambda: self._conn_closed(tcp_conn))
+        tcp_conn.on("disconnect", lambda: self._conn_closed(tcp_conn))
         self.emit("connect", tcp_conn)
 
     def _conn_closed(self, conn: TcpConnection) -> None:
