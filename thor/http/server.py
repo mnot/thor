@@ -56,7 +56,7 @@ class HttpServer(EventEmitter):
         http_conn = HttpServerConnection(tcp_conn, self)
         self.connections.append(http_conn)
         tcp_conn.on("data", http_conn.handle_input)
-        tcp_conn.on("close", http_conn.conn_closed)
+        tcp_conn.on("disconnect", http_conn.conn_closed)
         tcp_conn.on("pause", http_conn.res_body_pause)
         tcp_conn.pause(False)
 
@@ -92,7 +92,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.server = server
         self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
         self.output_paused = False
-        self._idler: Optional[ScheduledEvent] = None
+        self.output_paused = False
+        self._idler: Optional[ScheduledEvent] = self.server.loop.schedule(
+            self.server.idle_timeout, self.close_conn
+        )
 
     @property
     def is_idle(self) -> bool:
