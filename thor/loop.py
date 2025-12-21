@@ -308,11 +308,17 @@ class PollLoop(LoopBase):
         del self._fd_targets[fd]
 
     def event_add(self, fd: int, event: str) -> None:
-        eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
+        try:
+            eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
+        except KeyError:
+            return
         self._poll.register(fd, eventmask)
 
     def event_del(self, fd: int, event: str) -> None:
-        eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
+        try:
+            eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
+        except KeyError:
+            return
         self._poll.register(fd, eventmask)
 
     def _run_fd_events(self) -> None:
@@ -362,7 +368,10 @@ class EpollLoop(LoopBase):
             raise
 
     def event_add(self, fd: int, event: str) -> None:
-        eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
+        try:
+            eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
+        except KeyError:
+            return
         self._epoll.modify(fd, eventmask)
 
     def event_del(self, fd: int, event: str) -> None:
@@ -422,7 +431,11 @@ class KqueueLoop(LoopBase):
     def event_del(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(fd, eventmask, select.KQ_EV_DELETE)  # type: ignore[attr-defined]
+            ev = select.kevent(  # type: ignore[attr-defined]
+                fd,
+                eventmask,
+                select.KQ_EV_DELETE,  # type: ignore[attr-defined]
+            )
             if ev:
                 try:
                     self._kq.control([ev], 0, 0)
