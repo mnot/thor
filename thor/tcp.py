@@ -121,6 +121,7 @@ class TcpConnection(EventSource):
         self.on("fd_readable", self.handle_readable)
         self.on("fd_writable", self.handle_writable)
         self.once("fd_close", self._handle_close)
+        self.event_add("fd_close")
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
