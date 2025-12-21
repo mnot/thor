@@ -733,10 +733,6 @@ Connection: close
                     },
                 )
 
-                def start2():
-                    exchange2.request_start(b"GET", req_uri, [])
-                    exchange2.request_done([])
-
                 @on(exchange2)
                 def response_start(*args):
                     self.assertEqual(self.conn_id, id(exchange2.tcp_conn))
@@ -746,12 +742,14 @@ Connection: close
                 def response_done(trailers):
                     self.loop.stop()
 
-                self.loop.schedule(1, start2)
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
 
             exchange1.request_start(b"GET", req_uri, [])
             exchange1.request_done([])
 
         def server_side(conn):
+            conn.request.recv(1024)
             conn.request.sendall(
                 b"""
 HTTP/1.1 200 OK
@@ -761,7 +759,7 @@ Content-Length: 5
 12345
 """
             )
-            time.sleep(3)
+            conn.request.recv(1024)
             conn.request.sendall(
                 b"""
 HTTP/1.1 404 Not Found
