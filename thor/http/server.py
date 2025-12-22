@@ -269,6 +269,17 @@ class HttpServerExchange(EventEmitter):
         self.started = True
         self.emit("request_start", self.method, self.uri, self.req_hdrs)
 
+    def response_nonfinal(
+        self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
+    ) -> None:
+        "Send a non-final (1xx) response. Can be called zero to many times."
+        self.http_conn.output_start(
+            b"HTTP/1.1 %s %s" % (status_code, status_phrase),
+            res_hdrs,
+            Delimiters.NONE,
+            is_final=False,
+        )
+
     def response_start(
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
     ) -> None:
@@ -289,7 +300,10 @@ class HttpServerExchange(EventEmitter):
             res_hdrs.append((b"Connection", b"close"))
 
         self.http_conn.output_start(
-            b"HTTP/1.1 %s %s" % (status_code, status_phrase), res_hdrs, delimit
+            b"HTTP/1.1 %s %s" % (status_code, status_phrase),
+            res_hdrs,
+            delimit,
+            is_final=True,
         )
 
     def response_body(self, chunk: bytes) -> None:

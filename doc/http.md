@@ -55,6 +55,11 @@ Signal that the request body is finished. This must be called for every request.
 Emitted once, when the client starts receiving the exchange's response. `status` and `phrase` contain the HTTP response status code and reason phrase, respectively, and `headers` contains the response header tuples (see [working with HTTP headers](#headers)).
 
 
+#### event 'response\_nonfinal' ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
+
+Emitted zero to many times, when the client receives a non-final (1xx) HTTP response. `status`, `phrase` and `headers` are as described for *response_start*.
+
+
 #### event 'response\_body' ( _bytes_ `chunk` )
 
 Emitted zero to many times, when a `chunk` of the response body is received.
@@ -130,6 +135,11 @@ Emitted once, when the request is successfully completed. `trailers` is the list
 Start sending the exchange's response. `status` and `phrase` should contain the HTTP response status code and reason phrase, respectively, and `headers` should contain the response header tuples (see [working with HTTP headers](#headers)).
 
 Note that hop-by-hop headers will be stripped from `headers`; Thor manages its own connections headers (such as _Connection_, _Keep-Alive_, and so on.)
+
+
+#### _void_ response\_nonfinal ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
+
+Send a non-final (1xx) HTTP response. This can be called zero to many times before calling *response_start*.
 
 
 #### _void_ response\_body ( _bytes_ `chunk` )

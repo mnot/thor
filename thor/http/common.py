@@ -486,7 +486,11 @@ class HttpMessageHandler(metaclass=ABCMeta):
         raise NotImplementedError
 
     def output_start(
-        self, top_line: bytes, hdr_tuples: RawHeaderListType, delimit: Delimiters
+        self,
+        top_line: bytes,
+        hdr_tuples: RawHeaderListType,
+        delimit: Delimiters,
+        is_final: bool = True,
     ) -> None:
         """
         Start outputting a HTTP message.
@@ -505,7 +509,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
         out.extend([b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples])
         out.extend([b"", b""])
         self.output(LINESEP.join(out))
-        self._output_state = States.HEADERS_DONE
+        if is_final:
+            self._output_state = States.HEADERS_DONE
+        else:
+            self._output_state = States.WAITING
 
     def output_body(self, chunk: bytes) -> None:
         """

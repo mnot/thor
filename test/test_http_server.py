@@ -159,6 +159,50 @@ Content-Length: 5
 
         self.go([server_side], [client_side])
 
+    def test_1xx_response(self):
+        def server_side(server):
+            def check(exchange):
+                @on(exchange, "request_done")
+                def on_request_done(trailers):
+                    exchange.response_nonfinal(
+                        b"103",
+                        b"Early Hints",
+                        [(b"Link", b"</style.css>; rel=preload; as=style")],
+                    )
+                    exchange.response_start(b"200", b"OK", [(b"Content-Length", b"5")])
+                    exchange.response_body(b"hello")
+                    exchange.response_done([])
+                    self.exchange_handled = True
+
+            server.on("exchange", check)
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                b"GET / HTTP/1.1\r\nHost: %s:%i\r\n\r\n" % (test_host, test_port)
+            )
+            res = b""
+            client_conn.settimeout(2)
+            try:
+                while True:
+                    chunk = client_conn.recv(1024)
+                    if not chunk:
+                        break
+                    res += chunk
+                    if b"hello" in res:
+                        break
+            except socket.timeout:
+                pass
+            self.res = res
+            self.loop.stop()
+
+        self.exchange_handled = False
+        self.res = b""
+        self.go([server_side], [client_side])
+        self.assertTrue(self.exchange_handled)
+        self.assertIn(b"HTTP/1.1 103 Early Hints", self.res)
+        self.assertIn(b"HTTP/1.1 200 OK", self.res)
+        self.assertIn(b"hello", self.res)
+
 
     def test_reentrancy(self):
         def server_side(server):
