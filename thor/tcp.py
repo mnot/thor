@@ -89,8 +89,8 @@ class TcpConnection(EventSource):
     getting data from them, you'll need to pause(False).
     """
 
-    write_bufsize = 16
-    read_bufsize = 1024 * 16
+    write_bufsize = 16  # number of chunks
+    read_bufsize = 1024 * 16  # bytes
 
     block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT])
     close_errs = set(
