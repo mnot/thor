@@ -30,11 +30,7 @@ Currently, it will run on most Posix platforms; specifically, those that offer o
 
 ## Installation
 
-If you have setuptools, you can install from the repository:
-
-> easy\_install thor
-
-or using pip:
+Using pip:
 
 > pip install thor
 
