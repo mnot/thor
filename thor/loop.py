@@ -7,6 +7,7 @@ This is a generic library for building asynchronous event loops, using
 Python's built-in poll / epoll / kqueue support.
 """
 
+import contextvars
 from abc import ABCMeta, abstractmethod
 import cProfile
 import errno
@@ -157,8 +158,9 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
                     self.__profiler.disable()
                     delay = systime.monotonic() - ev_start
                     if delay > self.precision * 2:
+                        name = getattr(what, "__name__", str(what))
                         self.debug_out(
-                            f"long scheduled event delay ({delay:.2f}): {what.__name__}",
+                            f"long scheduled event delay ({delay:.2f}): {name}",
                             self.__profiler,
                         )
                 else:
@@ -225,7 +227,12 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         calling its delete() method.
         """
 
-        cb = partial(callback, *args)
+        ctx = contextvars.copy_context()
+
+        def ctx_callback(*args: Any, **kwargs: Any) -> Any:
+            return ctx.run(callback, *args, **kwargs)
+
+        cb = partial(ctx_callback, *args)
         new_event = (systime.monotonic() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)

@@ -7,6 +7,7 @@ Event utilities, including:
 * on - a decorator for making functions and methods listen to events.
 """
 
+import contextvars
 from collections import defaultdict
 from typing import Optional, Any, Callable, Dict, List
 
@@ -32,8 +33,12 @@ class EventEmitter:
         """
         Call listener when event is emitted.
         """
-        self.__events[event].append(listener)
-        self.emit("newListener", event, listener)
+        if isinstance(listener, ContextWrapper):
+            wrapped = listener
+        else:
+            wrapped = ContextWrapper(listener)
+        self.__events[event].append(wrapped)
+        self.emit("newListener", event, wrapped)
 
     def once(self, event: str, listener: Callable) -> None:
         """
@@ -44,7 +49,7 @@ class EventEmitter:
             self.remove_listener(event, mycall)
             listener(*args)
 
-        mycall.__name__ = listener.__name__
+        mycall.__name__ = getattr(listener, "__name__", "listener")
         self.on(event, mycall)
 
     def remove_listener(self, event: str, listener: Callable) -> None:
@@ -105,6 +110,29 @@ class EventEmitter:
         self.__sink = sink
 
 
+class ContextWrapper:
+    """
+    A wrapper for a listener that captures the current context and runs
+    the listener within it.
+    """
+
+    def __init__(self, listener: Callable) -> None:
+        self.listener = listener
+        self.context = contextvars.copy_context()
+        self.__name__ = getattr(listener, "__name__", "listener")
+
+    def __call__(self, *args: Any, **lwargs: Any) -> Any:
+        return self.context.run(self.listener, *args, **lwargs)
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, ContextWrapper):
+            return self.listener == other.listener
+        return bool(self.listener == other)
+
+    def __hash__(self) -> int:
+        return hash(self.listener)
+
+
 def on(obj: EventEmitter, event: Optional[str] = None) -> Callable:
     """
     Decorator to call a function when an object emits
@@ -112,7 +140,8 @@ def on(obj: EventEmitter, event: Optional[str] = None) -> Callable:
     """
 
     def wrap(funk: Callable) -> Callable:
-        obj.on(event or funk.__name__, funk)
+        name = getattr(funk, "__name__", "listener")
+        obj.on(event or name, funk)
         return funk
 
     return wrap
