@@ -201,7 +201,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         ex = self.ex_queue[-1]
         ex.req_complete = True
         ex.emit("request_done", trailers)
-        if ex.res_complete:
+        if ex.res_complete and ex in self.ex_queue:
             self.ex_queue.remove(ex)
 
     def input_error(self, err: HttpError) -> None:

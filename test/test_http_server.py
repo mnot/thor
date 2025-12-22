@@ -160,6 +160,36 @@ Content-Length: 5
         self.go([server_side], [client_side])
 
 
+    def test_reentrancy(self):
+        def server_side(server):
+            def check(exchange):
+                @on(exchange, "request_done")
+                def on_request_done(trailers):
+                    ex = exchange
+                    ex.response_start(b"200", b"OK", [])
+                    ex.response_body(b"done")
+                    ex.response_done([])
+                    self.exchange_handled = True
+                    self.loop.stop()
+
+            server.on("exchange", check)
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                b"""\
+POST / HTTP/1.1
+Host: %s:%i
+Content-Length: 0
+
+"""
+                % (test_host, test_port)
+            )
+            time.sleep(1)
+            client_conn.close()
+
+        self.exchange_handled = False
+        self.go([server_side], [client_side])
+        self.assertTrue(self.exchange_handled)
 #    def test_pipeline(self):
 #        def server_side(server):
 #            server.ex_count = 0
