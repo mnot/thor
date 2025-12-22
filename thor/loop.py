@@ -143,14 +143,10 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             if len(self.__sched_events) > 500:
                 self.debug_out(f"{len(self.__sched_events)} events scheduled", None)
         self.__last_event_check = systime.monotonic()
-        for event in self.__sched_events:
-            when, what = event
+        while self.__sched_events:
+            when, what = self.__sched_events[0]
             if self.running and when <= self.__last_event_check:
-                try:
-                    self.__sched_events.remove(event)
-                except ValueError:
-                    # a previous event may have removed this one.
-                    continue
+                self.__sched_events.pop(0)
                 if self.debug:
                     ev_start = systime.monotonic()
                     self.__profiler.enable()
@@ -335,7 +331,12 @@ class PollLoop(LoopBase):
         self._poll.register(fd, eventmask)
 
     def _run_fd_events(self) -> None:
-        event_list = self._poll.poll(self.precision)
+        try:
+            event_list = self._poll.poll(int(self.precision * 1000))
+        except (OSError, select.error) as why:
+            if why.args[0] == errno.EINTR:
+                return
+            raise
         for fileno, eventmask in event_list:
             events = self._filter2events(eventmask)
             if "fd_readable" in events:
@@ -358,6 +359,7 @@ class EpollLoop(LoopBase):
             select.EPOLLIN: "fd_readable",  # type: ignore[attr-defined]
             select.EPOLLOUT: "fd_writable",  # type: ignore[attr-defined]
             select.EPOLLRDHUP: "fd_close",  # type: ignore[attr-defined]
+            select.EPOLLHUP: "fd_close",  # type: ignore[attr-defined]
             select.EPOLLERR: "fd_error",  # type: ignore[attr-defined]
         }
         LoopBase.__init__(self, *args)
@@ -401,7 +403,12 @@ class EpollLoop(LoopBase):
         self._epoll.modify(fd, eventmask)
 
     def _run_fd_events(self) -> None:
-        event_list = self._epoll.poll(self.precision)
+        try:
+            event_list = self._epoll.poll(self.precision)
+        except (OSError, select.error) as why:
+            if why.args[0] == errno.EINTR:
+                return
+            raise
         for fileno, eventmask in event_list:
             events = self._filter2events(eventmask)
             if "fd_readable" in events:
@@ -468,7 +475,12 @@ class KqueueLoop(LoopBase):
                     pass
 
     def _run_fd_events(self) -> None:
-        events = self._kq.control([], self.max_ev, self.precision)
+        try:
+            events = self._kq.control([], self.max_ev, self.precision)
+        except (OSError, select.error) as why:
+            if why.args[0] == errno.EINTR:
+                return
+            raise
         for ev in events:
             fileno = int(ev.ident)
             if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined]
