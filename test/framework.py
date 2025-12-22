@@ -117,6 +117,12 @@ class DummyHttpParser(HttpMessageHandler):
         self.test_err = err
         return False  # never recover.
 
+    def output(self, data):
+        pass
+
+    def output_done(self):
+        pass
+
     def check(self, asserter, expected):
         """
         Check the parsed message against expected attributes and

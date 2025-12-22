@@ -7,6 +7,7 @@ This is a generic library for building asynchronous event loops, using
 Python's built-in poll / epoll / kqueue support.
 """
 
+from abc import ABCMeta, abstractmethod
 import cProfile
 import errno
 from functools import partial
@@ -76,7 +77,7 @@ class EventSource(EventEmitter):
         return self._interesting_events
 
 
-class LoopBase(EventEmitter):
+class LoopBase(EventEmitter, metaclass=ABCMeta):
     """
     Base class for async loops.
     """
@@ -130,6 +131,7 @@ class LoopBase(EventEmitter):
         "Returns a list of registered fd EventSources."
         return list(self._fd_targets.values())
 
+    @abstractmethod
     def _run_fd_events(self) -> None:
         "Run loop-specific FD events."
         raise NotImplementedError
@@ -180,10 +182,12 @@ class LoopBase(EventEmitter):
             self.unregister_fd(fd)
         self.emit("stop")
 
+    @abstractmethod
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         "emit events on target when they occur on fd."
         raise NotImplementedError
 
+    @abstractmethod
     def unregister_fd(self, fd: int) -> None:
         "Stop emitting events from fd."
         raise NotImplementedError
@@ -192,10 +196,12 @@ class LoopBase(EventEmitter):
         "Return how many FDs are currently monitored by the loop."
         return len(self._fd_targets)
 
+    @abstractmethod
     def event_add(self, fd: int, event: str) -> None:
         "Start emitting event for fd."
         raise NotImplementedError
 
+    @abstractmethod
     def event_del(self, fd: int, event: str) -> None:
         "Stop emitting event for fd"
         raise NotImplementedError

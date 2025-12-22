@@ -7,6 +7,7 @@ This module contains utility functions and a base class
 for the parsing portions of the HTTP client and server.
 """
 
+from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
 from typing import Optional, Dict, List, Set, Tuple
@@ -97,7 +98,7 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
     ]
 
 
-class HttpMessageHandler:
+class HttpMessageHandler(metaclass=ABCMeta):
     """
     This is a base class for something that has to parse and/or serialise
     HTTP messages, request or response.
@@ -126,6 +127,7 @@ class HttpMessageHandler:
 
     # input-related methods
 
+    @abstractmethod
     def input_start(
         self,
         top_line: bytes,
@@ -146,6 +148,7 @@ class HttpMessageHandler:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def input_body(self, chunk: bytes) -> None:
         """
         Process a body chunk from the wire.
@@ -154,6 +157,7 @@ class HttpMessageHandler:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def input_end(self, trailers: RawHeaderListType) -> None:
         """
         Indicate that the response body is complete. Optionally can contain
@@ -161,6 +165,7 @@ class HttpMessageHandler:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def input_error(self, err: error.HttpError) -> None:
         """
         Indicate an unrecoverable parsing problem with the input stream.
@@ -464,12 +469,14 @@ class HttpMessageHandler:
 
     ### output-related methods
 
+    @abstractmethod
     def output(self, data: bytes) -> None:
         """
         Write something to whatever we're talking to. Should be overridden.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def output_done(self) -> None:
         """
         The exchange won't output any more on the channel.
