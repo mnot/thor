@@ -44,6 +44,10 @@ class ExtraDataError(HttpError):
     desc = "Extra data was sent after this message was supposed to end"
 
 
+class OutputError(HttpError):
+    desc = "Too many body bytes sent"
+
+
 class StartLineError(HttpError):
     desc = "The start line of the message couldn't be parsed"
 

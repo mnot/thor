@@ -121,6 +121,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
         self._input_body_left = 0
         self._output_state = States.WAITING
         self._output_delimit: Delimiters = Delimiters.NONE
+        self._output_body_sent = 0
+        self._output_content_length: Optional[int] = None
 
     def __repr__(self) -> str:
         return f"input {self._input_state} output {self._output_state}"
@@ -490,6 +492,15 @@ class HttpMessageHandler(metaclass=ABCMeta):
         Start outputting a HTTP message.
         """
         self._output_delimit = delimit
+        self._output_body_sent = 0
+        self._output_content_length = None
+        if delimit == Delimiters.COUNTED:
+            try:
+                self._output_content_length = int(
+                    get_header(hdr_tuples, b"content-length").pop(0)
+                )
+            except (IndexError, ValueError):
+                pass
         out = [top_line]
         out.extend([b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples])
         out.extend([b"", b""])
@@ -502,6 +513,12 @@ class HttpMessageHandler(metaclass=ABCMeta):
         """
         if not chunk or self._output_delimit is Delimiters.NONE:
             return
+        self._output_body_sent += len(chunk)
+        if self._output_delimit == Delimiters.COUNTED:
+            assert (
+                self._output_content_length is None
+                or self._output_body_sent <= self._output_content_length
+            ), "Too many body bytes sent"
         if self._output_delimit == Delimiters.CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode("ascii"), chunk)
         self.output(chunk)
