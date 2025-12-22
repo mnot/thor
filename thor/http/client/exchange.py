@@ -1,36 +1,17 @@
-#!/usr/bin/env python
+# pylint: disable=protected-access
+from __future__ import annotations
+from typing import Optional, List, Tuple, TYPE_CHECKING
 
-"""
-Thor HTTP Client
-
-This library allow implementation of an HTTP/1.1 client that is
-"non-blocking," "asynchronous" and "event-driven" -- i.e., it achieves very
-high performance and concurrency, so long as the application code does not
-block (e.g., upon network, disk or database access). Blocking on one response
-will block the entire client.
-
-"""
-
-from collections import defaultdict
-import socket
-from typing import Optional, Callable, List, Dict, Tuple, Union
-
-import thor
-from thor.events import EventEmitter, on
-from thor.dns import lookup, DnsResultList
-from thor.http.uri import parse_uri
-from thor.loop import LoopBase
+from thor.events import EventEmitter
+from thor.tcp import TcpConnection
 from thor.loop import ScheduledEvent
-from thor.tcp import TcpClient, TcpConnection
-from thor.tls import TlsClient
-
+from thor.http.uri import parse_uri
 from thor.http.common import (
     HttpMessageHandler,
     States,
     Delimiters,
     idempotent_methods,
     no_body_status,
-    hop_by_hop_hdrs,
     header_names,
     RawHeaderListType,
     OriginType,
@@ -38,209 +19,28 @@ from thor.http.common import (
 from thor.http.error import (
     UrlError,
     ConnectError,
-    DnsError,
-    ReadTimeoutError,
-    HttpVersionError,
-    StartLineError,
     AccessError,
+    ReadTimeoutError,
+    StartLineError,
+    HttpVersionError,
+    HttpError,
+    DnsError,
 )
-from thor.http.error import HttpError
 
-req_rm_hdrs = hop_by_hop_hdrs + [b"host"]
+if TYPE_CHECKING:
+    from .client import HttpClient
 
-
-class HttpClient:
-    "An asynchronous HTTP client."
-
-    def __init__(self, loop: Optional[LoopBase] = None) -> None:
-        self.loop = loop or thor.loop._loop
-        self.idle_timeout: int = 60  # seconds
-        self.connect_attempts: int = 3
-        self.connect_timeout: int = 3  # seconds
-        self.read_timeout: Optional[int] = None  # seconds
-        self.retry_limit: int = 2
-        self.retry_delay: float = 0.5  # seconds
-        self.max_server_conn: int = 6
-        self.check_ip: Optional[Callable[[str], bool]] = None
-        self.careful: bool = True
-        self._idle_conns: Dict[OriginType, List[TcpConnection]] = defaultdict(list)
-        self.conn_counts: Dict[OriginType, int] = defaultdict(int)
-        self._req_q: Dict[OriginType, List[Tuple[Callable, Callable]]] = defaultdict(
-            list
-        )
-        self.loop.once("stop", self._close_conns)
-
-    def exchange(self) -> "HttpClientExchange":
-        return HttpClientExchange(self)
-
-    def attach_conn(
-        self,
-        origin: OriginType,
-        handle_connect: Callable,
-        handle_connect_error: Callable,
-    ) -> None:
-        "Find an idle connection for origin, or create a new one."
-        while True:
-            try:
-                tcp_conn = self._idle_conns[origin].pop()
-            except IndexError:  # No idle conns available.
-                del self._idle_conns[origin]
-                self._new_conn(origin, handle_connect, handle_connect_error)
-                break
-            if tcp_conn.tcp_connected:
-                tcp_conn.remove_listeners("data", "pause", "close")
-                tcp_conn.pause(True)
-                if hasattr(tcp_conn, "idler"):
-                    tcp_conn.idler.delete()
-                handle_connect(tcp_conn)
-                break
-
-    def release_conn(self, exchange: "HttpClientExchange") -> None:
-        "Add an idle connection back to the pool."
-        tcp_conn = exchange.tcp_conn
-        if tcp_conn:
-            tcp_conn.remove_listeners("data", "pause", "close")
-            exchange.tcp_conn = None
-            if tcp_conn.tcp_connected:
-                origin = exchange.origin
-                assert origin, "origin not found in release_conn"
-
-                def idle_close() -> None:
-                    "Remove the connection from the pool when it closes."
-                    if hasattr(tcp_conn, "idler"):
-                        tcp_conn.idler.delete()
-                    self.dead_conn(exchange)
-                    try:
-                        self._idle_conns[origin].remove(tcp_conn)
-                        if not self._idle_conns[origin]:
-                            del self._idle_conns[origin]
-                    except (KeyError, ValueError):
-                        pass
-
-                if self._req_q[origin]:
-                    handle_connect = self._req_q[origin].pop(0)[0]
-                    handle_connect(tcp_conn)
-                elif self.idle_timeout > 0:
-                    tcp_conn.once("close", idle_close)
-                    tcp_conn.idler = self.loop.schedule(  # type: ignore[attr-defined]
-                        self.idle_timeout, idle_close
-                    )
-                    self._idle_conns[origin].append(tcp_conn)
-                else:
-                    self.dead_conn(exchange)
-
-    def dead_conn(self, exchange: "HttpClientExchange") -> None:
-        "Notify the client that a connection is dead."
-        origin = exchange.origin
-        assert origin, "origin not found in dead_conn"
-        if exchange.tcp_conn and exchange.tcp_conn.tcp_connected:
-            exchange.tcp_conn.close()
-        exchange.tcp_conn = None
-        self.conn_counts[origin] -= 1
-        if self.conn_counts[origin] == 0:
-            del self.conn_counts[origin]
-            if self._req_q[origin]:
-                (handle_connect, handle_connect_error) = self._req_q[origin].pop(0)
-                self._new_conn(origin, handle_connect, handle_connect_error)
-
-    def _new_conn(
-        self,
-        origin: OriginType,
-        handle_connect: Callable[[TcpConnection], None],
-        handle_error: Callable[[str, int, str], None],
-    ) -> None:
-        "Create a new connection."
-        if self.conn_counts[origin] >= self.max_server_conn:
-            self._req_q[origin].append((handle_connect, handle_error))
-            return
-        HttpConnectionInitiate(self, origin, handle_connect, handle_error)
-
-    def _close_conns(self) -> None:
-        "Close all idle HTTP connections."
-        for conn_list in self._idle_conns.values():
-            for conn in conn_list:
-                try:
-                    conn.close()
-                except socket.error:
-                    pass
-        self._idle_conns.clear()
-
-
-class HttpConnectionInitiate:  # pylint: disable=too-few-public-methods
-    """
-    Creates a new TCP connection to an origin.
-    """
-
-    tcp_client_class = TcpClient
-    tls_client_class = TlsClient
-
-    def __init__(
-        self,
-        client: HttpClient,
-        origin: OriginType,
-        handle_connect: Callable[[TcpConnection], None],
-        handle_error: Callable[[str, int, str], None],
-    ) -> None:
-        self.client = client
-        self.origin = origin
-        self.handle_connect = handle_connect
-        self.handle_error = handle_error
-        self._attempts = 0
-        self._dns_results: DnsResultList = []
-        (_, host, port) = origin
-        lookup(host.encode("idna"), port, socket.SOCK_STREAM, self._handle_dns)
-
-    def _handle_dns(self, dns_results: Union[DnsResultList, Exception]) -> None:
-        """
-        Handle the DNS response.
-        """
-        if isinstance(dns_results, Exception):
-            err_id = dns_results.args[0]
-            err_str = dns_results.args[1]
-            self.handle_error("gai", err_id, err_str)
-        else:
-            self._dns_results = dns_results
-            self._initiate_connection()
-
-    def _initiate_connection(self) -> None:
-        """
-        Attempt to open a connection.
-        """
-        dns_result = self._dns_results[self._attempts % len(self._dns_results)]
-        (scheme, host, _) = self.origin
-        tcp_client: Union[TcpClient, TlsClient]
-        if scheme == "http":
-            tcp_client = self.tcp_client_class(self.client.loop)
-        elif scheme == "https":
-            tcp_client = self.tls_client_class(self.client.loop)
-        else:
-            raise ValueError(f"unknown scheme {scheme}")
-        tcp_client.check_ip = self.client.check_ip
-        tcp_client.once("connect", self.handle_connect)
-        tcp_client.once("connect_error", self._handle_connect_error)
-        self._attempts += 1
-        tcp_client.connect_dns(
-            host.encode("idna"), dns_result, self.client.connect_timeout
-        )
-
-    def _handle_connect(self, tcp_conn: TcpConnection) -> None:
-        """
-        A connection succeeded.
-        """
-        self.client.conn_counts[self.origin] += 1
-        self.handle_connect(tcp_conn)
-
-    def _handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
-        """
-        A connection failed.
-        """
-        if err_type in ["access"]:
-            self.handle_error(err_type, err_id, err_str)
-        elif self._attempts > self.client.connect_attempts:
-            self.handle_error("retry", self._attempts, "Too many connection attempts")
-        else:
-            self.client.loop.schedule(0, self._initiate_connection)
-
+req_rm_hdrs = [
+    b"connection",
+    b"keep-alive",
+    b"proxy-authenticate",
+    b"proxy-authorization",
+    b"te",
+    b"trailers",
+    b"transfer-encoding",
+    b"upgrade",
+    b"host",
+]
 
 class HttpClientExchange(HttpMessageHandler, EventEmitter):
     default_state = States.QUIET
@@ -271,7 +71,9 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         uri = (self.uri or b"-").decode("utf-8", "replace")
         status.append(f"{method} <{uri}>")
         if self.tcp_conn:
-            status.append(self.tcp_conn.tcp_connected and "connected" or "disconnected")
+            status.append(
+                self.tcp_conn.tcp_connected and "connected" or "disconnected"
+            )
         status.append(HttpMessageHandler.__repr__(self))
         return f"<{', '.join(status)} at {id(self):#x}>"
 
@@ -341,9 +143,7 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
             return
         self._req_start()
         close = self.output_end(trailers)
-        if (
-            close
-        ):  # if there was a problem and we didn't ever assign a request delimiter.
+        if close:
             self.client.dead_conn(self)
 
     def res_body_pause(self, paused: bool) -> None:
@@ -523,48 +323,3 @@ class HttpClientExchange(HttpMessageHandler, EventEmitter):
         "Clear the read timeout."
         if self._read_timeout_ev:
             self._read_timeout_ev.delete()
-
-
-def test_client(
-    request_uri: bytes, out: Callable, err: Callable
-) -> None:  # pragma: no coverage
-    "A simple demonstration of a client."
-    from thor.loop import stop, run, schedule  # pylint: disable=import-outside-toplevel
-
-    cl = HttpClient()
-    cl.connect_timeout = 5
-    cl.careful = False
-    ex = cl.exchange()
-
-    @on(ex)
-    def response_start(
-        status: bytes, phrase: bytes, headers: RawHeaderListType
-    ) -> None:
-        "Print the response headers."
-        out(b"HTTP/%s %s %s\n" % (ex.res_version, status, phrase))
-        out(b"\n".join([b"%s:%s" % header for header in headers]))
-        print()
-        print()
-
-    @on(ex)
-    def error(err_msg: HttpError) -> None:
-        if err_msg:
-            err(f"\033[1;31m*** ERROR:\033[0;39m {err_msg.desc} ({err_msg.detail})\n")
-        if not err_msg.client_recoverable:
-            stop()
-
-    ex.on("response_body", out)
-
-    @on(ex)
-    def response_done(trailers: RawHeaderListType) -> None:
-        schedule(1, stop)
-
-    ex.request_start(b"GET", request_uri, [])
-    ex.request_done([])
-    run()
-
-
-if __name__ == "__main__":
-    import sys
-
-    test_client(sys.argv[1].encode("ascii"), sys.stdout.buffer.write, sys.stderr.write)
