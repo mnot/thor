@@ -470,13 +470,20 @@ class KqueueLoop(LoopBase):
     def _run_fd_events(self) -> None:
         events = self._kq.control([], self.max_ev, self.precision)
         for ev in events:
+            fileno = int(ev.ident)
+            if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined]
+                self._fd_event("fd_error", fileno)
+                continue
+            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined]
+                if ev.fflags:
+                    self._fd_event("fd_error", fileno)
+
             event_types = self._filter2events(ev.filter)
             for event_type in event_types:
-                self._fd_event(event_type, int(ev.ident))
+                self._fd_event(event_type, fileno)
+
             if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined]
-                self._fd_event("fd_close", int(ev.ident))
-            if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined]
-                pass
+                self._fd_event("fd_close", fileno)
 
 
 def make(precision: Optional[float] = None) -> LoopBase:
