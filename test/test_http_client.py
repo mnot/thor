@@ -116,14 +116,14 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+            conn.request.send(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345"
+            )
             )
             conn.request.close()
 
@@ -155,16 +155,14 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Transfer-Encoding: chunked
-
-5\r
-12345\r
-0\r
-\r
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Transfer-Encoding: chunked\r\n"
+                b"\r\n"
+                b"5\r\n"
+                b"12345\r\n"
+                b"0\r\n"
+                b"\r\n"
             )
             conn.request.close()
 
@@ -240,13 +238,11 @@ Transfer-Encoding: chunked
         def server_side(conn):
             conn.request.recv(1024)  # Eat the request
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 0\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
             )
             conn.request.close()
 
@@ -288,17 +284,15 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 110 Whatever
-This: that
-
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"HTTP/1.1 110 Whatever\r\n"
+                b"This: that\r\n"
+                b"\r\n"
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -349,14 +343,12 @@ Connection: close
         def server_side(conn):
             conn.request.recv(1024)  # Eat the request
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -583,14 +575,12 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/2.5 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"HTTP/2.5 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -622,14 +612,12 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 200 \xc3\x96K
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"HTTP/1.1 200 \xc3\x96K\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -653,14 +641,12 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-ICY/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"ICY/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -688,14 +674,12 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 15
-Connection: close
-
-12345
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 15\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -749,24 +733,20 @@ Connection: close
         def server_side(conn):
             conn.request.recv(1024)
             conn.request.sendall(
-                b"""
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-
-12345
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.recv(1024)
             conn.request.sendall(
-                b"""
-HTTP/1.1 404 Not Found
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-54321
-"""
+                b"HTTP/1.1 404 Not Found\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"54321\r\n"
             )
             conn.request.close()
 
@@ -788,7 +768,7 @@ Connection: close
                     "version": b"1.1",
                     "status": b"200",
                     "phrase": b"OK",
-                    "body": b"12345",
+                    "body": b"foo",
                 },
             )
             exchange2 = client.exchange()
@@ -815,25 +795,21 @@ Connection: close
             exchange1.request_done([])
 
         def server_side(conn):
-            conn.request.sendall(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-
-12345
-"""
+            conn.request.send(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 3\r\n"
+                b"\r\n"
+                b"foo"
             )
             time.sleep(0.2)
             conn.request.sendall(
-                b"""\
-HTTP/9.1 404 Not Found
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-54321
-"""
+                b"HTTP/9.1 404 Not Found\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"54321\r\n"
             )
             conn.request.close()
 
@@ -870,14 +846,12 @@ Connection: close
             self.conn_num += 1
             if self.conn_num > 1:
                 conn.request.send(
-                    b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                    b"HTTP/1.1 200 OK\r\n"
+                    b"Content-Type: text/plain\r\n"
+                    b"Content-Length: 5\r\n"
+                    b"Connection: close\r\n"
+                    b"\r\n"
+                    b"12345\r\n"
                 )
             conn.request.close()
 
@@ -916,14 +890,12 @@ Connection: close
             self.conn_num += 1
             if self.conn_num > 3:
                 conn.request.send(
-                    b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                    b"HTTP/1.1 200 OK\r\n"
+                    b"Content-Type: text/plain\r\n"
+                    b"Content-Length: 5\r\n"
+                    b"Connection: close\r\n"
+                    b"\r\n"
+                    b"12345\r\n"
                 )
             conn.request.close()
 
@@ -952,13 +924,11 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 304 Not Modified
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-"""
+                b"HTTP/1.1 304 Not Modified\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
             )
             conn.request.close()
 
@@ -984,14 +954,12 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 304 Not Modified
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"HTTP/1.1 304 Not Modified\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345\r\n"
             )
             conn.request.close()
 
@@ -1017,14 +985,12 @@ Connection: close
 
         def server_side(conn):
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-1234567890
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"1234567890\r\n"
             )
             conn.request.close()
 
