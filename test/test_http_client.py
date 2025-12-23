@@ -863,7 +863,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         def server_side(conn):
             self.conn_num += 1
             if self.conn_num > 1:
-                conn.request.send(
+                conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\n"
                     b"Content-Type: text/plain\r\n"
                     b"Content-Length: 5\r\n"
@@ -907,7 +907,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         def server_side(conn):
             self.conn_num += 1
             if self.conn_num > 3:
-                conn.request.send(
+                conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\n"
                     b"Content-Type: text/plain\r\n"
                     b"Content-Length: 5\r\n"
@@ -941,7 +941,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 304 Not Modified\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -971,7 +971,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 304 Not Modified\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -1002,7 +1002,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
