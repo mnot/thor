@@ -302,13 +302,14 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
     def _handle_counted(self, inbytes: bytes) -> None:
         "Handle input where the body is delimited by the Content-Length."
-        if self._input_body_left <= len(inbytes):  # got it all (and more?)
-            self.input_transfer_length += self._input_body_left
-            self.input_body(inbytes[: self._input_body_left])
+        body_left = self._input_body_left
+        if body_left <= len(inbytes):  # got it all (and more?)
+            self.input_transfer_length += body_left
+            self.input_body(inbytes[:body_left])
             self.input_end([])
             self._input_state = self.default_state
-            if inbytes[self._input_body_left :]:
-                self.handle_input(inbytes[self._input_body_left :])
+            if inbytes[body_left:]:
+                self.handle_input(inbytes[body_left:])
         else:  # got some of it
             self.input_body(inbytes)
             self.input_transfer_length += len(inbytes)
@@ -327,7 +328,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
         transfer_codes: List[bytes] = []
         content_length: Optional[int] = None
 
-        for line in header_lines:  # pylint: disable=too-many-nested-blocks
+        for line in header_lines:
             if line[:1] in [b" ", b"\t"]:  # Fold LWS
                 if hdr_tuples:
                     hdr_tuples[-1] = (
@@ -351,35 +352,37 @@ class HttpMessageHandler(metaclass=ABCMeta):
                     raise ValueError
             hdr_tuples.append((fn, fv))
 
-            if gather_conn_info:
-                f_name = fn.strip().lower()
-                f_val = fv.strip()
+            if not gather_conn_info:
+                continue
 
-                # parse connection-related headers
-                if f_name == b"connection":
-                    conn_tokens += [v.strip().lower() for v in f_val.split(b",")]
-                elif f_name == b"transfer-encoding":
-                    transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
-                elif f_name == b"content-length":
-                    if content_length is not None:
-                        try:
-                            if int(f_val) == content_length:
-                                # we have a duplicate, non-conflicting c-l.
-                                continue
-                        except ValueError:
-                            pass
-                        self.input_error(error.DuplicateCLError())
-                        if self.careful:
-                            raise ValueError
+            f_name = fn.strip().lower()
+            f_val = fv.strip()
+
+            # parse connection-related headers
+            if f_name == b"connection":
+                conn_tokens += [v.strip().lower() for v in f_val.split(b",")]
+            elif f_name == b"transfer-encoding":
+                transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
+            elif f_name == b"content-length":
+                if content_length is not None:
                     try:
-                        content_length = int(f_val)
-                        assert content_length >= 0
-                    except (ValueError, AssertionError):
-                        self.input_error(
-                            error.MalformedCLError(f_val.decode("utf-8", "replace"))
-                        )
-                        if self.careful:
-                            raise ValueError
+                        if int(f_val) == content_length:
+                            # we have a duplicate, non-conflicting c-l.
+                            continue
+                    except ValueError:
+                        pass
+                    self.input_error(error.DuplicateCLError())
+                    if self.careful:
+                        raise ValueError
+                try:
+                    content_length = int(f_val)
+                    assert content_length >= 0
+                except (ValueError, AssertionError):
+                    self.input_error(
+                        error.MalformedCLError(f_val.decode("utf-8", "replace"))
+                    )
+                    if self.careful:
+                        raise ValueError
 
         return hdr_tuples, conn_tokens, transfer_codes, content_length
 
