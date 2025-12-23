@@ -48,7 +48,13 @@ class HttpClient:
         while True:
             try:
                 conn = self._idle_conns[origin].pop()
+                if not conn.tcp_connected:
+                    import sys; sys.stderr.write(f"DEBUG: attach_conn POPPED DEAD {id(conn)} for {origin}\n")
+                    self._conn_is_dead(conn)
+                    continue
+                import sys; sys.stderr.write(f"DEBUG: attach_conn REUSE {id(conn)} (tcp {id(conn.tcp_conn)}) for {origin}\n")
             except IndexError:  # No idle conns available.
+                import sys; sys.stderr.write(f"DEBUG: attach_conn NEW for {origin}. Counts: {self.conn_counts[origin]}\n")
                 if origin in self._idle_conns and not self._idle_conns[origin]:
                     del self._idle_conns[origin]
                 self._new_conn(origin, handle_connect, handle_connect_error)
@@ -82,9 +88,11 @@ class HttpClient:
                 pass
 
         if self._req_q[origin]:
+            import sys; sys.stderr.write(f"DEBUG: release_conn Q-REUSE {id(conn)} for {origin}\n")
             handle_connect = self._req_q[origin].pop(0)[0]
             handle_connect(conn)
         elif self.idle_timeout > 0:
+            import sys; sys.stderr.write(f"DEBUG: release_conn POOL {id(conn)} (reusable={conn.reusable}) for {origin}\n")
             conn.once("close", idle_close)
             conn.idler = self.loop.schedule(self.idle_timeout, idle_close)
             self._idle_conns[origin].append(conn)
@@ -94,6 +102,7 @@ class HttpClient:
 
     def dead_conn(self, conn: HttpClientConnection) -> None:
         "Notify the client that a connection is dead."
+        import sys, time; sys.stderr.write(f"EVENT: {time.time():.4f} {conn.origin} dead_conn {id(conn)}\n")
         conn.detach()
         if conn.tcp_connected:
             conn.close()
@@ -103,6 +112,7 @@ class HttpClient:
         origin = conn.origin
         assert origin, "origin not found in _conn_is_dead"
         self.conn_counts[origin] -= 1
+        import sys, time; sys.stderr.write(f"EVENT: {time.time():.4f} {origin} _conn_is_dead {id(conn)} count={self.conn_counts[origin]}\n")
         if self.conn_counts[origin] <= 0:
             if origin in self.conn_counts:
                 del self.conn_counts[origin]
