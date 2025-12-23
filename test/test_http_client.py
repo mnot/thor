@@ -721,7 +721,7 @@ Connection: close
 
             @on(exchange1)
             def response_start(*args):
-                self.conn_id = id(exchange1.tcp_conn)
+                self.conn_id = id(exchange1.conn.tcp_conn)
 
             @on(exchange1)
             def response_done(trailers):
@@ -735,7 +735,7 @@ Connection: close
 
                 @on(exchange2)
                 def response_start(*args):
-                    self.assertEqual(self.conn_id, id(exchange2.tcp_conn))
+                    self.assertEqual(self.conn_id, id(exchange2.conn.tcp_conn))
                     self.conn_checked = True
 
                 @on(exchange2)
@@ -797,7 +797,7 @@ Connection: close
 
             @on(exchange1)
             def response_start(*args):
-                self.conn_id = id(exchange1.tcp_conn)
+                self.conn_id = id(exchange1.conn.tcp_conn)
 
             @on(exchange1)
             def response_done(trailers):
@@ -1026,6 +1026,53 @@ Connection: close
 
 1234567890
 """
+            )
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_coalesced_extra(self):
+        """
+        Verify that if the server sends data for a second response before the
+        first one is complete, and it is NOT Connection: close, it's buffered.
+        """
+
+        def client_side(client, test_host, test_port):
+            req_uri = b"http://%s:%i/" % (test_host, test_port)
+            exchange1 = client.exchange()
+            self.check_exchange(exchange1, {"body": b"12345"})
+
+            @on(exchange1)
+            def response_done(trailers):
+                exchange2 = client.exchange()
+                self.check_exchange(exchange2, {"body": b"54321"})
+
+                @on(exchange2)
+                def response_done(trailers):
+                    self.loop.stop()
+
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
+
+            exchange1.request_start(b"GET", req_uri, [])
+            exchange1.request_done([])
+
+        def server_side(conn):
+            # drain the request first
+            conn.request.recv(1024)
+
+            # Send first response and the START of the second one
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"54321"
             )
             conn.request.close()
 

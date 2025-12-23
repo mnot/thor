@@ -6,6 +6,7 @@ from thor.http.error import HttpError
 from thor.loop import stop, run, schedule
 from .client import HttpClient
 
+
 def test_client(
     request_uri: bytes, out: Callable, err: Callable
 ) -> None:  # pragma: no coverage
