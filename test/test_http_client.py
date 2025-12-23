@@ -210,14 +210,12 @@ Transfer-Encoding: chunked
 
             conn.request.settimeout(None)
             conn.request.send(
-                b"""\
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 5
-Connection: close
-
-12345
-"""
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345"
             )
             conn.request.close()
 
