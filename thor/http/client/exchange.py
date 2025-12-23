@@ -56,6 +56,7 @@ class HttpClientExchange(EventEmitter):
         self._error_sent = False
         self._retries = 0
         self._output_q: List[Tuple] = []
+        self._response_complete = False
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -176,6 +177,9 @@ class HttpClientExchange(EventEmitter):
     def conn_closed(self, state: States, delimit: Delimiters) -> None:
         "The server closed the connection."
 
+        if self._response_complete:
+            return
+
         if state in [States.QUIET, States.ERROR]:
             pass
         elif delimit == Delimiters.CLOSE:
@@ -222,6 +226,7 @@ class HttpClientExchange(EventEmitter):
 
     def input_end_notify(self, trailers: RawHeaderListType) -> None:
         "Indicate that the response body is complete."
+        self._response_complete = True
         self.emit("response_done", trailers)
 
     def input_error(self, err: HttpError, close: bool = True) -> None:
