@@ -94,7 +94,7 @@ class TestHttpClient(framework.ClientServerTestCase):
                 else:
                     self.assertEqual(str(err_msg), str(exp))
             else:
-                self.fail(f"Unexpected error: {repr(err_msg)}")
+                self.fail(f"Unexpected error: {repr(err_msg)} (expected: {expected})")
             self.loop.stop()
 
         @on(exchange)
@@ -144,15 +144,13 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
                 b"Connection: close\r\n"
                 b"\r\n"
                 b"12345"
-            )
             )
             conn.request.close()
 
@@ -183,7 +181,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Transfer-Encoding: chunked\r\n"
@@ -227,7 +225,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         def server_side(conn):
             drain(conn, b"0\r\n\r\n")
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -257,7 +255,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         def server_side(conn):
             drain(conn)
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 0\r\n"
@@ -303,7 +301,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 110 Whatever\r\n"
                 b"This: that\r\n"
                 b"\r\n"
@@ -362,7 +360,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         def server_side(conn):
             drain(conn)
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -594,7 +592,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/2.5 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -631,7 +629,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 \xc3\x96K\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -660,7 +658,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"ICY/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
@@ -693,7 +691,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.send(
+            conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 15\r\n"
