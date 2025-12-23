@@ -7,12 +7,12 @@ GITHUB_STEP_SUMMARY ?= throwaway
 
 .PHONY: test
 test: venv
-	PYTHONPATH=.:$(VENV) $(VENV)/pytest --md $(GITHUB_STEP_SUMMARY) -n auto test
+	PYTHONPATH=.:$(VENV) $(VENV)/pytest --md $(GITHUB_STEP_SUMMARY) -v -n auto test
 	rm -f throwaway
 
 .PHONY: test/*.py
 test/*.py: venv
-	PYTHONPATH=.:$(VENV) $(VENV)/pytest $@
+	PYTHONPATH=.:$(VENV) $(VENV)/pytest -v $@
 
 
 #############################################################################
