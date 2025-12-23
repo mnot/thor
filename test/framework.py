@@ -27,7 +27,7 @@ timeout_host = b"www.mnot.net"
 timeout_port = 31000
 refuse_host = test_host
 refuse_port = 45000
-timeout = 90
+timeout = 30
 
 
 class ClientServerTestCase(unittest.TestCase):
