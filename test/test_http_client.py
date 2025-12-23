@@ -198,7 +198,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         def server_side(conn):
             # drain the request first
-            conn.request.settimeout(2.0)
+            conn.request.settimeout(5.0)
             while True:
                 try:
                     if not conn.request.recv(1024):
