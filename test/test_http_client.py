@@ -760,7 +760,8 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"\r\n"
                 b"12345"
             )
-            drain(conn)
+            # Second request - use simple recv to avoid drain timeout race on slow CI
+            conn.request.recv(8192)
             conn.request.sendall(
                 b"HTTP/1.1 404 Not Found\r\n"
                 b"Content-Type: text/plain\r\n"
