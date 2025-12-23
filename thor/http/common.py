@@ -306,8 +306,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
         if body_left <= len(inbytes):  # got it all (and more?)
             self.input_transfer_length += body_left
             self.input_body(inbytes[:body_left])
-            self.input_end([])
             self._input_state = self.default_state
+            self.input_end([])
             if inbytes[body_left:]:
                 self.handle_input(inbytes[body_left:])
         else:  # got some of it
