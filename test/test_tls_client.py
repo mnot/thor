@@ -5,6 +5,7 @@ try:
 except ImportError:
     import socketserver as SocketServer
 
+import errno
 import socket
 import ssl
 import sys
@@ -108,14 +109,13 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
         self.assertEqual(self.connect_count, 1)
 
-    @pytest.mark.xfail
     def test_connect_refused(self):
         self.client.connect(framework.refuse_host, framework.refuse_port)
         self.loop.schedule(3, self.timeout)
         self.loop.run()
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
-        self.assertEqual(self.last_error, ssl.errno.EINVAL)
+        self.assertEqual(self.last_error, errno.ECONNREFUSED)
         self.assertEqual(self.timeout_hit, False)
 
     def test_connect_noname(self):
@@ -135,7 +135,7 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.connect_count, 0)
         self.assertEqual(self.error_count, 1)
         self.assertEqual(self.last_error_type, "socket")
-        self.assertEqual(self.last_error, ssl.errno.ETIMEDOUT)
+        self.assertEqual(self.last_error, errno.ETIMEDOUT)
         self.assertEqual(self.timeout_hit, False)
 
 
