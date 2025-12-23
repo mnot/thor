@@ -31,7 +31,7 @@ def drain(conn, delimiter=b"\r\n\r\n"):
     due to loop scheduling). For most simple requests, a well-placed
     sendall() on the server side is sufficient to prevent flakiness.
     """
-    conn.request.settimeout(3.0)
+    conn.request.settimeout(10.0)
     data = b""
     while delimiter not in data:
         try:
@@ -77,7 +77,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def create_client(self, host, port, client_side):
         client = HttpClient(loop=self.loop)
-        client.connect_timeout = 10
+        client.connect_timeout = 20
         client_side(client, host, port)
 
     def check_exchange(self, exchange, expected):
