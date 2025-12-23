@@ -805,7 +805,7 @@ Connection: close
                     exchange2.request_start(b"GET", req_uri, [])
                     exchange2.request_done([])
 
-                self.loop.schedule(1, start2)
+                self.loop.schedule(0.1, start2)
 
             @on(exchange2)
             def error(err_msg):
@@ -826,7 +826,7 @@ Content-Length: 5
 12345
 """
             )
-            time.sleep(2)
+            time.sleep(0.2)
             conn.request.sendall(
                 b"""\
 HTTP/9.1 404 Not Found

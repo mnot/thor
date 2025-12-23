@@ -85,7 +85,7 @@ Host: %s:%i
 """
                 % (test_host, test_port)
             )
-            time.sleep(1)
+            time.sleep(0.1)
             client_conn.close()
 
         self.go([server_side], [client_side])
@@ -107,7 +107,7 @@ Host: %s:%i\r
 """
                 % (test_host, test_port)
             )
-            time.sleep(1)
+            time.sleep(0.1)
             client_conn.close()
 
         self.go([server_side], [client_side])
@@ -130,7 +130,7 @@ Content-Length: 5
 12345"""
                 % (test_host, test_port)
             )
-            time.sleep(1)
+            time.sleep(0.1)
             client_conn.close()
 
         self.go([server_side], [client_side])
@@ -154,7 +154,7 @@ Content-Length: 5
 """
                 % (test_host, test_port)
             )
-            time.sleep(1)
+            time.sleep(0.1)
             client_conn.close()
 
         self.go([server_side], [client_side])
@@ -228,7 +228,7 @@ Content-Length: 0
 """
                 % (test_host, test_port)
             )
-            time.sleep(1)
+            time.sleep(0.1)
             client_conn.close()
 
         self.exchange_handled = False
@@ -260,7 +260,7 @@ Content-Length: 0
 #    test_host, test_port,
 #    test_host, test_port
 # ))
-#            time.sleep(1)
+#            time.sleep(0.1)
 #            client_conn.close()
 #        self.go([server_side], [client_side])
 
