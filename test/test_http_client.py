@@ -865,7 +865,6 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.conn_num = 0
 
         def server_side(conn):
-            drain(conn)
             self.conn_num += 1
             if self.conn_num > 1:
                 conn.request.sendall(
