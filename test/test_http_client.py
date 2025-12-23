@@ -25,6 +25,11 @@ def drain(conn, delimiter=b"\r\n\r\n"):
     This ensures that the test server has read the entire request (e.g., headers
     or a chunked body) before it sends a response and closes the connection,
     preventing race conditions and RST packets on slow environments.
+
+    CAUTION: Use with care for requests without bodies, as it can cause
+    ReadTimeoutErrors if the client hasn't sent the delimiter yet (e.g.,
+    due to loop scheduling). For most simple requests, a well-placed
+    sendall() on the server side is sufficient to prevent flakiness.
     """
     conn.request.settimeout(10.0)
     data = b""
@@ -254,7 +259,6 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -359,14 +363,13 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange2.request_done([])
 
         def server_side(conn):
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
                 b"Connection: close\r\n"
                 b"\r\n"
-                b"12345\r\n"
+                b"12345"
             )
             conn.request.close()
 
@@ -749,22 +752,20 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
                 b"\r\n"
-                b"12345\r\n"
+                b"12345"
             )
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 404 Not Found\r\n"
                 b"Content-Type: text/plain\r\n"
                 b"Content-Length: 5\r\n"
                 b"Connection: close\r\n"
                 b"\r\n"
-                b"54321\r\n"
+                b"54321"
             )
             conn.request.close()
 
