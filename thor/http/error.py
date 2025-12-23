@@ -19,6 +19,8 @@ class HttpError(Exception):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
+        if self.detail:
+            status.append(repr(self.detail))
         return f"<{', '.join(status)} at {id(self):#x}>"
 
 
