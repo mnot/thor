@@ -31,7 +31,7 @@ def drain(conn, delimiter=b"\r\n\r\n"):
     due to loop scheduling). For most simple requests, a well-placed
     sendall() on the server side is sufficient to prevent flakiness.
     """
-    conn.request.settimeout(10.0)
+    conn.request.settimeout(1.0)
     data = b""
     while delimiter not in data:
         try:
@@ -77,7 +77,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def create_client(self, host, port, client_side):
         client = HttpClient(loop=self.loop)
-        client.connect_timeout = 5
+        client.connect_timeout = 10
         client_side(client, host, port)
 
     def check_exchange(self, exchange, expected):
@@ -752,6 +752,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -759,6 +760,7 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"\r\n"
                 b"12345"
             )
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 404 Not Found\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -862,6 +864,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.conn_num = 0
 
         def server_side(conn):
+            drain(conn)
             self.conn_num += 1
             if self.conn_num > 1:
                 conn.request.sendall(
@@ -906,6 +909,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.conn_num = 0
 
         def server_side(conn):
+            drain(conn)
             self.conn_num += 1
             if self.conn_num > 3:
                 conn.request.sendall(
@@ -942,6 +946,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 304 Not Modified\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -972,6 +977,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 304 Not Modified\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -1003,6 +1009,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
