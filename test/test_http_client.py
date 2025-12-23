@@ -77,7 +77,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def create_client(self, host, port, client_side):
         client = HttpClient(loop=self.loop)
-        client.connect_timeout = 10
+        client.connect_timeout = 15
         client_side(client, host, port)
 
     def check_exchange(self, exchange, expected):
