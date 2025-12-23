@@ -14,8 +14,29 @@ import unittest
 import framework
 
 import thor
+import thor.http.error
 from thor.events import on
 from thor.http import HttpClient
+
+
+def drain(conn, delimiter=b"\r\n\r\n"):
+    """
+    Consume the request data from the connection until the delimiter is found.
+    This ensures that the test server has read the entire request (e.g., headers
+    or a chunked body) before it sends a response and closes the connection,
+    preventing race conditions and RST packets on slow environments.
+    """
+    conn.request.settimeout(10.0)
+    data = b""
+    while delimiter not in data:
+        try:
+            chunk = conn.request.recv(1024)
+            if not chunk:
+                break
+            data += chunk
+        except socket.timeout:
+            break
+    conn.request.settimeout(None)
 
 
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -23,6 +44,14 @@ class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 class TestHttpClient(framework.ClientServerTestCase):
+    def setUp(self):
+        super().setUp()
+        self.nonfinal_seen = False
+        self.conn_id = None
+        self.conn_checked = False
+        self.test_req_count = 0
+        self.conn_num = 0
+
     def create_server(self, server_side):
         class LittleRequestHandler(SocketServer.BaseRequestHandler):
             handle = server_side
@@ -41,10 +70,10 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         return (stop, test_port)
 
-    def create_client(self, test_host, test_port, client_side):
+    def create_client(self, host, port, client_side):
         client = HttpClient(loop=self.loop)
         client.connect_timeout = 5
-        client_side(client, test_host, test_port)
+        client_side(client, host, port)
 
     def check_exchange(self, exchange, expected):
         """
@@ -197,16 +226,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            # drain the request first
-            conn.request.settimeout(5.0)
-            while True:
-                try:
-                    if not conn.request.recv(1024):
-                        break
-                except socket.timeout:
-                    break
-
-            conn.request.settimeout(None)
+            drain(conn, b"0\r\n\r\n")
             conn.request.send(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -236,7 +256,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            conn.request.recv(1024)  # Eat the request
+            drain(conn)
             conn.request.send(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -341,7 +361,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange2.request_done([])
 
         def server_side(conn):
-            conn.request.recv(1024)  # Eat the request
+            drain(conn)
             conn.request.send(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -731,7 +751,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
-            conn.request.recv(1024)
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -739,7 +759,7 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"\r\n"
                 b"12345\r\n"
             )
-            conn.request.recv(1024)
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 404 Not Found\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -1023,8 +1043,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
-            # drain the request first
-            conn.request.recv(1024)
+            drain(conn)
 
             # Send first response and the START of the second one
             conn.request.sendall(
