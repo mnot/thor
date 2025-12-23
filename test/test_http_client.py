@@ -31,7 +31,7 @@ def drain(conn, delimiter=b"\r\n\r\n"):
     due to loop scheduling). For most simple requests, a well-placed
     sendall() on the server side is sufficient to prevent flakiness.
     """
-    conn.request.settimeout(1.0)
+    conn.request.settimeout(3.0)
     data = b""
     while delimiter not in data:
         try:
