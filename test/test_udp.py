@@ -16,7 +16,7 @@ class TestUdpEndpoint(unittest.TestCase):
     def setUp(self):
         self.loop = loop.make()
         self.ep1 = UdpEndpoint(self.loop)
-        self.ep1.bind(framework.test_host, framework.udp_port)
+        self.ep1.bind(framework.test_host, 0)
         self.ep1.on("datagram", self.input)
         self.ep1.pause(False)
         self.ep2 = UdpEndpoint()
@@ -35,16 +35,19 @@ class TestUdpEndpoint(unittest.TestCase):
         self.datagrams.append((data, host, port))
 
     def output(self, msg):
-        self.ep2.send(msg, framework.test_host, framework.udp_port)
+        port = self.ep1.sock.getsockname()[1]
+        self.ep2.send(msg, framework.test_host.decode("ascii"), port)
 
     def test_basic(self):
         self.loop.schedule(1, self.output, b"foo!")
         self.loop.schedule(2, self.output, b"bar!")
 
         def check():
-            self.assertEqual(self.datagrams[0][0], b"foo!")
-            self.assertEqual(self.datagrams[1][0], b"bar!")
-            self.loop.stop()
+            try:
+                self.assertEqual(self.datagrams[0][0], b"foo!")
+                self.assertEqual(self.datagrams[1][0], b"bar!")
+            finally:
+                self.loop.stop()
 
         self.loop.schedule(3, check)
         self.loop.run()
