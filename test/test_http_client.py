@@ -888,6 +888,7 @@ Connection: close
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
+
             @on(exchange)
             def response_done(trailers):
                 self.fail("Should have failed")

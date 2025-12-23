@@ -203,7 +203,6 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 200 OK", self.res)
         self.assertIn(b"hello", self.res)
 
-
     def test_reentrancy(self):
         def server_side(server):
             def check(exchange):
@@ -234,6 +233,8 @@ Content-Length: 0
         self.exchange_handled = False
         self.go([server_side], [client_side])
         self.assertTrue(self.exchange_handled)
+
+
 #    def test_pipeline(self):
 #        def server_side(server):
 #            server.ex_count = 0
