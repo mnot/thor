@@ -1,16 +1,15 @@
 import sys
 from typing import Callable
+from thor.events import on
+from thor.http.common import RawHeaderListType
+from thor.http.error import HttpError
+from thor.loop import stop, run, schedule
 from .client import HttpClient
 
 def test_client(
     request_uri: bytes, out: Callable, err: Callable
 ) -> None:  # pragma: no coverage
     "A simple demonstration of a client."
-    from thor.events import on  # pylint: disable=import-outside-toplevel
-    from thor.http.common import RawHeaderListType  # pylint: disable=import-outside-toplevel
-    from thor.http.error import HttpError  # pylint: disable=import-outside-toplevel
-    from thor.loop import stop, run, schedule  # pylint: disable=import-outside-toplevel
-
     cl = HttpClient()
     cl.connect_timeout = 5
     cl.careful = False
