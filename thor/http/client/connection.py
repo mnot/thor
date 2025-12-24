@@ -59,6 +59,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._input_body_left = 0
         self._output_state = States.WAITING
         self._output_delimit = Delimiters.NONE
+        # Reset per-message metrics
+        self.input_header_length = 0
+        self.input_transfer_length = 0
         self.tcp_conn.pause(False)
         if self._input_buffer:
             self.handle_input(b"")

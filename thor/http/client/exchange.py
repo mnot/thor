@@ -145,6 +145,20 @@ class HttpClientExchange(EventEmitter):
         if self.conn and self.conn.tcp_connected:
             self.conn.tcp_conn.pause(paused)
 
+    @property
+    def input_transfer_length(self) -> int:
+        """Total bytes received from the network for this response (per-message metric)."""
+        if self.conn:
+            return self.conn.input_transfer_length
+        return 0
+
+    @property
+    def input_header_length(self) -> int:
+        """Bytes received for response headers (per-message metric)."""
+        if self.conn:
+            return self.conn.input_header_length
+        return 0
+
     def handle_connect(self, conn: HttpClientConnection) -> None:
         "The connection has succeeded."
         self.conn = conn
