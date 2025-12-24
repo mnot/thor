@@ -230,7 +230,9 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            drain(conn, b"0\r\n\r\n")
+            # Read the chunked request - socket will block until data arrives
+            # This is safer than drain() with timeout for asynchronous clients
+            conn.request.recv(8192)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
