@@ -9,6 +9,7 @@ except ImportError:
 import sys
 import time
 import socket
+import threading
 import unittest
 
 import framework
@@ -863,10 +864,14 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         self.conn_num = 0
+        self.conn_lock = threading.Lock()
 
         def server_side(conn):
-            self.conn_num += 1
-            if self.conn_num > 1:
+            with self.conn_lock:
+                self.conn_num += 1
+                send_response = self.conn_num > 1
+            
+            if send_response:
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\n"
                     b"Content-Type: text/plain\r\n"
@@ -907,11 +912,15 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         self.conn_num = 0
+        self.conn_lock = threading.Lock()
 
         def server_side(conn):
             drain(conn)
-            self.conn_num += 1
-            if self.conn_num > 3:
+            with self.conn_lock:
+                self.conn_num += 1
+                send_response = self.conn_num > 3
+            
+            if send_response:
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\n"
                     b"Content-Type: text/plain\r\n"
