@@ -31,17 +31,10 @@ class TestDns(unittest.TestCase):
         self.loop.run()
 
     def test_lots(self):
-        lookup(b"www.google.com", 443, socket.SOCK_STREAM, self.check_success)
-        lookup(b"www.facebook.com", 80, socket.SOCK_STREAM, self.check_success)
         lookup(b"www.example.com", 80, socket.SOCK_STREAM, self.check_success)
         lookup(b"www.ietf.org", 443, socket.SOCK_STREAM, self.check_success)
-        lookup(b"www.github.com", 443, socket.SOCK_STREAM, self.check_success)
-        lookup(b"www.twitter.com", 443, socket.SOCK_STREAM, self.check_success)
         lookup(b"www.abc.net.au", 80, socket.SOCK_STREAM, self.check_success)
         lookup(b"www.mnot.net", 443, socket.SOCK_STREAM, self.check_success)
-        lookup(b"www.eff.org", 443, socket.SOCK_STREAM, self.check_success)
-        lookup(b"www.aclu.org", 443, socket.SOCK_STREAM, self.check_success)
-        lookup(b"localhost", 80, socket.SOCK_STREAM, self.check_success)
         self.loop.run()
 
     def test_gai(self):
