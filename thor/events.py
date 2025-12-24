@@ -11,6 +11,11 @@ import contextvars
 from collections import defaultdict
 from typing import Optional, Any, Callable, Dict, List
 
+# ContextVar to track if we're already executing within a context wrapper
+_in_context_wrapper: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_in_context_wrapper", default=False
+)
+
 
 class EventEmitter:
     """
@@ -122,7 +127,19 @@ class ContextWrapper:
         self.__name__ = getattr(listener, "__name__", "listener")
 
     def __call__(self, *args: Any, **lwargs: Any) -> Any:
-        return self.context.run(self.listener, *args, **lwargs)
+        # If we're already executing within a context wrapper, don't nest
+        if _in_context_wrapper.get():
+            return self.listener(*args, **lwargs)
+
+        # Mark that we're in a context wrapper and run the listener
+        def run_with_flag() -> Any:
+            _in_context_wrapper.set(True)
+            try:
+                return self.listener(*args, **lwargs)
+            finally:
+                _in_context_wrapper.set(False)
+
+        return self.context.run(run_with_flag)
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, ContextWrapper):
