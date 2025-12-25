@@ -955,7 +955,6 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 304 Not Modified\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -986,7 +985,6 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 304 Not Modified\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -1018,7 +1016,6 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -1058,8 +1055,6 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
-            drain(conn)
-
             # Send first response and the START of the second one
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
