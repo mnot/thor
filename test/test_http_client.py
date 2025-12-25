@@ -761,8 +761,15 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"\r\n"
                 b"12345"
             )
-            # Second request - use simple recv to avoid drain timeout race on slow CI
-            conn.request.recv(8192)
+            # Second request - use recv with timeout to avoid indefinite hang
+            conn.request.settimeout(30.0)
+            try:
+                conn.request.recv(8192)
+            except socket.timeout:
+                pass  # Client didn't send - close anyway
+            finally:
+                conn.request.settimeout(None)
+            
             conn.request.sendall(
                 b"HTTP/1.1 404 Not Found\r\n"
                 b"Content-Type: text/plain\r\n"
