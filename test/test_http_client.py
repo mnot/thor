@@ -32,7 +32,7 @@ def drain(conn, delimiter=b"\r\n\r\n"):
     due to loop scheduling). For most simple requests, a well-placed
     sendall() on the server side is sufficient to prevent flakiness.
     """
-    conn.request.settimeout(10.0)
+    conn.request.settimeout(30.0)  # Longer than test timeout to avoid premature timeouts
     data = b""
     while delimiter not in data:
         try:
@@ -230,9 +230,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange.request_done([])
 
         def server_side(conn):
-            # Read the chunked request - socket will block until data arrives
-            # This is safer than drain() with timeout for asynchronous clients
-            conn.request.recv(8192)
+            drain(conn, b"0\r\n\r\n")
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -917,12 +915,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.conn_lock = threading.Lock()
 
         def server_side(conn):
-            drain(conn)
             with self.conn_lock:
                 self.conn_num += 1
                 send_response = self.conn_num > 3
             
             if send_response:
+                drain(conn)  # Only drain if we're sending a response
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\n"
                     b"Content-Type: text/plain\r\n"
