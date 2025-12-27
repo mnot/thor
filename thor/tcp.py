@@ -246,11 +246,12 @@ class TcpServer(EventSource):
         port: int,
         sock: Optional[socket.socket] = None,
         loop: Optional[LoopBase] = None,
+        backlog: Optional[int] = None,
     ) -> None:
         EventSource.__init__(self, loop)
         self.host = host
         self.port = port
-        self.sock: Optional[socket.socket] = sock or server_listen(host, port)
+        self.sock: Optional[socket.socket] = sock or server_listen(host, port, backlog)
         self.on("fd_readable", self.handle_accept)
         # self.sock is guaranteed to be a socket here because of server_listen,
         # but can become None later.
