@@ -191,7 +191,7 @@ class HttpClientExchange(EventEmitter):
     def conn_closed(self, state: States, delimit: Delimiters) -> None:
         "The server closed the connection."
 
-        if self._response_complete:
+        if self._response_complete or self._error_sent:
             return
 
         if state in [States.QUIET, States.ERROR]:
@@ -240,10 +240,14 @@ class HttpClientExchange(EventEmitter):
 
     def input_end_notify(self, trailers: RawHeaderListType) -> None:
         "Indicate that the response body is complete."
+        if self._response_complete or self._error_sent:
+            return
         self._response_complete = True
         self.emit("response_done", trailers)
 
     def input_error(self, err: HttpError, close: bool = True) -> None:
         "Indicate an error state."
+        if self._error_sent:
+            return
         self._error_sent = True
         self.emit("error", err)
