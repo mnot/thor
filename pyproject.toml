@@ -7,16 +7,11 @@ authors = [
 description = "Simple Event-Driven IO for Python"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {file = "LICENSE.md"}
+license = "MIT"
+license-files = ["LICENSE.md"]
 classifiers = [
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python",
-    "Operating System :: POSIX",
-    "Topic :: Internet :: WWW/HTTP",
-    "Topic :: Internet :: Proxy Servers",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
-    "Topic :: Software Development :: Libraries :: Python Modules"
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta"
 ]
 
 dependencies = [
@@ -44,6 +39,8 @@ version = {attr = "thor.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["thor", "thor.*"]
+namespaces = false
 
 [tool.setuptools]
 include-package-data = true
