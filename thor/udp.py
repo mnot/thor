@@ -83,7 +83,7 @@ class UdpEndpoint(EventSource):
         try:
             self.sock.sendto(datagram, (host, port))
         except socket.error as why:
-            if why in self._block_errs:
+            if why.args[0] in self._block_errs:
                 pass  # we drop these on the floor. It's UDP, after all.
             else:
                 raise
