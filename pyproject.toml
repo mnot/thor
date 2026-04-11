@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy", "black", "pylint", "pytest", "pytest-xdist",
+dev = ["mypy", "black", "isort", "pylint", "pytest", "pytest-xdist",
     "py", "pytest-md", "validate-pyproject", "build"]
 # See https://github.com/kevlened/pytest-parallel/issues/118
 
@@ -94,3 +94,6 @@ min-public-methods=1
 
 [tool.pylint.similarities]
 min-similarity-lines = 10
+
+[tool.isort]
+profile = "black"
