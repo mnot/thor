@@ -5,8 +5,8 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
 import thor
-from thor.http.common import OriginType
 from thor.loop import LoopBase
+from thor.types import OriginType
 
 from .connection import HttpClientConnection
 from .exchange import HttpClientExchange
@@ -31,9 +31,15 @@ class HttpClient:
             list
         )
         self.conn_counts: Dict[OriginType, int] = defaultdict(int)
-        self._req_q: Dict[OriginType, List[Tuple[Callable, Callable]]] = defaultdict(
-            list
-        )
+        self._req_q: Dict[
+            OriginType,
+            List[
+                Tuple[
+                    Callable[[HttpClientConnection], None],
+                    Callable[[str, int, str], None],
+                ]
+            ],
+        ] = defaultdict(list)
         self.loop.once("stop", self._close_conns)
 
     def exchange(self) -> HttpClientExchange:
@@ -43,7 +49,7 @@ class HttpClient:
         self,
         origin: OriginType,
         handle_connect: Callable[[HttpClientConnection], None],
-        handle_connect_error: Callable,
+        handle_connect_error: Callable[[str, int, str], None],
     ) -> None:
         "Find an idle connection for origin, or create a new one."
         while True:

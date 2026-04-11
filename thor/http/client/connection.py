@@ -7,8 +7,6 @@ from thor.http import error
 from thor.http.common import (
     Delimiters,
     HttpMessageHandler,
-    OriginType,
-    RawHeaderListType,
     States,
     no_body_status,
 )
@@ -18,6 +16,7 @@ from thor.http.error import (
 )
 from thor.loop import ScheduledEvent
 from thor.tcp import TcpConnection
+from thor.types import OriginType, RawHeaderListType
 
 if TYPE_CHECKING:
     from .client import HttpClient

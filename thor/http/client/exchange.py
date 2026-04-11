@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 from thor.events import EventEmitter
 from thor.http.common import (
     Delimiters,
-    OriginType,
-    RawHeaderListType,
     States,
     header_names,
     idempotent_methods,
@@ -19,6 +17,7 @@ from thor.http.error import (
     UrlError,
 )
 from thor.http.uri import parse_uri
+from thor.types import OriginType, RawHeaderListType
 
 if TYPE_CHECKING:
     from thor.loop import ScheduledEvent
@@ -57,7 +56,7 @@ class HttpClientExchange(EventEmitter):
         self._req_started = False
         self._error_sent = False
         self._retries = 0
-        self._output_q: List[Tuple] = []
+        self._output_q: List[Tuple[Any, ...]] = []
         self._response_complete = False
 
     def __repr__(self) -> str:

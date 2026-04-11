@@ -10,23 +10,15 @@ import dns.inet
 import dns.resolver
 from dns.exception import DNSException
 
-POOL_SIZE = 10
+from thor.types import Address, DnsResult, DnsResultList
 
-Address = Union[Tuple[str, int], Tuple[str, int, int, int]]
-DnsResult = Tuple[
-    socket.AddressFamily,  # pylint: disable=no-member
-    socket.SocketKind,  # pylint: disable=no-member
-    int,
-    str,
-    Address,
-]
-DnsResultList = List[DnsResult]
+POOL_SIZE = 10
 
 
 def lookup(host: bytes, port: int, proto: int, cb: Callable[..., None]) -> None:
     job = _pool.submit(_lookup, host, port, proto)
 
-    def done(ff: Future) -> None:
+    def done(ff: Future[Union[DnsResultList, Exception]]) -> None:
         cb(ff.result())
 
     job.add_done_callback(done)
@@ -81,7 +73,7 @@ def _sort_dns_results(results: DnsResultList) -> DnsResultList:
     return list(_roundrobin(ipv6results, ipv4results))
 
 
-def _roundrobin(*iterables: Iterable) -> Iterable[Any]:
+def _roundrobin(*iterables: Iterable[Any]) -> Iterable[Any]:
     "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
     # Recipe credited to George Sakkis
     num_active = len(iterables)

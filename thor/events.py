@@ -11,6 +11,8 @@ import contextvars
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional
 
+from thor.types import EventListener
+
 # ContextVar to track if we're already executing within a context wrapper
 _in_context_wrapper: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_in_context_wrapper", default=False
@@ -23,7 +25,7 @@ class EventEmitter:
     """
 
     def __init__(self) -> None:
-        self.__events: Dict[str, List[Callable]] = defaultdict(list)
+        self.__events: Dict[str, List[EventListener]] = defaultdict(list)
         self.__sink: object = None
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -34,7 +36,7 @@ class EventEmitter:
             pass
         return state
 
-    def on(self, event: str, listener: Callable) -> None:
+    def on(self, event: str, listener: EventListener) -> None:
         """
         Call listener when event is emitted.
         """
@@ -45,7 +47,7 @@ class EventEmitter:
         self.__events[event].append(wrapped)
         self.emit("newListener", event, wrapped)
 
-    def once(self, event: str, listener: Callable) -> None:
+    def once(self, event: str, listener: EventListener) -> None:
         """
         Call listener the first time event is emitted.
         """
@@ -57,7 +59,7 @@ class EventEmitter:
         mycall.__name__ = getattr(listener, "__name__", "listener")
         self.on(event, mycall)
 
-    def remove_listener(self, event: str, listener: Callable) -> None:
+    def remove_listener(self, event: str, listener: EventListener) -> None:
         """
         Remove a specific listener from an event.
 
@@ -80,7 +82,7 @@ class EventEmitter:
         else:
             self.__events = defaultdict(list)
 
-    def listeners(self, event: str) -> List[Callable]:
+    def listeners(self, event: str) -> List[EventListener]:
         """
         Return a list of listeners for an event.
         """
@@ -121,7 +123,7 @@ class ContextWrapper:
     the listener within it.
     """
 
-    def __init__(self, listener: Callable) -> None:
+    def __init__(self, listener: EventListener) -> None:
         self.listener = listener
         self.context = contextvars.copy_context()
         self.__name__ = getattr(listener, "__name__", "listener")
@@ -150,13 +152,13 @@ class ContextWrapper:
         return hash(self.listener)
 
 
-def on(obj: EventEmitter, event: Optional[str] = None) -> Callable:
+def on(obj: EventEmitter, event: Optional[str] = None) -> Callable[..., EventListener]:
     """
     Decorator to call a function when an object emits
     the specified event.
     """
 
-    def wrap(funk: Callable) -> Callable:
+    def wrap(funk: EventListener) -> EventListener:
         name = getattr(funk, "__name__", "listener")
         obj.on(event or name, funk)
         return funk

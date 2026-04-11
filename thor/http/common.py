@@ -13,9 +13,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple
 
 from thor.http import error
-
-RawHeaderListType = List[Tuple[bytes, bytes]]
-OriginType = Tuple[str, str, int]
+from thor.types import RawHeaderListType
 
 LINESEP = b"\r\n"
 NEWLINE = ord("\n")

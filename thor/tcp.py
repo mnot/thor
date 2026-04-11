@@ -17,8 +17,8 @@ import socket
 import sys
 from typing import Callable, List, Optional, Set
 
-from thor.dns import Address, DnsResult
 from thor.loop import EventSource, LoopBase, ScheduledEvent, schedule
+from thor.types import Address, DnsResult
 
 
 class TcpConnection(EventSource):
@@ -464,7 +464,7 @@ if __name__ == "__main__":
         conn.pause(False)
 
         def echo(chunk: bytes) -> None:
-            if chunk.strip().lower() in ["quit", "stop"]:
+            if chunk.strip().lower() in [b"quit", b"stop"]:
                 stop()
             else:
                 conn.write(b"-> %s" % chunk)

@@ -1,16 +1,16 @@
 import sys
-from typing import Callable
+from typing import Any, Callable
 
 from thor.events import on
-from thor.http.common import RawHeaderListType
 from thor.http.error import HttpError
 from thor.loop import run, schedule, stop
+from thor.types import RawHeaderListType
 
 from .client import HttpClient
 
 
 def test_client(
-    request_uri: bytes, out: Callable, err: Callable
+    request_uri: bytes, out: Callable[[bytes], Any], err: Callable[[str], Any]
 ) -> None:  # pragma: no coverage
     "A simple demonstration of a client."
     cl = HttpClient()

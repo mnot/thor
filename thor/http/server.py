@@ -32,8 +32,7 @@ from thor.http.error import (
 )
 from thor.loop import LoopBase, ScheduledEvent
 from thor.tcp import TcpConnection, TcpServer
-
-RawHeaderListType = List[Tuple[bytes, bytes]]
+from thor.types import RawHeaderListType
 
 
 class HttpServer(EventEmitter):

@@ -16,16 +16,15 @@ from abc import ABCMeta, abstractmethod
 from functools import partial
 from typing import (
     Any,
-    Callable,
     Dict,
     Iterable,
     List,
     Optional,
     Set,
-    Tuple,
 )
 
 from thor.events import EventEmitter
+from thor.types import EventListener, ScheduledEventTuple
 
 __all__ = ["run", "stop", "schedule", "time"]
 
@@ -90,7 +89,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         self.running = False  # whether or not the loop is running (read-only)
         self.debug = False
         self.__profiler: cProfile.Profile
-        self.__sched_events: List[Tuple[float, Callable]] = []
+        self.__sched_events: List[ScheduledEventTuple] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__last_event_check: float = 0.0
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
@@ -163,7 +162,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             else:
                 break
 
-    def scheduled_events(self) -> List[Tuple[float, Callable]]:
+    def scheduled_events(self) -> List[ScheduledEventTuple]:
         """
         Return a list of (delay, callback) tuples for currently scheduled events.
         Delay is in seconds, measured from call time.
@@ -213,7 +212,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         return systime.time()
 
     def schedule(
-        self, delta: float, callback: Callable, *args: Any
+        self, delta: float, callback: EventListener, *args: Any
     ) -> "ScheduledEvent":
         """
         Schedule callable callback to be run in delta seconds with *args.
@@ -235,14 +234,16 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             self._run_scheduled_events()
         return ScheduledEvent(self, new_event)
 
-    def schedule_del(self, event: Tuple[float, Callable]) -> None:
+    def schedule_del(self, event: ScheduledEventTuple) -> None:
         try:
             self.__sched_events.remove(event)
         except ValueError:  # already gone
             pass
 
     @staticmethod
-    def _insort(li: List, thing: Any, lo: int = 0, hi: Optional[int] = None) -> None:
+    def _insort(
+        li: List[Any], thing: Any, lo: int = 0, hi: Optional[int] = None
+    ) -> None:
         if lo < 0:
             raise ValueError("lo must be non-negative")
         if hi is None:
@@ -278,7 +279,7 @@ class ScheduledEvent:
     Holds a scheduled event.
     """
 
-    def __init__(self, loop: LoopBase, event: Tuple[float, Callable]) -> None:
+    def __init__(self, loop: LoopBase, event: ScheduledEventTuple) -> None:
         self._loop = loop
         self._event = event
         self._deleted = False

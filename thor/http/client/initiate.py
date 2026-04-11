@@ -3,10 +3,10 @@ from __future__ import annotations
 import socket
 from typing import TYPE_CHECKING, Callable, Union
 
-from thor.dns import DnsResultList, lookup
-from thor.http.common import OriginType
+from thor.dns import lookup
 from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
+from thor.types import DnsResultList, OriginType
 
 from .connection import HttpClientConnection
 
