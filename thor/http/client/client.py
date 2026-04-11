@@ -4,8 +4,7 @@ import socket
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
-import thor
-from thor.loop import LoopBase
+from thor.loop import LoopBase, _loop
 from thor.types import OriginType
 
 from .connection import HttpClientConnection
@@ -17,7 +16,7 @@ class HttpClient:
     "An asynchronous HTTP client."
 
     def __init__(self, loop: Optional[LoopBase] = None) -> None:
-        self.loop = loop or thor.loop._loop
+        self.loop = loop or _loop
         self.idle_timeout: int = 60  # seconds
         self.connect_attempts: int = 3
         self.connect_timeout: int = 3  # seconds

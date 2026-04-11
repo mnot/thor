@@ -34,6 +34,36 @@ THE SOFTWARE.
 __version__ = "0.12.6"
 
 from thor.events import on
-from thor.loop import run, schedule, stop, time
-from thor.tcp import TcpClient, TcpServer
+from thor.http import (
+    HttpClient,
+    HttpClientExchange,
+    HttpServer,
+    HttpServerExchange,
+    OriginType,
+    RawHeaderListType,
+)
+from thor.loop import run, schedule, stop
+from thor.tcp import TcpClient, TcpConnection, TcpServer
+from thor.types import Address, DnsResult, DnsResultList, EventListener
 from thor.udp import UdpEndpoint
+
+__all__ = [
+    "on",
+    "run",
+    "schedule",
+    "stop",
+    "TcpClient",
+    "TcpServer",
+    "TcpConnection",
+    "UdpEndpoint",
+    "HttpClient",
+    "HttpClientExchange",
+    "HttpServer",
+    "HttpServerExchange",
+    "EventListener",
+    "RawHeaderListType",
+    "OriginType",
+    "Address",
+    "DnsResult",
+    "DnsResultList",
+]
