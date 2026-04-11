@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-from concurrent.futures import Future, ThreadPoolExecutor
-from itertools import cycle, islice
 import socket
 import sys
-from typing import Callable, Union, Tuple, List, Iterable, Any, cast
+from concurrent.futures import Future, ThreadPoolExecutor
+from itertools import cycle, islice
+from typing import Any, Callable, Iterable, List, Tuple, Union, cast
 
 import dns.inet
 import dns.resolver

@@ -1,6 +1,6 @@
-from urllib.parse import urlsplit, urlunsplit
 from string import ascii_letters, digits
 from typing import Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 from thor.http.error import UrlError
 
@@ -11,7 +11,7 @@ def parse_uri(uri: bytes) -> Tuple[str, str, int, bytes, bytes]:
     Returns None if there is an error, otherwise the origin.
     """
     try:
-        (schemeb, authority, path, query, _) = urlsplit(uri)
+        schemeb, authority, path, query, _ = urlsplit(uri)
     except UnicodeDecodeError:
         raise UrlError("URL has non-ascii characters")
     except ValueError as why:

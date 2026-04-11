@@ -8,25 +8,24 @@ Python's built-in poll / epoll / kqueue support.
 """
 
 import contextvars
-from abc import ABCMeta, abstractmethod
 import cProfile
 import errno
-from functools import partial
 import select
 import time as systime
+from abc import ABCMeta, abstractmethod
+from functools import partial
 from typing import (
+    Any,
     Callable,
-    List,
     Dict,
+    Iterable,
+    List,
     Optional,
     Set,
-    Iterable,
     Tuple,
-    Any,
 )
 
 from thor.events import EventEmitter
-
 
 __all__ = ["run", "stop", "schedule", "time"]
 

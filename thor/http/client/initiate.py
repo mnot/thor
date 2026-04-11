@@ -1,11 +1,13 @@
 from __future__ import annotations
-import socket
-from typing import Callable, Union, TYPE_CHECKING
 
-from thor.dns import lookup, DnsResultList
+import socket
+from typing import TYPE_CHECKING, Callable, Union
+
+from thor.dns import DnsResultList, lookup
+from thor.http.common import OriginType
 from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
-from thor.http.common import OriginType
+
 from .connection import HttpClientConnection
 
 if TYPE_CHECKING:
@@ -37,7 +39,7 @@ def initiate_connection(
     def initiate_internal() -> None:
         nonlocal attempts
         dns_result = dns_results[attempts % len(dns_results)]
-        (scheme, host, _) = origin
+        scheme, host, _ = origin
         if scheme == "http":
             tcp_client: Union[TcpClient, TlsClient] = TcpClient(client.loop)
         elif scheme == "https":
@@ -63,5 +65,5 @@ def initiate_connection(
         else:
             client.loop.schedule(0, initiate_internal)
 
-    (_, host, port) = origin
+    _, host, port = origin
     lookup(host.encode("idna"), port, socket.SOCK_STREAM, handle_dns)

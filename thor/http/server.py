@@ -13,26 +13,25 @@ will block the entire server.
 
 import os
 import sys
-from typing import Optional, List, Tuple, Any
+from typing import Any, List, Optional, Tuple
 
 from thor.events import EventEmitter, on
-from thor.loop import LoopBase, ScheduledEvent
-from thor.tcp import TcpServer, TcpConnection
-
 from thor.http.common import (
+    Delimiters,
     HttpMessageHandler,
     States,
-    Delimiters,
-    hop_by_hop_hdrs,
     get_header,
     header_names,
+    hop_by_hop_hdrs,
 )
 from thor.http.error import (
+    HostRequiredError,
     HttpError,
     HttpVersionError,
-    HostRequiredError,
     TransferCodeError,
 )
+from thor.loop import LoopBase, ScheduledEvent
+from thor.tcp import TcpConnection, TcpServer
 
 RawHeaderListType = List[Tuple[bytes, bytes]]
 

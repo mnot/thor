@@ -13,13 +13,12 @@ you (using a 'data' event), and you push data to the network connection
 
 import errno
 import os
-import sys
 import socket
-from typing import Optional, List, Callable, Set
+import sys
+from typing import Callable, List, Optional, Set
 
-from thor.dns import DnsResult, Address
-from thor.loop import EventSource, LoopBase, schedule
-from thor.loop import ScheduledEvent
+from thor.dns import Address, DnsResult
+from thor.loop import EventSource, LoopBase, ScheduledEvent, schedule
 
 
 class TcpConnection(EventSource):

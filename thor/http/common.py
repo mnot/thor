@@ -10,7 +10,7 @@ for the parsing portions of the HTTP client and server.
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
-from typing import Optional, Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from thor.http import error
 

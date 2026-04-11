@@ -1,9 +1,11 @@
 import sys
 from typing import Callable
+
 from thor.events import on
 from thor.http.common import RawHeaderListType
 from thor.http.error import HttpError
-from thor.loop import stop, run, schedule
+from thor.loop import run, schedule, stop
+
 from .client import HttpClient
 
 

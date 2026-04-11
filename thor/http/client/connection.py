@@ -1,22 +1,23 @@
 from __future__ import annotations
-from typing import Optional, List, Tuple, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from thor.events import EventEmitter
-from thor.tcp import TcpConnection
+from thor.http import error
 from thor.http.common import (
-    HttpMessageHandler,
-    States,
     Delimiters,
-    RawHeaderListType,
+    HttpMessageHandler,
     OriginType,
+    RawHeaderListType,
+    States,
     no_body_status,
 )
-from thor.http import error
 from thor.http.error import (
-    StartLineError,
     HttpVersionError,
+    StartLineError,
 )
 from thor.loop import ScheduledEvent
+from thor.tcp import TcpConnection
 
 if TYPE_CHECKING:
     from .client import HttpClient

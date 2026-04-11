@@ -9,7 +9,7 @@ Event utilities, including:
 
 import contextvars
 from collections import defaultdict
-from typing import Optional, Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 # ContextVar to track if we're already executing within a context wrapper
 _in_context_wrapper: contextvars.ContextVar[bool] = contextvars.ContextVar(

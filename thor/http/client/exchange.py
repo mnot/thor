@@ -1,27 +1,29 @@
 from __future__ import annotations
-from typing import Optional, List, Tuple, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from thor.events import EventEmitter
-from thor.http.uri import parse_uri
 from thor.http.common import (
-    States,
     Delimiters,
-    idempotent_methods,
-    header_names,
-    RawHeaderListType,
     OriginType,
+    RawHeaderListType,
+    States,
+    header_names,
+    idempotent_methods,
 )
 from thor.http.error import (
-    UrlError,
-    ConnectError,
     AccessError,
-    HttpError,
+    ConnectError,
     DnsError,
+    HttpError,
+    UrlError,
 )
+from thor.http.uri import parse_uri
 
 if TYPE_CHECKING:
     from thor.loop import ScheduledEvent
     from thor.tcp import TcpConnection
+
     from .client import HttpClient
     from .connection import HttpClientConnection
 
@@ -78,7 +80,7 @@ class HttpClientExchange(EventEmitter):
         self.uri = uri
         self.req_hdrs = req_hdrs
         try:
-            (scheme, host, port, authority, req_target) = parse_uri(self.uri)
+            scheme, host, port, authority, req_target = parse_uri(self.uri)
             self.origin = (scheme, host, port)
             self.authority = authority
             self.req_target = req_target

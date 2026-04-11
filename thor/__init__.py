@@ -9,7 +9,6 @@ high-performance HTTP intermediaries.
 
 from __future__ import absolute_import
 
-
 __author__ = "Mark Nottingham <mnot@mnot.net>"
 __copyright__ = """\
 Copyright (c) 2005- Mark Nottingham
@@ -34,7 +33,7 @@ THE SOFTWARE.
 """
 __version__ = "0.12.6"
 
-from thor.loop import run, stop, time, schedule
+from thor.events import on
+from thor.loop import run, schedule, stop, time
 from thor.tcp import TcpClient, TcpServer
 from thor.udp import UdpEndpoint
-from thor.events import on

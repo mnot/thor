@@ -11,7 +11,7 @@ import errno
 import socket
 from typing import Optional, Union
 
-from thor.dns import lookup, DnsResultList
+from thor.dns import DnsResultList, lookup
 from thor.loop import EventSource, LoopBase
 
 

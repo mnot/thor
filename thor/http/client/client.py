@@ -1,15 +1,16 @@
 from __future__ import annotations
-from collections import defaultdict
+
 import socket
-from typing import Optional, Callable, List, Dict, Tuple
+from collections import defaultdict
+from typing import Callable, Dict, List, Optional, Tuple
 
 import thor
-from thor.loop import LoopBase
 from thor.http.common import OriginType
+from thor.loop import LoopBase
 
-from .initiate import initiate_connection
-from .exchange import HttpClientExchange
 from .connection import HttpClientConnection
+from .exchange import HttpClientExchange
+from .initiate import initiate_connection
 
 
 class HttpClient:
@@ -110,7 +111,7 @@ class HttpClient:
             if origin in self.conn_counts:
                 del self.conn_counts[origin]
             if self._req_q[origin]:
-                (handle_connect, handle_connect_error) = self._req_q[origin].pop(0)
+                handle_connect, handle_connect_error = self._req_q[origin].pop(0)
                 self._new_conn(origin, handle_connect, handle_connect_error)
 
     def _new_conn(
