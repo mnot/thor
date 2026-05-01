@@ -369,10 +369,16 @@ class EpollLoop(LoopBase):
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         eventmask = self._eventmask(events)
         if fd in self._fd_targets:
-            self._epoll.modify(fd, eventmask)
-        else:
-            self._fd_targets[fd] = target
-            self._epoll.register(fd, eventmask)
+            try:
+                self._epoll.modify(fd, eventmask)
+                return
+            except FileNotFoundError:
+                pass  # fd was recycled by OS; fall through to register fresh
+            except OSError as why:
+                if why.errno != errno.EBADF:
+                    raise
+        self._fd_targets[fd] = target
+        self._epoll.register(fd, eventmask)
 
     def unregister_fd(self, fd: int) -> None:
         try:
