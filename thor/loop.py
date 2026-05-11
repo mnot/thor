@@ -49,10 +49,14 @@ class EventSource(EventEmitter):
         Register myself with the loop using file descriptor fd.
         If event is specified, start emitting it.
         """
+        if self._fd >= 0 and self._fd != fd:
+            self.loop.unregister_fd(self._fd)
         self._fd = fd
         self.loop.register_fd(self._fd, [], self)
         if event:
-            self.event_add(event)
+            self._interesting_events.add(event)
+        for interesting_event in self._interesting_events:
+            self.loop.event_add(self._fd, interesting_event)
 
     def unregister_fd(self) -> None:
         "Unregister myself from the loop."
@@ -64,13 +68,15 @@ class EventSource(EventEmitter):
         "Start emitting the given event."
         if event not in self._interesting_events:
             self._interesting_events.add(event)
-            self.loop.event_add(self._fd, event)
+            if self._fd >= 0:
+                self.loop.event_add(self._fd, event)
 
     def event_del(self, event: str) -> None:
         "Stop emitting the given event."
         if event in self._interesting_events:
             self._interesting_events.remove(event)
-            self.loop.event_del(self._fd, event)
+            if self._fd >= 0:
+                self.loop.event_del(self._fd, event)
 
     def interesting_events(self) -> Set[str]:
         return self._interesting_events
@@ -85,6 +91,8 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
 
     def __init__(self, precision: Optional[float] = None) -> None:
         EventEmitter.__init__(self)
+        if precision is not None and precision <= 0:
+            raise ValueError("precision must be greater than zero")
         self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
         self.debug = False
@@ -220,6 +228,8 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         Returns an object which can be used to later remove the event, by
         calling its delete() method.
         """
+        if delta < 0:
+            raise ValueError("schedule delta must be non-negative")
 
         ctx = contextvars.copy_context()
 
@@ -230,8 +240,6 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         new_event = (systime.monotonic() + delta, cb)
         events = self.__sched_events
         self._insort(events, new_event)
-        if delta > self.precision:
-            self._run_scheduled_events()
         return ScheduledEvent(self, new_event)
 
     def schedule_del(self, event: ScheduledEventTuple) -> None:
@@ -309,26 +317,50 @@ class PollLoop(LoopBase):
         # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
+        eventmask = self._eventmask(events)
+        already_registered = fd in self._fd_targets
         self._fd_targets[fd] = target
-        self._poll.register(fd, self._eventmask(events))
+        if already_registered:
+            self._poll.modify(fd, eventmask)
+        else:
+            self._poll.register(fd, eventmask)
 
     def unregister_fd(self, fd: int) -> None:
-        self._poll.unregister(fd)
-        del self._fd_targets[fd]
+        self._fd_targets.pop(fd, None)
+        try:
+            self._poll.unregister(fd)
+        except KeyError:
+            return
+        except (OSError, select.error) as why:
+            if why.args[0] in (errno.EBADF, errno.ENOENT):
+                return
+            raise
 
     def event_add(self, fd: int, event: str) -> None:
         try:
             eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         except KeyError:
             return
-        self._poll.register(fd, eventmask)
+        try:
+            self._poll.modify(fd, eventmask)
+        except (OSError, select.error) as why:
+            if why.args[0] in (errno.EBADF, errno.ENOENT):
+                self._fd_targets.pop(fd, None)
+                return
+            raise
 
     def event_del(self, fd: int, event: str) -> None:
         try:
             eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         except KeyError:
             return
-        self._poll.register(fd, eventmask)
+        try:
+            self._poll.modify(fd, eventmask)
+        except (OSError, select.error) as why:
+            if why.args[0] in (errno.EBADF, errno.ENOENT):
+                self._fd_targets.pop(fd, None)
+                return
+            raise
 
     def _run_fd_events(self) -> None:
         try:
@@ -393,14 +425,26 @@ class EpollLoop(LoopBase):
             eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         except KeyError:
             return
-        self._epoll.modify(fd, eventmask)
+        try:
+            self._epoll.modify(fd, eventmask)
+        except OSError as why:
+            if why.errno in (errno.EBADF, errno.ENOENT):
+                self._fd_targets.pop(fd, None)
+                return
+            raise
 
     def event_del(self, fd: int, event: str) -> None:
         try:
             eventmask = self._eventmask(self._fd_targets[fd].interesting_events())
         except KeyError:
             return  # no longer interested
-        self._epoll.modify(fd, eventmask)
+        try:
+            self._epoll.modify(fd, eventmask)
+        except OSError as why:
+            if why.errno in (errno.EBADF, errno.ENOENT):
+                self._fd_targets.pop(fd, None)
+                return
+            raise
 
     def _run_fd_events(self) -> None:
         try:
@@ -458,7 +502,13 @@ class KqueueLoop(LoopBase):
                 eventmask,
                 select.KQ_EV_ADD | select.KQ_EV_ENABLE,  # type: ignore[attr-defined]
             )
-            self._kq.control([ev], 0, 0)
+            try:
+                self._kq.control([ev], 0, 0)
+            except OSError as why:
+                if why.errno in (errno.EBADF, errno.ENOENT):
+                    self._fd_targets.pop(fd, None)
+                    return
+                raise
 
     def event_del(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
@@ -471,8 +521,10 @@ class KqueueLoop(LoopBase):
             if ev:
                 try:
                     self._kq.control([ev], 0, 0)
-                except FileNotFoundError:
-                    pass
+                except (FileNotFoundError, OSError) as why:
+                    if getattr(why, "errno", None) in (errno.EBADF, errno.ENOENT):
+                        return
+                    raise
 
     def _run_fd_events(self) -> None:
         try:
