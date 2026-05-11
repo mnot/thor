@@ -17,7 +17,7 @@ import socket
 import sys
 from typing import Callable, List, Optional, Set
 
-from thor.loop import EventSource, LoopBase, ScheduledEvent, schedule
+from thor.loop import EventSource, LoopBase, ScheduledEvent
 from thor.types import Address, DnsResult
 
 
@@ -264,7 +264,7 @@ class TcpServer(EventSource):
         # but can become None later.
         if self.sock:
             self.register_fd(self.sock.fileno(), "fd_readable")
-        schedule(0, self.emit, "start")
+        self.loop.schedule(0, self.emit, "start")
         self.active_connections: Set[TcpConnection] = set()
         self._shutting_down_gracefully = False
 
@@ -301,6 +301,7 @@ class TcpServer(EventSource):
         """
         self.remove_listeners("fd_readable")
         if self.sock:
+            self.unregister_fd()
             self.sock.close()
             self.sock = None
         self._shutting_down_gracefully = True
@@ -311,6 +312,7 @@ class TcpServer(EventSource):
         "Stop accepting requests and close the listening socket."
         self.remove_listeners("fd_readable")
         if self.sock:
+            self.unregister_fd()
             self.sock.close()
             self.sock = None
         self.emit("stop")
