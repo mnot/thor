@@ -10,7 +10,7 @@ SSL/TLS servers and clients.
 
 import socket
 import ssl as sys_ssl
-from typing import Optional
+from typing import Callable, Optional
 
 import certifi
 
@@ -52,6 +52,13 @@ class TlsClient(TcpClient):
         self._tls_context.check_hostname = False
         self._tls_context.verify_mode = sys_ssl.CERT_NONE
 
+    def _wait_for_tls_event(self, event: str, callback: Callable[[], None]) -> None:
+        for readiness_event in ["fd_readable", "fd_writable"]:
+            if readiness_event != event:
+                self.event_del(readiness_event)
+        self.once(event, callback)
+        self.event_add(event)
+
     def handle_connect(self) -> None:
         if self._error_sent:
             return
@@ -64,12 +71,12 @@ class TlsClient(TcpClient):
                 server_hostname=self.hostname.decode("idna"),
             )
         except BlockingIOError:
-            self.once("fd_writable", self.handle_connect)
+            self._wait_for_tls_event("fd_writable", self.handle_connect)
             return
         except OSError as why:
             self.handle_socket_error(why, "ssl")
             return
-        self.once("fd_writable", self.handshake)
+        self._wait_for_tls_event("fd_writable", self.handshake)
 
     def handshake(self) -> None:
         if self._error_sent:
@@ -77,19 +84,19 @@ class TlsClient(TcpClient):
         assert self.tls_sock, "tls_sock not found in handshake"
         try:
             self.tls_sock.do_handshake()
-            self.once("fd_writable", self.handle_tls_connect)
+            self.handle_tls_connect()
         except sys_ssl.SSLError as why:
             if isinstance(why, sys_ssl.SSLWantReadError):
-                self.once("fd_writable", self.handshake)  # Oh, Linux...
+                self._wait_for_tls_event("fd_readable", self.handshake)
             elif isinstance(why, sys_ssl.SSLWantWriteError):
-                self.once("fd_writable", self.handshake)
+                self._wait_for_tls_event("fd_writable", self.handshake)
             else:
                 self.handle_socket_error(why, "ssl")
         except socket.error as why:
             self.handle_socket_error(why, "ssl")
         except AttributeError:
             # For some reason, wrap_context is returning None. Try again.
-            self.once("fd_writable", self.handshake)
+            self._wait_for_tls_event("fd_writable", self.handshake)
 
     def handle_tls_connect(self) -> None:
         self.unregister_fd()

@@ -151,6 +151,41 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         client.unregister_fd.assert_called_once_with()
         self.assertEqual(connects, [])
 
+    def test_tls_handshake_waits_for_readable_on_want_read(self):
+        mock_loop = MagicMock()
+        client = TlsClient(mock_loop)
+        client.register_fd(17)
+        client.event_add("fd_writable")
+        client.tls_sock = MagicMock()
+        client.tls_sock.do_handshake.side_effect = ssl.SSLWantReadError()
+
+        client.handshake()
+
+        self.assertIn("fd_readable", client.interesting_events())
+        self.assertNotIn("fd_writable", client.interesting_events())
+
+    def test_tls_handshake_waits_for_writable_on_want_write(self):
+        mock_loop = MagicMock()
+        client = TlsClient(mock_loop)
+        client.register_fd(17)
+        client.event_add("fd_readable")
+        client.tls_sock = MagicMock()
+        client.tls_sock.do_handshake.side_effect = ssl.SSLWantWriteError()
+
+        client.handshake()
+
+        self.assertIn("fd_writable", client.interesting_events())
+        self.assertNotIn("fd_readable", client.interesting_events())
+
+    def test_tls_handshake_connects_immediately_when_complete(self):
+        client = TlsClient(self.loop)
+        client.tls_sock = MagicMock()
+        client.handle_tls_connect = MagicMock()
+
+        client.handshake()
+
+        client.handle_tls_connect.assert_called_once_with()
+
 
 #   def test_pause(self):
 
