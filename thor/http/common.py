@@ -371,9 +371,22 @@ class HttpMessageHandler(metaclass=ABCMeta):
             try:
                 fn, fv = line.split(b":", 1)
             except ValueError:
+                self.input_error(
+                    error.HeaderNoColonError(line.decode("utf-8", "replace"))
+                )
+                if self.careful:
+                    raise ValueError
                 continue
+            if not fn:
+                self.input_error(error.HeaderNameError("empty field-name"))
+                if self.careful:
+                    raise ValueError
             if fn[-1:] in [b" ", b"\t"]:
                 self.input_error(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
+                if self.careful:
+                    raise ValueError
+            if b"\0" in fv:
+                self.input_error(error.HeaderValueError("NUL in field-value"))
                 if self.careful:
                     raise ValueError
             hdr_tuples.append((fn, fv))

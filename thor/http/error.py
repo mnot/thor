@@ -82,6 +82,24 @@ class HeaderSpaceError(HttpError):
     client_recoverable = True
 
 
+class HeaderNoColonError(HttpError):
+    desc = "Header field line did not contain a colon"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
+class HeaderNameError(HttpError):
+    desc = "Invalid header field-name"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
+class HeaderValueError(HttpError):
+    desc = "Invalid header field-value"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
 class HeaderLineEndingError(HttpError):
     desc = "Header line was terminated with LF instead of CRLF"
     server_status = (b"400", b"Bad Request")

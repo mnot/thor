@@ -96,7 +96,28 @@ Content-Length: %(body_len)i
 %(body)s"""
             ],
             body,
+            error.HeaderNoColonError,
         )
+
+    def test_hdrs_nocolon_permissive(self):
+        body = b"12345678901234567890"
+        self.parser.careful = False
+        self.parser.handle_input(
+            wire(
+                b"""\
+http/1.1 200 OK
+Content-Type: text/plain
+Foo bar
+Content-Length: %i
+
+%s"""
+                % (len(body), body)
+            )
+        )
+        self.assertIsInstance(self.parser.test_err, error.HeaderNoColonError)
+        self.assertEqual(self.parser.test_body, body)
+        headers = [k for k, v in self.parser.test_hdrs]
+        self.assertEqual(headers, [b"Content-Type", b"Content-Length"])
 
     def test_hdr_case(self):
         body = b"12345678901234567890"
@@ -207,7 +228,25 @@ Content-Length: %(body_len)i
 %(body)s"""
             ],
             body,
+            error.HeaderNameError,
         )
+
+    def test_hdrs_noname_permissive(self):
+        body = b"lorum ipsum whatever goes after that."
+        self.parser.careful = False
+        self.parser.handle_input(
+            wire(
+                b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+: bar
+Content-Length: %i
+
+%s"""
+                % (len(body), body)
+            )
+        )
+        self.assertIsInstance(self.parser.test_err, error.HeaderNameError)
         headers = [k for k, v in self.parser.test_hdrs]
         self.assertEqual(headers, [b"Content-Type", b"", b"Content-Length"])
 
@@ -245,7 +284,28 @@ Content-Length: %(body_len)i
                 )
             ],
             body,
+            error.HeaderValueError,
         )
+
+    def test_hdrs_null_permissive(self):
+        body = b"lorum ipsum whatever goes after that."
+        self.parser.careful = False
+        self.parser.handle_input(
+            wire(
+                """\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Foo: \0
+Content-Length: %i
+
+""".encode(
+                    "utf-8"
+                )
+                % len(body)
+                + body
+            )
+        )
+        self.assertIsInstance(self.parser.test_err, error.HeaderValueError)
         foo_val = [v for k, v in self.parser.test_hdrs if k == b"Foo"][-1]
         self.assertEqual(foo_val, b" \0")
 
