@@ -10,6 +10,10 @@ from thor.http.common import Delimiters
 import thor.http.error as error
 
 
+def wire(data):
+    return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+
 class TestHttpParser(unittest.TestCase):
     def setUp(self):
         self.parser = DummyHttpParser()
@@ -20,7 +24,8 @@ class TestHttpParser(unittest.TestCase):
         """
         assert type(inputs) == type([])
         for chunk in inputs:
-            self.parser.handle_input(chunk % {b"body": body, b"body_len": len(body)})
+            chunk = chunk % {b"body": body, b"body_len": len(body)}
+            self.parser.handle_input(wire(chunk))
         states = self.parser.test_states
 
         if not expected_err:
@@ -45,7 +50,8 @@ class TestHttpParser(unittest.TestCase):
         Check pipelined messages. Assumes the same body for each (for now).
         """
         for chunk in inputs:
-            self.parser.handle_input(chunk % {b"body": body, b"body_len": len(body)})
+            chunk = chunk % {b"body": body, b"body_len": len(body)}
+            self.parser.handle_input(wire(chunk))
         states = self.parser.test_states
         self.assertFalse("ERROR" in self.parser.test_states, self.parser.test_err)
         self.parser.check(self, {"states": ["START", "BODY", "END"] * count})
@@ -135,11 +141,58 @@ Content-Length: %(body_len)i
 %(body)s"""
             ],
             body,
+            error.ObsoleteFoldError,
         )
+
+    def test_hdrs_fold_permissive(self):
+        body = b"lorum ipsum whatever goes after that."
+        self.parser.careful = False
+        self.parser.handle_input(
+            wire(
+                b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Foo: bar
+     baz
+Content-Length: %i
+
+%s"""
+                % (len(body), body)
+            )
+        )
+        self.assertIsInstance(self.parser.test_err, error.ObsoleteFoldError)
         foo_val = [v for k, v in self.parser.test_hdrs if k == b"Foo"][-1]
         self.assertEqual(foo_val, b" bar baz")
         headers = [k for k, v in self.parser.test_hdrs]
         self.assertEqual(headers, [b"Content-Type", b"Foo", b"Content-Length"])
+
+    def test_bare_lf_headers(self):
+        body = b"abc123"
+        self.parser.handle_input(
+            b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 6
+
+abc123"""
+        )
+        self.assertIsInstance(self.parser.test_err, error.HeaderLineEndingError)
+        self.assertEqual(self.parser.test_states, ["ERROR"])
+
+    def test_bare_lf_headers_permissive(self):
+        body = b"abc123"
+        self.parser.careful = False
+        self.parser.handle_input(
+            b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 6
+
+abc123"""
+        )
+        self.assertIsInstance(self.parser.test_err, error.HeaderLineEndingError)
+        self.assertEqual(self.parser.test_body, body)
+        self.assertEqual(self.parser.test_states[-1], "END")
 
     def test_hdrs_noname(self):
         body = b"lorum ipsum whatever goes after that."

@@ -82,6 +82,18 @@ class HeaderSpaceError(HttpError):
     client_recoverable = True
 
 
+class HeaderLineEndingError(HttpError):
+    desc = "Header line was terminated with LF instead of CRLF"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
+class ObsoleteFoldError(HttpError):
+    desc = "Obsolete folded header field"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
 class TopLineSpaceError(HttpError):
     desc = "Whitespace after top line, before first header"
     server_status = (b"400", b"Bad Request")

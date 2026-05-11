@@ -12,6 +12,10 @@ from thor.events import on
 from thor.http import HttpServer
 
 
+def wire(data):
+    return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+
 class TestHttpServer(framework.ClientServerTestCase):
     def create_server(self, server_side):
         server = HttpServer(framework.test_host, 0, loop=self.loop)
@@ -78,12 +82,14 @@ class TestHttpServer(framework.ClientServerTestCase):
 
         def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
-                b"""\
+                wire(
+                    b"""\
 GET / HTTP/1.1
 Host: %s:%i
 
 """
-                % (test_host, test_port)
+                    % (test_host, test_port)
+                )
             )
             time.sleep(0.1)
             client_conn.close()
@@ -99,13 +105,15 @@ Host: %s:%i
 
         def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
-                b"""\
+                wire(
+                    b"""\
 
 GET / HTTP/1.1
 Host: %s:%i\r
 \r
 """
-                % (test_host, test_port)
+                    % (test_host, test_port)
+                )
             )
             time.sleep(0.1)
             client_conn.close()
@@ -121,14 +129,16 @@ Host: %s:%i\r
 
         def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
-                b"""\
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
 12345"""
-                % (test_host, test_port)
+                    % (test_host, test_port)
+                )
             )
             time.sleep(0.1)
             client_conn.close()
@@ -144,7 +154,8 @@ Content-Length: 5
 
         def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
-                b"""\
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
@@ -152,7 +163,8 @@ Content-Length: 5
 
 12345
 """
-                % (test_host, test_port)
+                    % (test_host, test_port)
+                )
             )
             time.sleep(0.1)
             client_conn.close()
@@ -203,6 +215,23 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 200 OK", self.res)
         self.assertIn(b"hello", self.res)
 
+    def test_bad_http_version(self):
+        def server_side(server):
+            def check(exchange):
+                self.fail(f"Unexpected exchange for bad version: {exchange!r}")
+
+            server.on("exchange", check)
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                b"GET / HTTP/1.2\r\nHost: %s:%i\r\n\r\n" % (test_host, test_port)
+            )
+            res = client_conn.recv(1024)
+            self.assertIn(b"HTTP/1.1 505 HTTP Version Not Supported", res)
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
     def test_reentrancy(self):
         def server_side(server):
             def check(exchange):
@@ -219,13 +248,15 @@ Content-Length: 5
 
         def client_side(client_conn, test_host, test_port):
             client_conn.sendall(
-                b"""\
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Length: 0
 
 """
-                % (test_host, test_port)
+                    % (test_host, test_port)
+                )
             )
             time.sleep(0.1)
             client_conn.close()

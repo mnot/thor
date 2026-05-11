@@ -184,7 +184,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
             inbytes = b"".join(self._input_buffer)
             self._input_buffer = []
         if self._input_state == States.WAITING:  # waiting for headers or trailers
-            headers, rest = self._split_headers(inbytes)
+            try:
+                headers, rest = self._split_headers(inbytes)
+            except ValueError:
+                return
             if headers is not None:  # found one
                 if self._parse_headers(headers):
                     try:
@@ -302,7 +305,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if len(inbytes) > 2:
                 self.handle_input(inbytes[2:])  # 2 consumes the CRLF
         else:
-            trailer_block, rest = self._split_headers(inbytes)  # trailers
+            try:
+                trailer_block, rest = self._split_headers(inbytes)  # trailers
+            except ValueError:
+                return
             if trailer_block is not None:
                 self._input_state = self.default_state
                 try:
@@ -346,6 +352,11 @@ class HttpMessageHandler(metaclass=ABCMeta):
         for line in header_lines:
             if line[:1] in [b" ", b"\t"]:  # Fold LWS
                 if hdr_tuples:
+                    self.input_error(
+                        error.ObsoleteFoldError(line.decode("utf-8", "replace"))
+                    )
+                    if self.careful:
+                        raise ValueError
                     hdr_tuples[-1] = (
                         hdr_tuples[-1][0],
                         b"%s %s" % (hdr_tuples[-1][1], line.lstrip()),
@@ -401,8 +412,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
         return hdr_tuples, conn_tokens, transfer_codes, content_length
 
-    @staticmethod
-    def _split_headers(inbytes: bytes) -> Tuple[Optional[bytes], bytes]:
+    def _split_headers(self, inbytes: bytes) -> Tuple[Optional[bytes], bytes]:
         """
         Given a bytes, split out and return (headers, rest),
         consuming the whitespace between them.
@@ -419,6 +429,11 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 return None, inbytes
             if pos > 0 and inbytes[pos - 1] == RETURN:
                 back += 1
+            else:
+                self.input_error(error.HeaderLineEndingError())
+                if self.careful:
+                    self._input_state = States.ERROR
+                    raise ValueError
             pos += 1
             if pos < size:
                 if inbytes[pos] == RETURN:

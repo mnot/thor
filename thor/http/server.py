@@ -165,10 +165,15 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._idler = None
         try:
             method, req_line = top_line.split(None, 1)
-            uri, req_version = req_line.rsplit(None, 1)
-            req_version = req_version.rsplit(b"/", 1)[1]
+            uri, req_version_txt = req_line.rsplit(None, 1)
+            proto, req_version = req_version_txt.rsplit(b"/", 1)
         except (ValueError, IndexError):
             self.input_error(HttpVersionError(top_line.decode("utf-8", "replace")))
+            raise ValueError
+        if proto != b"HTTP" or req_version not in [b"1.0", b"1.1"]:
+            self.input_error(
+                HttpVersionError(req_version_txt.decode("utf-8", "replace"))
+            )
             raise ValueError
         if b"host" not in header_names(hdr_tuples):
             self.input_error(HostRequiredError())
