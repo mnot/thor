@@ -28,6 +28,7 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    TooManyMsgsError,
     TransferCodeError,
 )
 from thor.loop import LoopBase, ScheduledEvent
@@ -82,6 +83,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
 
     default_state = States.WAITING
+    max_pipeline_requests = 100
 
     def __init__(self, tcp_conn: TcpConnection, server: HttpServer) -> None:
         HttpMessageHandler.__init__(self)
@@ -183,6 +185,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             if code not in [b"identity", b"chunked"]:
                 self.input_error(TransferCodeError(code.decode("utf-8", "replace")))
                 raise ValueError
+        if len(self.ex_queue) >= self.max_pipeline_requests:
+            self.input_error(TooManyMsgsError())
+            raise ValueError
         exchange = HttpServerExchange(self, method, uri, hdr_tuples, req_version)
         self.ex_queue.append(exchange)
         self.server.emit("exchange", exchange)

@@ -4,6 +4,7 @@ import socket
 import sys
 import time
 import unittest
+from unittest.mock import MagicMock
 
 import framework
 
@@ -11,6 +12,7 @@ import thor
 import thor.http.error
 from thor.events import on
 from thor.http import HttpServer, HttpServerExchange
+from thor.http.server import HttpServerConnection
 
 
 def wire(data):
@@ -20,6 +22,32 @@ def wire(data):
 class DummyServerConnection(framework.DummyHttpParser):
     def exchange_done(self, exchange):
         pass
+
+
+class FakeTcpConnection:
+    tcp_connected = True
+
+    def __init__(self):
+        self.output = []
+
+    def write(self, data):
+        self.output.append(data)
+
+    def close(self):
+        self.tcp_connected = False
+
+
+class FakeServer:
+    idle_timeout = 60
+    shutting_down = False
+
+    def __init__(self):
+        self.loop = MagicMock()
+        self.loop.schedule.return_value = MagicMock()
+        self.events = []
+
+    def emit(self, event, *args):
+        self.events.append((event, args))
 
 
 class TestHttpServer(framework.ClientServerTestCase):
@@ -255,6 +283,28 @@ Content-Length: 5
             self.loop.stop()
 
         self.go([server_side], [client_side])
+
+    def test_pipeline_queue_limit(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.max_pipeline_requests = 1
+
+        conn.handle_input(
+            b"GET /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"\r\n"
+            b"GET /two HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"\r\n"
+        )
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+        self.assertIn(b"Too many messages to parse", output)
 
     def test_reentrancy(self):
         def server_side(server):
