@@ -151,15 +151,37 @@ class TcpConnection(EventSource):
             if why.args[0] in self.block_errs:
                 return
             if why.args[0] in self.close_errs:
-                self._handle_close()
+                self._handle_close(False)
                 return
             raise
         if data == b"":
-            self._handle_close()
+            self._handle_close(False)
         elif self._closing and self._closed_output:
             return
         else:
             self.emit("data", data)
+
+    def _drain_readable(self) -> bool:
+        """
+        Read pending bytes after a hangup notification.
+
+        Some pollers can report a close before the final readable event is
+        delivered. Drain any queued bytes so protocol layers can complete.
+        Returns True when peer EOF was observed.
+        """
+        while True:
+            try:
+                data = self.socket.recv(self.read_bufsize)
+            except (socket.error, OSError) as why:
+                if why.args[0] in self.block_errs:
+                    return False
+                if why.args[0] in self.close_errs:
+                    return True
+                raise
+            if data == b"":
+                return True
+            if not (self._closing and self._closed_output):
+                self.emit("data", data)
 
     def handle_writable(self) -> None:
         "The connection is ready for writing; write any buffered data."
@@ -171,7 +193,7 @@ class TcpConnection(EventSource):
                 if why.args[0] in self.block_errs:
                     return
                 if why.args[0] in self.close_errs:
-                    self._handle_close()
+                    self._handle_close(False)
                     return
                 raise
             if sent < len(data):
@@ -251,8 +273,12 @@ class TcpConnection(EventSource):
         if self.close_timeout > 0:
             self._close_timeout_ev = self.loop.schedule(self.close_timeout, self._close)
 
-    def _handle_close(self) -> None:
+    def _handle_close(self, drain: bool = True) -> None:
         "The connection has been closed by the other side."
+        if not self.tcp_connected:
+            return
+        if drain:
+            self._drain_readable()
         if self._close():
             self.emit("close")
 

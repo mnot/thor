@@ -208,6 +208,22 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(closes, [True])
         self.assertTrue(sock.closed)
 
+    def test_fd_close_drains_pending_read_data(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b"pending", b""])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        data = []
+        closes = []
+        conn.on("data", data.append)
+        conn.on("close", lambda: closes.append(True))
+
+        conn._handle_close()
+
+        self.assertEqual(data, [b"pending"])
+        self.assertEqual(closes, [True])
+        self.assertFalse(conn.tcp_connected)
+        self.assertTrue(sock.closed)
+
     def test_write_host_unreachable_closes_connection(self):
         loop_mock = MagicMock()
         sock = FakeSocket(send_error=errno.EHOSTUNREACH)
@@ -318,7 +334,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
     def test_close_is_idempotent(self):
         loop_mock = MagicMock()
-        sock = FakeSocket()
+        sock = FakeSocket(recvs=[b""])
         conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
         disconnects = []
         closes = []
