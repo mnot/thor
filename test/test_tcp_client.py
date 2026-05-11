@@ -233,6 +233,36 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(closes, [True])
         self.assertTrue(sock.closed)
 
+    def test_write_buffer_byte_limit(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.max_write_buffer_size = 8
+        pauses = []
+        conn.on("pause", lambda paused: pauses.append(paused))
+
+        conn.write(b"12345")
+        with self.assertRaisesRegex(BufferError, "write buffer limit"):
+            conn.write(b"6789")
+
+        self.assertEqual(conn._write_buffer, [b"12345"])
+        self.assertEqual(pauses, [True])
+
+    def test_write_buffer_unpauses_after_dropping_below_byte_limit(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(sends=[5])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.max_write_buffer_size = 8
+        conn._output_paused = True
+        pauses = []
+        conn.on("pause", lambda paused: pauses.append(paused))
+        conn.write(b"12345")
+
+        conn.handle_writable()
+
+        self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(pauses, [False])
+
     def test_immediate_connect_success(self):
         loop_mock = MagicMock()
         sock = FakeSocket(connect_error=0)

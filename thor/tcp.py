@@ -89,6 +89,7 @@ class TcpConnection(EventSource):
     """
 
     write_bufsize = 16  # number of chunks
+    max_write_buffer_size = 1024 * 1024 * 16  # bytes
     read_bufsize = 1024 * 16  # bytes
 
     block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT])
@@ -169,7 +170,11 @@ class TcpConnection(EventSource):
                 self._write_buffer = [data[sent:]]
             else:
                 self._write_buffer = []
-        if self._output_paused and len(self._write_buffer) < self.write_bufsize:
+        if (
+            self._output_paused
+            and len(self._write_buffer) < self.write_bufsize
+            and self._write_buffer_size() < self.max_write_buffer_size
+        ):
             self._output_paused = False
             self.emit("pause", False)
         if self._closing and not self._write_buffer:
@@ -182,6 +187,11 @@ class TcpConnection(EventSource):
         "Write data to the connection."
         if not self.tcp_connected:
             raise OSError("Connection closed")
+        if self._write_buffer_size() + len(data) > self.max_write_buffer_size:
+            if not self._output_paused:
+                self._output_paused = True
+                self.emit("pause", True)
+            raise BufferError("TCP write buffer limit exceeded")
         self._write_buffer.append(data)
         if len(self._write_buffer) > self.write_bufsize:
             self._output_paused = True
@@ -230,6 +240,9 @@ class TcpConnection(EventSource):
             self.socket.close()
         self.emit("disconnect")
         return True
+
+    def _write_buffer_size(self) -> int:
+        return sum(len(chunk) for chunk in self._write_buffer)
 
 
 class TcpServer(EventSource):
