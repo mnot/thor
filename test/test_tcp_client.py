@@ -224,6 +224,23 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertFalse(conn.tcp_connected)
         self.assertTrue(sock.closed)
 
+    def test_fd_close_waits_when_no_eof_is_readable_yet(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recv_error=errno.EAGAIN)
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        closes = []
+        conn.on("close", lambda: closes.append(True))
+
+        conn._handle_close()
+
+        self.assertTrue(conn.tcp_connected)
+        self.assertEqual(closes, [])
+        self.assertFalse(sock.closed)
+        self.assertIn("fd_readable", conn.interesting_events())
+        loop_mock.schedule.assert_called_once_with(
+            conn.close_timeout, conn._handle_close, False
+        )
+
     def test_write_host_unreachable_closes_connection(self):
         loop_mock = MagicMock()
         sock = FakeSocket(send_error=errno.EHOSTUNREACH)

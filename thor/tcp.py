@@ -278,7 +278,14 @@ class TcpConnection(EventSource):
         if not self.tcp_connected:
             return
         if drain:
-            self._drain_readable()
+            eof = self._drain_readable()
+            if not eof:
+                self.event_add("fd_readable")
+                if self.close_timeout > 0 and not self._close_timeout_ev:
+                    self._close_timeout_ev = self.loop.schedule(
+                        self.close_timeout, self._handle_close, False
+                    )
+                return
         if self._close():
             self.emit("close")
 
