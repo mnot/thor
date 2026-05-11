@@ -18,6 +18,8 @@ from thor.types import RawHeaderListType
 LINESEP = b"\r\n"
 NEWLINE = ord("\n")
 RETURN = ord("\r")
+_BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
+_BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 
 
 class Delimiters(Enum):
@@ -260,12 +262,16 @@ class HttpMessageHandler(metaclass=ABCMeta):
         got = len(inbytes)
         if self._input_body_left + 2 < got:  # got more than the chunk
             this_chunk = self._input_body_left
+            if not self._check_chunk_terminator(inbytes[this_chunk : this_chunk + 2]):
+                return b""
             self.input_body(inbytes[:this_chunk])
             self.input_transfer_length += this_chunk + 2
             self._input_body_left = -1
             return inbytes[this_chunk + 2 :]  # +2 consumes the trailing CRLF
         if self._input_body_left + 2 == got:
             # got the whole chunk exactly (including CRLF)
+            if not self._check_chunk_terminator(inbytes[-2:]):
+                return b""
             self.input_body(inbytes[:-2])
             self.input_transfer_length += self._input_body_left + 2
             self._input_body_left = -1
@@ -276,6 +282,17 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self.input_transfer_length += got
             self._input_body_left -= got
         return b""
+
+    def _check_chunk_terminator(self, terminator: bytes) -> bool:
+        "Flag a malformed chunk terminator, optionally continuing in permissive mode."
+        if terminator == LINESEP:
+            return True
+        detail = terminator.decode("utf-8", "replace")
+        self.input_error(error.ChunkTerminatorError(detail))
+        if self.careful:
+            self._input_state = States.ERROR
+            return False
+        return True
 
     def _handle_chunk_done(self, inbytes: bytes) -> None:
         "Handle a finished body chunk."
@@ -496,6 +513,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
         """
         Start outputting a HTTP message.
         """
+        self._check_output_line(top_line, "start line")
+        self._check_output_headers(hdr_tuples)
         self._output_delimit = delimit
         self._output_body_sent = 0
         self._output_content_length = None
@@ -539,6 +558,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
         if self._output_delimit == Delimiters.NOBODY:
             pass  # didn't have a body at all.
         elif self._output_delimit == Delimiters.CHUNKED:
+            self._check_output_headers(trailers, "trailer")
             self.output(
                 b"0\r\n%s\r\n"
                 % b"\r\n".join([b"%s: %s" % (k.strip(), v) for k, v in trailers])
@@ -554,3 +574,29 @@ class HttpMessageHandler(metaclass=ABCMeta):
         self._output_state = States.WAITING
         self.output_done()
         return False
+
+    @staticmethod
+    def _check_output_line(line: bytes, label: str) -> None:
+        if RETURN in line or NEWLINE in line:
+            raise error.OutputSyntaxError(f"CRLF in HTTP {label}")
+
+    @classmethod
+    def _check_output_headers(
+        cls, hdr_tuples: RawHeaderListType, label: str = "header"
+    ) -> None:
+        for name, val in hdr_tuples:
+            cls._check_output_header_name(name, label)
+            cls._check_output_header_value(val, label)
+
+    @staticmethod
+    def _check_output_header_name(name: bytes, label: str) -> None:
+        if not name:
+            raise error.OutputSyntaxError(f"Empty HTTP {label} field name")
+        if any(c < 33 or c > 126 or c in _BAD_OUTPUT_HEADER_NAME for c in name):
+            detail = name.decode("utf-8", "replace")
+            raise error.OutputSyntaxError(f"Invalid HTTP {label} field name {detail!r}")
+
+    @staticmethod
+    def _check_output_header_value(val: bytes, label: str) -> None:
+        if any(c in _BAD_OUTPUT_HEADER_VALUE for c in val):
+            raise error.OutputSyntaxError(f"CRLF in HTTP {label} field value")

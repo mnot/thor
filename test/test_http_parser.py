@@ -544,6 +544,43 @@ ZZZZ\r
             error.ChunkError,
         )
 
+    def test_chunk_bad_terminator(self):
+        body = b"abc123def456ghi789"
+        self.checkSingleMsg(
+            [
+                b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+%(body_len)x\r
+%(body)sXX0\r
+\r
+"""
+            ],
+            body,
+            error.ChunkTerminatorError,
+        )
+
+    def test_chunk_bad_terminator_permissive(self):
+        body = b"abc123def456ghi789"
+        self.parser.careful = False
+        self.parser.handle_input(
+            b"""\
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+%x\r
+%sXX0\r
+\r
+"""
+            % (len(body), body)
+        )
+        self.assertIsInstance(self.parser.test_err, error.ChunkTerminatorError)
+        self.assertEqual(self.parser.test_body, body)
+        self.assertEqual(self.parser.test_states[-1], "END")
+
     def test_chunk_nonfinal(self):
         body = b"abc123def456ghi789"
         self.checkSingleMsg(
@@ -691,6 +728,31 @@ Content-Length: %(body_len)i
             body,
             2,
         )
+
+    def test_output_start_line_crlf(self):
+        with self.assertRaises(error.OutputSyntaxError):
+            self.parser.output_start(
+                b"HTTP/1.1 200 OK\r\nX: injected",
+                [],
+                Delimiters.NOBODY,
+            )
+
+    def test_output_header_value_crlf(self):
+        with self.assertRaises(error.OutputSyntaxError):
+            self.parser.output_start(
+                b"HTTP/1.1 200 OK",
+                [(b"X-Test", b"ok\r\nX-Injected: yes")],
+                Delimiters.NOBODY,
+            )
+
+    def test_output_trailer_value_crlf(self):
+        self.parser.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Transfer-Encoding", b"chunked")],
+            Delimiters.CHUNKED,
+        )
+        with self.assertRaises(error.OutputSyntaxError):
+            self.parser.output_end([(b"X-Test", b"ok\r\nX-Injected: yes")])
 
 
 #    def test_nobody_delimit(self):

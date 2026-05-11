@@ -31,6 +31,10 @@ class ChunkError(HttpError):
     desc = "Chunked encoding error"
 
 
+class ChunkTerminatorError(ChunkError):
+    desc = "Chunked body chunk was not terminated with CRLF"
+
+
 class DuplicateCLError(HttpError):
     desc = "Duplicate Content-Length header"
     server_status = (b"400", b"Bad Request")
@@ -48,6 +52,10 @@ class ExtraDataError(HttpError):
 
 class OutputError(HttpError):
     desc = "Too many body bytes sent"
+
+
+class OutputSyntaxError(OutputError):
+    desc = "Invalid HTTP output syntax"
 
 
 class StartLineError(HttpError):
