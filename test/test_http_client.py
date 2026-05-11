@@ -49,6 +49,13 @@ class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
 
 
+class DummyClientConnection(framework.DummyHttpParser):
+    tcp_connected = True
+
+    def attach(self, exchange):
+        pass
+
+
 class TestHttpClient(framework.ClientServerTestCase):
     def setUp(self):
         super().setUp()
@@ -127,6 +134,25 @@ class TestHttpClient(framework.ClientServerTestCase):
         @on(self.loop)
         def stop():
             self.assertTrue(exchange.test_happened, expected)
+
+    def check_invalid_request_output(self, method, headers):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        exchange = client.exchange()
+        exchange.request_start(method, b"http://example.com/", headers)
+        with self.assertRaises(thor.http.error.OutputSyntaxError):
+            exchange.request_done([])
+
+    def test_request_bad_method_output_syntax(self):
+        self.check_invalid_request_output(b"GET\r\nX-Injected: yes", [])
+
+    def test_request_bad_header_name_output_syntax(self):
+        self.check_invalid_request_output(b"GET", [(b"Bad Name", b"value")])
 
     def test_basic(self):
         def client_side(client, test_host, test_port):

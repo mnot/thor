@@ -8,12 +8,18 @@ import unittest
 import framework
 
 import thor
+import thor.http.error
 from thor.events import on
-from thor.http import HttpServer
+from thor.http import HttpServer, HttpServerExchange
 
 
 def wire(data):
     return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+
+class DummyServerConnection(framework.DummyHttpParser):
+    def exchange_done(self, exchange):
+        pass
 
 
 class TestHttpServer(framework.ClientServerTestCase):
@@ -72,6 +78,24 @@ class TestHttpServer(framework.ClientServerTestCase):
         @on(self.loop)
         def stop():
             self.assertTrue(exchange.test_happened)
+
+    def check_invalid_response_output(self, status_phrase, headers):
+        conn = DummyServerConnection()
+        exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+        with self.assertRaises(thor.http.error.OutputSyntaxError):
+            exchange.response_start(b"200", status_phrase, headers)
+
+    def test_response_bad_status_phrase_output_syntax(self):
+        self.check_invalid_response_output(b"OK\r\nX-Injected: yes", [])
+
+    def test_response_bad_header_name_output_syntax(self):
+        self.check_invalid_response_output(b"OK", [(b"Bad Name", b"value")])
+
+    def test_nonfinal_bad_status_phrase_output_syntax(self):
+        conn = DummyServerConnection()
+        exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+        with self.assertRaises(thor.http.error.OutputSyntaxError):
+            exchange.response_nonfinal(b"103", b"Early\r\nX-Injected: yes", [])
 
     def test_basic(self):
         def server_side(server):
