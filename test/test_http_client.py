@@ -906,6 +906,7 @@ class TestHttpClient(framework.ClientServerTestCase):
                 send_response = self.conn_num > 1
             
             if send_response:
+                drain(conn)
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\n"
                     b"Content-Type: text/plain\r\n"

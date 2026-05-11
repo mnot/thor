@@ -54,6 +54,7 @@ class HttpClientExchange(EventEmitter):
         self.origin: Optional[OriginType] = None
         self._req_body = False
         self._req_started = False
+        self._req_done_trailers: Optional[RawHeaderListType] = None
         self._error_sent = False
         self._retries = 0
         self._output_q: List[Tuple[Any, ...]] = []
@@ -133,6 +134,7 @@ class HttpClientExchange(EventEmitter):
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
         """
+        self._req_done_trailers = trailers
         self._req_start()
         if self.conn:
             close = self.conn.output_end(trailers)
@@ -233,6 +235,11 @@ class HttpClientExchange(EventEmitter):
         "Retry the request."
         self._retries += 1
         assert self.origin, "origin not found in _retry"
+        if self._req_done_trailers is not None:
+            self._req_started = False
+            self._output_q = []
+            self._req_start()
+            self._output_q.append(("end", self._req_done_trailers))
         self.client.attach_conn(
             self.origin, self.handle_connect, self.handle_connect_error
         )
