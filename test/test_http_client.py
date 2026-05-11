@@ -11,6 +11,7 @@ import time
 import socket
 import threading
 import unittest
+from unittest.mock import MagicMock
 
 import framework
 
@@ -18,6 +19,7 @@ import thor
 import thor.http.error
 from thor.events import on
 from thor.http import HttpClient
+from thor.http.common import Delimiters, States
 
 
 def drain(conn, delimiter=b"\r\n\r\n"):
@@ -915,6 +917,19 @@ class TestHttpClient(framework.ClientServerTestCase):
             conn.request.close()
 
         self.go([server_side], [client_side])
+
+    def test_retry_clears_dead_connection(self):
+        client = HttpClient(loop=MagicMock())
+        client.retry_delay = 1
+        exchange = client.exchange()
+        exchange.method = b"GET"
+        exchange.origin = (b"http", b"example.com", 80)
+        exchange.conn = DummyClientConnection()
+
+        exchange.conn_closed(States.WAITING, Delimiters.NONE)
+
+        self.assertIsNone(exchange.conn)
+        client.loop.schedule.assert_called_once_with(1, exchange._retry)
 
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):

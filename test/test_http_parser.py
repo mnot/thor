@@ -5,7 +5,7 @@ import sys
 import unittest
 
 from framework import DummyHttpParser
-from thor.http.common import Delimiters
+from thor.http.common import Delimiters, States
 
 import thor.http.error as error
 
@@ -688,6 +688,18 @@ ZZZZ\r
             body,
             error.ChunkError,
         )
+        self.assertEqual(self.parser._input_state, States.ERROR)
+
+    def test_chunk_size_line_too_long_is_terminal(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            + (b"1" * 513)
+        )
+        self.assertIsInstance(self.parser.test_err, error.ChunkError)
+        self.assertEqual(self.parser._input_state, States.ERROR)
+        self.assertEqual(self.parser._input_buffer, [])
 
     def test_chunk_bad_terminator(self):
         body = b"abc123def456ghi789"
@@ -910,6 +922,37 @@ Content-Length: %(body_len)i
         )
         with self.assertRaises(error.OutputSyntaxError):
             self.parser.output_end([(b"X-Test", b"ok\r\nX-Injected: yes")])
+
+    def test_output_body_before_start(self):
+        with self.assertRaises(error.OutputStateError):
+            self.parser.output_body(b"body")
+
+    def test_output_end_before_start(self):
+        with self.assertRaises(error.OutputStateError):
+            self.parser.output_end([])
+
+    def test_output_start_twice(self):
+        self.parser.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Content-Length", b"0")],
+            Delimiters.COUNTED,
+        )
+        with self.assertRaises(error.OutputStateError):
+            self.parser.output_start(
+                b"HTTP/1.1 200 OK",
+                [(b"Content-Length", b"0")],
+                Delimiters.COUNTED,
+            )
+
+    def test_output_body_after_nonfinal(self):
+        self.parser.output_start(
+            b"HTTP/1.1 103 Early Hints",
+            [],
+            Delimiters.NONE,
+            is_final=False,
+        )
+        with self.assertRaises(error.OutputStateError):
+            self.parser.output_body(b"body")
 
 
 #    def test_nobody_delimit(self):

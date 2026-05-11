@@ -253,6 +253,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if len(inbytes) > 512:
                 # OK, this is absurd...
                 self.input_error(error.ChunkError(inbytes.decode("utf-8", "replace")))
+                if self.careful:
+                    self._input_state = States.ERROR
             else:
                 self._input_buffer.append(inbytes)
             return b""
@@ -262,6 +264,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._input_body_left = int(chunk_size, 16)
         except ValueError:
             self.input_error(error.ChunkError(chunk_size.decode("utf-8", "replace")))
+            if self.careful:
+                self._input_state = States.ERROR
             return b""
         self.input_transfer_length += len(inbytes) - len(rest)
         return rest
@@ -557,6 +561,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
         """
         Start outputting a HTTP message.
         """
+        if self._output_state != States.WAITING:
+            raise error.OutputStateError("HTTP output already started")
         self._check_output_line(top_line, "start line")
         self._check_output_headers(hdr_tuples)
         self._output_delimit = delimit
@@ -582,7 +588,11 @@ class HttpMessageHandler(metaclass=ABCMeta):
         """
         Output a part of a HTTP message. Takes bytes.
         """
-        if not chunk or self._output_delimit is Delimiters.NONE:
+        if not chunk:
+            return
+        if self._output_state != States.HEADERS_DONE:
+            raise error.OutputStateError("HTTP output body before final headers")
+        if self._output_delimit is Delimiters.NONE:
             return
         self._output_body_sent += len(chunk)
         if self._output_delimit == Delimiters.COUNTED:
@@ -599,6 +609,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
         Finish outputting a HTTP message, including trailers if appropriate.
         Return value indicates whether the connection should be closed.
         """
+        if self._output_state != States.HEADERS_DONE:
+            raise error.OutputStateError("HTTP output end before final headers")
         if self._output_delimit == Delimiters.NOBODY:
             pass  # didn't have a body at all.
         elif self._output_delimit == Delimiters.CHUNKED:

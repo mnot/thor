@@ -58,6 +58,10 @@ class OutputSyntaxError(OutputError):
     desc = "Invalid HTTP output syntax"
 
 
+class OutputStateError(OutputError):
+    desc = "Invalid HTTP output state"
+
+
 class StartLineError(HttpError):
     desc = "The start line of the message couldn't be parsed"
 

@@ -185,7 +185,7 @@ class HttpClientExchange(EventEmitter):
         elif err_type == "retry":
             self.input_error(ConnectError(err_str), False)
         elif self._retries < self.client.retry_limit:
-            self.client.loop.schedule(self.client.retry_delay, self._retry)
+            self._schedule_retry()
         else:
             self.input_error(ConnectError(err_str), False)
 
@@ -203,7 +203,7 @@ class HttpClientExchange(EventEmitter):
         elif state == States.WAITING:
             if self.method in idempotent_methods:
                 if self._retries < self.client.retry_limit:
-                    self.client.loop.schedule(self.client.retry_delay, self._retry)
+                    self._schedule_retry()
                 else:
                     self.input_error(
                         ConnectError(f"Tried to connect {self._retries + 1} times."),
@@ -224,6 +224,10 @@ class HttpClientExchange(EventEmitter):
                 ),
                 False,
             )
+
+    def _schedule_retry(self) -> None:
+        self.conn = None
+        self.client.loop.schedule(self.client.retry_delay, self._retry)
 
     def _retry(self) -> None:
         "Retry the request."
