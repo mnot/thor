@@ -37,13 +37,14 @@ class UdpEndpoint(EventSource):
         self.host: Optional[bytes] = None
         self.port: Optional[int] = None
         self._error_sent = False
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setblocking(False)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock: Optional[socket.socket] = sock
+        sock.setblocking(False)
         self.max_dgram = min(
-            (2**16 - 40), self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+            (2**16 - 40), sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
         )
         self.on("fd_readable", self.handle_datagram)
-        self.register_fd(self.sock.fileno())
+        self.register_fd(sock.fileno())
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -56,12 +57,16 @@ class UdpEndpoint(EventSource):
 
         Can raise socket.error if binding fails.
         """
+        if not self.sock:
+            raise OSError("UDP endpoint closed")
         self.host = host
         self.port = port
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         lookup(host, port, socket.SOCK_DGRAM, self._continue_bind)
 
     def _continue_bind(self, dns_results: Union[DnsResultList, Exception]) -> None:
+        if not self.sock:
+            return
         if isinstance(dns_results, Exception):
             self.handle_socket_error(dns_results, "gai")
             return
@@ -70,10 +75,15 @@ class UdpEndpoint(EventSource):
     def shutdown(self) -> None:
         "Close the listening socket."
         self.remove_listeners("fd_readable")
-        self.sock.close()
+        self.unregister_fd()
+        if self.sock:
+            self.sock.close()
+            self.sock = None
 
     def pause(self, paused: bool) -> None:
         "Control incoming datagram events."
+        if not self.sock:
+            return
         if paused:
             self.event_del("fd_readable")
         else:
@@ -81,6 +91,10 @@ class UdpEndpoint(EventSource):
 
     def send(self, datagram: bytes, host: str, port: int) -> None:
         "send datagram to host:port."
+        if not self.sock:
+            raise OSError("UDP endpoint closed")
+        if len(datagram) > self.max_dgram:
+            raise ValueError("UDP datagram exceeds maximum size")
         try:
             self.sock.sendto(datagram, (host, port))
         except socket.error as why:
@@ -91,6 +105,8 @@ class UdpEndpoint(EventSource):
 
     def handle_datagram(self) -> None:
         "Handle an incoming datagram, emitting the 'datagram' event."
+        if not self.sock:
+            return
         while True:
             try:
                 data, addr = self.sock.recvfrom(self.recv_buffer)
@@ -110,3 +126,4 @@ class UdpEndpoint(EventSource):
         self.emit("socket_error", err_type, err_id, err_str)
         if self.sock:
             self.sock.close()
+            self.sock = None

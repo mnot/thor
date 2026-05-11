@@ -5,6 +5,7 @@ import socket
 import sys
 import threading
 import unittest
+from unittest.mock import MagicMock, patch
 
 import framework
 
@@ -26,6 +27,7 @@ class TestUdpEndpoint(unittest.TestCase):
 
     def tearDown(self):
         self.ep1.shutdown()
+        self.ep2.shutdown()
 
     def timeout(self):
         self.timeout_hit = True
@@ -35,6 +37,7 @@ class TestUdpEndpoint(unittest.TestCase):
         self.datagrams.append((data, host, port))
 
     def output(self, msg):
+        assert self.ep1.sock
         port = self.ep1.sock.getsockname()[1]
         self.ep2.send(msg, framework.test_host.decode("ascii"), port)
 
@@ -51,6 +54,83 @@ class TestUdpEndpoint(unittest.TestCase):
 
         self.loop.schedule(3, check)
         self.loop.run()
+
+    @patch("thor.udp.socket.socket")
+    def test_shutdown_unregisters_fd_and_closes_socket(self, mock_socket_cls):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.getsockopt.return_value = 8192
+        mock_socket_cls.return_value = mock_sock
+        mock_loop = MagicMock()
+        endpoint = UdpEndpoint(mock_loop)
+
+        endpoint.shutdown()
+
+        mock_loop.unregister_fd.assert_called_once_with(17)
+        mock_sock.close.assert_called_once_with()
+        self.assertIsNone(endpoint.sock)
+
+    @patch("thor.udp.socket.socket")
+    def test_shutdown_is_idempotent(self, mock_socket_cls):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.getsockopt.return_value = 8192
+        mock_socket_cls.return_value = mock_sock
+        endpoint = UdpEndpoint(MagicMock())
+
+        endpoint.shutdown()
+        endpoint.shutdown()
+
+        mock_sock.close.assert_called_once_with()
+
+    @patch("thor.udp.socket.socket")
+    def test_late_bind_callback_after_shutdown_is_ignored(self, mock_socket_cls):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.getsockopt.return_value = 8192
+        mock_socket_cls.return_value = mock_sock
+        endpoint = UdpEndpoint(MagicMock())
+
+        endpoint.shutdown()
+        endpoint._continue_bind(
+            [
+                (
+                    socket.AF_INET,
+                    socket.SOCK_DGRAM,
+                    socket.IPPROTO_IP,
+                    "",
+                    ("127.0.0.1", 9999),
+                )
+            ]
+        )
+
+        mock_sock.bind.assert_not_called()
+
+    @patch("thor.udp.socket.socket")
+    def test_send_rejects_oversized_datagram(self, mock_socket_cls):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.getsockopt.return_value = 8192
+        mock_socket_cls.return_value = mock_sock
+        endpoint = UdpEndpoint(MagicMock())
+        endpoint.max_dgram = 3
+
+        with self.assertRaisesRegex(ValueError, "UDP datagram"):
+            endpoint.send(b"1234", "127.0.0.1", 9999)
+
+        mock_sock.sendto.assert_not_called()
+
+    @patch("thor.udp.socket.socket")
+    def test_send_after_shutdown_raises_clear_error(self, mock_socket_cls):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.getsockopt.return_value = 8192
+        mock_socket_cls.return_value = mock_sock
+        endpoint = UdpEndpoint(MagicMock())
+        endpoint.shutdown()
+
+        with self.assertRaisesRegex(OSError, "UDP endpoint closed"):
+            endpoint.send(b"hello", "127.0.0.1", 9999)
 
 
 #    def test_bigdata(self):
