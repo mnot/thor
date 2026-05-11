@@ -233,5 +233,19 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(closes, [True])
         self.assertTrue(sock.closed)
 
+    def test_immediate_connect_success(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(connect_error=0)
+        client = TcpClient(loop_mock)
+        connects = []
+        client.on("connect", lambda conn: connects.append(conn))
+
+        with patch("thor.tcp.socket.socket", return_value=sock):
+            client.connect(b"127.0.0.1", 80)
+
+        self.assertEqual(len(connects), 1)
+        self.assertTrue(connects[0].tcp_connected)
+
+
 if __name__ == "__main__":
     unittest.main()

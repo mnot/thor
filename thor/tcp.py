@@ -412,6 +412,9 @@ class TcpClient(EventSource):
         except socket.error as why:
             self.handle_socket_error(why)
             return
+        if err == 0:
+            self.handle_connect()
+            return
         if err != errno.EINPROGRESS:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
             return
