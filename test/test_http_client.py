@@ -932,6 +932,28 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertIsNone(exchange.conn)
         client.loop.schedule.assert_called_once_with(1, exchange._retry)
 
+    def test_retry_replays_request_start_on_new_connection(self):
+        client = HttpClient(loop=MagicMock())
+        client.attach_conn = MagicMock()
+        exchange = client.exchange()
+        exchange.method = b"OPTIONS"
+        exchange.req_hdrs = []
+        exchange.req_target = b"/"
+        exchange.authority = b"example.com"
+        exchange.origin = ("http", "example.com", 80)
+        exchange.conn = DummyClientConnection()
+        exchange._req_started = True
+        exchange._req_done_trailers = []
+
+        exchange._retry()
+
+        queued_events = [item[0] for item in exchange._output_q]
+        self.assertEqual(queued_events, ["start", "end"])
+        self.assertIsNone(exchange.conn)
+        client.attach_conn.assert_called_once_with(
+            exchange.origin, exchange.handle_connect, exchange.handle_connect_error
+        )
+
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()

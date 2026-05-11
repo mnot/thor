@@ -236,6 +236,7 @@ class HttpClientExchange(EventEmitter):
         self._retries += 1
         assert self.origin, "origin not found in _retry"
         if self._req_done_trailers is not None:
+            self.conn = None
             self._req_started = False
             self._output_q = []
             self._req_start()
