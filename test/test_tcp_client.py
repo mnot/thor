@@ -17,10 +17,12 @@ from thor.tcp import TcpClient, TcpConnection
 
 
 class FakeSocket:
-    def __init__(self, sends=None, connect_error=errno.EINPROGRESS):
+    def __init__(self, sends=None, recvs=None, connect_error=errno.EINPROGRESS):
         self.sends = sends or []
+        self.recvs = recvs or []
         self.sent = []
         self.connect_error = connect_error
+        self.shutdowns = []
         self.closed = False
 
     def fileno(self):
@@ -32,6 +34,12 @@ class FakeSocket:
     def send(self, data):
         self.sent.append(data)
         return self.sends.pop(0)
+
+    def recv(self, bufsize):
+        return self.recvs.pop(0)
+
+    def shutdown(self, how):
+        self.shutdowns.append(how)
 
     def close(self):
         self.closed = True
@@ -196,10 +204,12 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
     def test_close_flushes_partial_write_before_closing(self):
         loop_mock = MagicMock()
-        sock = FakeSocket(sends=[2, 5])
+        sock = FakeSocket(sends=[2, 5], recvs=[b""])
         conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
         disconnects = []
+        closes = []
         conn.on("disconnect", lambda: disconnects.append(True))
+        conn.on("close", lambda: closes.append(True))
         conn.write(b"abcdefg")
 
         conn.close()
@@ -210,10 +220,61 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertFalse(sock.closed)
 
         conn.handle_writable()
-        self.assertFalse(conn.tcp_connected)
+        self.assertTrue(conn.tcp_connected)
         self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
+        self.assertEqual(disconnects, [])
+        self.assertFalse(sock.closed)
+
+        conn.handle_readable()
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(disconnects, [True])
+        self.assertEqual(closes, [True])
+        self.assertTrue(sock.closed)
+
+    def test_close_half_closes_and_waits_for_peer_close(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b"ignored", b""])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        data = []
+        closes = []
+        conn.on("data", data.append)
+        conn.on("close", lambda: closes.append(True))
+
+        conn.close()
+
+        self.assertTrue(conn.tcp_connected)
+        self.assertTrue(conn._closing)
+        self.assertFalse(conn._input_paused)
+        self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
+        loop_mock.schedule.assert_called_once_with(conn.close_timeout, conn._close)
+
+        conn.handle_readable()
+        self.assertEqual(data, [])
+        self.assertTrue(conn.tcp_connected)
+
+        conn.handle_readable()
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(closes, [True])
+        self.assertTrue(sock.closed)
+
+    def test_close_timeout_forces_close_after_half_close(self):
+        loop_mock = MagicMock()
+        timeout_ev = MagicMock()
+        loop_mock.schedule.return_value = timeout_ev
+        sock = FakeSocket()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        disconnects = []
+        conn.on("disconnect", lambda: disconnects.append(True))
+
+        conn.close()
+        close_callback = loop_mock.schedule.call_args.args[1]
+        close_callback()
+
+        self.assertFalse(conn.tcp_connected)
         self.assertEqual(disconnects, [True])
         self.assertTrue(sock.closed)
+        timeout_ev.delete.assert_called_once_with()
 
     def test_close_is_idempotent(self):
         loop_mock = MagicMock()

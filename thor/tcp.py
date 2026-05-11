@@ -92,6 +92,7 @@ class TcpConnection(EventSource):
     max_write_buffer_chunks = 4096
     max_write_buffer_size = 1024 * 1024 * 16  # bytes
     read_bufsize = 1024 * 16  # bytes
+    close_timeout = 5  # seconds
 
     block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT])
     close_errs = set(
@@ -116,6 +117,8 @@ class TcpConnection(EventSource):
         self._input_paused = True  # we start with input paused
         self._output_paused = False
         self._closing = False
+        self._closed_output = False
+        self._close_timeout_ev: Optional[ScheduledEvent] = None
         self._write_buffer: List[bytes] = []
 
         self.register_fd(sock.fileno())
@@ -151,6 +154,8 @@ class TcpConnection(EventSource):
             raise
         if data == b"":
             self._handle_close()
+        elif self._closing and self._closed_output:
+            return
         else:
             self.emit("data", data)
 
@@ -179,7 +184,7 @@ class TcpConnection(EventSource):
             self._output_paused = False
             self.emit("pause", False)
         if self._closing and not self._write_buffer:
-            self._close()
+            self._shutdown_output()
             return
         if not self._write_buffer:
             self.event_del("fd_writable")
@@ -219,15 +224,30 @@ class TcpConnection(EventSource):
         "Flush buffered data (if any) and close the connection."
         if not self.tcp_connected:
             return
-        self.pause(True)
+        self._closing = True
         if self._write_buffer:
-            self._closing = True
+            self.event_add("fd_writable")
         else:
-            self._close()
+            self._shutdown_output()
 
     def abort(self) -> None:
         "Close the connection immediately, discarding buffered data."
         self._close()
+
+    def _shutdown_output(self) -> None:
+        if self._closed_output:
+            return
+        try:
+            self.socket.shutdown(socket.SHUT_WR)
+        except (socket.error, OSError) as why:
+            if why.args[0] not in self.close_errs:
+                raise
+        self._closed_output = True
+        self.event_del("fd_writable")
+        self.event_add("fd_readable")
+        self._input_paused = False
+        if self.close_timeout > 0:
+            self._close_timeout_ev = self.loop.schedule(self.close_timeout, self._close)
 
     def _handle_close(self) -> None:
         "The connection has been closed by the other side."
@@ -239,7 +259,11 @@ class TcpConnection(EventSource):
             return False
         self.tcp_connected = False
         self._closing = False
+        self._closed_output = False
         self._write_buffer = []
+        if self._close_timeout_ev:
+            self._close_timeout_ev.delete()
+            self._close_timeout_ev = None
         self.remove_listeners("fd_readable", "fd_writable", "fd_close")
         self.unregister_fd()
         if self.socket:
