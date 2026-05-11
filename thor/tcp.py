@@ -89,6 +89,7 @@ class TcpConnection(EventSource):
     """
 
     write_bufsize = 16  # number of chunks
+    max_write_buffer_chunks = 4096
     max_write_buffer_size = 1024 * 1024 * 16  # bytes
     read_bufsize = 1024 * 16  # bytes
 
@@ -187,6 +188,11 @@ class TcpConnection(EventSource):
         "Write data to the connection."
         if not self.tcp_connected:
             raise OSError("Connection closed")
+        if len(self._write_buffer) >= self.max_write_buffer_chunks:
+            if not self._output_paused:
+                self._output_paused = True
+                self.emit("pause", True)
+            raise BufferError("TCP write buffer chunk limit exceeded")
         if self._write_buffer_size() + len(data) > self.max_write_buffer_size:
             if not self._output_paused:
                 self._output_paused = True
