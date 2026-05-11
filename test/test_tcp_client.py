@@ -238,8 +238,27 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertFalse(sock.closed)
         self.assertIn("fd_readable", conn.interesting_events())
         loop_mock.schedule.assert_called_once_with(
-            conn.close_timeout, conn._handle_close, False
+            conn.close_timeout, conn._close_after_drain_timeout
         )
+
+    def test_fd_close_timeout_drains_late_read_data(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recv_error=errno.EAGAIN)
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        data = []
+        closes = []
+        conn.on("data", data.append)
+        conn.on("close", lambda: closes.append(True))
+
+        conn._handle_close()
+        sock.recv_error = None
+        sock.recvs = [b"late", b""]
+        conn._close_after_drain_timeout()
+
+        self.assertEqual(data, [b"late"])
+        self.assertEqual(closes, [True])
+        self.assertFalse(conn.tcp_connected)
+        self.assertTrue(sock.closed)
 
     def test_write_host_unreachable_closes_connection(self):
         loop_mock = MagicMock()
