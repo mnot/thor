@@ -122,6 +122,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
                 self.ex_queue.remove(exchange)
             if self.is_idle and self.server.shutting_down:
                 self.close_conn()
+            elif self.is_idle:
+                self._idler = self.server.loop.schedule(
+                    self.server.idle_timeout, self.close_conn
+                )
 
     # Methods called by tcp
 
@@ -146,9 +150,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.tcp_conn.write(data)
 
     def output_done(self) -> None:
-        self._idler = self.server.loop.schedule(
-            self.server.idle_timeout, self.close_conn
-        )
+        pass
 
     def input_start(
         self,

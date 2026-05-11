@@ -306,6 +306,29 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Too many messages to parse", output)
 
+    def test_idle_timer_waits_for_exchange_queue_to_drain(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        server.loop.schedule.reset_mock()
+        first = HttpServerExchange(conn, b"GET", b"/one", [], b"1.1")
+        second = HttpServerExchange(conn, b"GET", b"/two", [], b"1.1")
+        first.req_complete = True
+        second.req_complete = True
+        conn.ex_queue = [first, second]
+
+        first.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+        first.response_done([])
+
+        server.loop.schedule.assert_not_called()
+
+        second.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+        second.response_done([])
+
+        server.loop.schedule.assert_called_once_with(
+            server.idle_timeout, conn.close_conn
+        )
+
     def test_reentrancy(self):
         def server_side(server):
             def check(exchange):
