@@ -53,6 +53,8 @@ class TlsClient(TcpClient):
         self._tls_context.verify_mode = sys_ssl.CERT_NONE
 
     def handle_connect(self) -> None:
+        if self._error_sent:
+            return
         assert self.sock, "self.sock not found in handle_connect"
         assert self.hostname, "hostname not found in handle_connect"
         try:
@@ -70,6 +72,8 @@ class TlsClient(TcpClient):
         self.once("fd_writable", self.handshake)
 
     def handshake(self) -> None:
+        if self._error_sent:
+            return
         assert self.tls_sock, "tls_sock not found in handshake"
         try:
             self.tls_sock.do_handshake()
@@ -91,6 +95,8 @@ class TlsClient(TcpClient):
         self.unregister_fd()
         if self._timeout_ev:
             self._timeout_ev.delete()
+        if self._error_sent:
+            return
         assert self.tls_sock, "tls_sock not found in handle_tls_connect"
         assert self.address, "address not found in handle_tls_connect"
         tls_conn = TcpConnection(self.tls_sock, self.address, self.loop)

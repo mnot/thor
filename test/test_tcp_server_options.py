@@ -1,3 +1,5 @@
+import errno
+import os
 import socket
 import unittest
 from unittest.mock import MagicMock, patch
@@ -75,6 +77,31 @@ class TestTcpServerOptions(unittest.TestCase):
         mock_loop.unregister_fd.assert_called_with(17)
         mock_sock.close.assert_called_once_with()
         self.assertIsNone(server.sock)
+
+    def test_handle_accept_ignores_transient_accept_errors(self):
+        for err in [errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR, errno.ECONNABORTED]:
+            with self.subTest(err=err):
+                mock_sock = MagicMock()
+                mock_sock.fileno.return_value = 17
+                mock_sock.accept.side_effect = OSError(err, os.strerror(err))
+                mock_loop = MagicMock()
+                server = TcpServer(b"localhost", 1234, sock=mock_sock, loop=mock_loop)
+                connects = []
+                server.on("connect", connects.append)
+
+                server.handle_accept()
+
+                self.assertEqual(connects, [])
+
+    def test_handle_accept_reraises_unexpected_accept_errors(self):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.accept.side_effect = OSError(errno.EBADF, os.strerror(errno.EBADF))
+        mock_loop = MagicMock()
+        server = TcpServer(b"localhost", 1234, sock=mock_sock, loop=mock_loop)
+
+        with self.assertRaises(OSError):
+            server.handle_accept()
 
 
 if __name__ == "__main__":

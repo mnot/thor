@@ -11,6 +11,7 @@ import ssl
 import sys
 import threading
 import unittest
+from unittest.mock import MagicMock
 
 import framework
 
@@ -137,6 +138,18 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.last_error_type, "socket")
         self.assertEqual(self.last_error, errno.ETIMEDOUT)
         self.assertEqual(self.timeout_hit, False)
+
+    def test_tls_connect_after_error_is_ignored(self):
+        client = TlsClient(self.loop)
+        client.unregister_fd = MagicMock()
+        client._error_sent = True
+        connects = []
+        client.on("connect", connects.append)
+
+        client.handle_tls_connect()
+
+        client.unregister_fd.assert_called_once_with()
+        self.assertEqual(connects, [])
 
 
 #   def test_pause(self):

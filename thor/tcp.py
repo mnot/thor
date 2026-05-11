@@ -266,6 +266,8 @@ class TcpServer(EventSource):
     conn_handler is called every time a new client connects.
     """
 
+    accept_errs = {errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR, errno.ECONNABORTED}
+
     def __init__(
         self,
         host: bytes,
@@ -296,6 +298,10 @@ class TcpServer(EventSource):
             # sometimes accept() returns None if we have
             # multiple processes listening
             return
+        except OSError as why:
+            if why.errno in self.accept_errs:
+                return
+            raise
         conn.setblocking(False)
         try:
             tcp_conn = TcpConnection(
