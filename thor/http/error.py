@@ -100,6 +100,18 @@ class HeaderValueError(HttpError):
     client_recoverable = True
 
 
+class FieldSectionTooLargeError(HttpError):
+    desc = "HTTP field section too large"
+    server_status = (b"431", b"Request Header Fields Too Large")
+    client_recoverable = True
+
+
+class TooManyFieldsError(HttpError):
+    desc = "Too many HTTP fields"
+    server_status = (b"431", b"Request Header Fields Too Large")
+    client_recoverable = True
+
+
 class HeaderLineEndingError(HttpError):
     desc = "Header line was terminated with LF instead of CRLF"
     server_status = (b"400", b"Bad Request")

@@ -119,6 +119,38 @@ Content-Length: %i
         headers = [k for k, v in self.parser.test_hdrs]
         self.assertEqual(headers, [b"Content-Type", b"Content-Length"])
 
+    def test_incomplete_field_section_too_large(self):
+        self.parser.max_input_field_section_length = 16
+        self.parser.handle_input(b"http/1.1 200 OK\r\nToo-Long")
+        self.assertIsInstance(self.parser.test_err, error.FieldSectionTooLargeError)
+        self.assertEqual(self.parser._input_buffer, [])
+
+    def test_complete_field_section_too_large(self):
+        self.parser.max_input_field_section_length = 16
+        self.parser.handle_input(
+            b"http/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.FieldSectionTooLargeError)
+
+    def test_too_many_fields(self):
+        self.parser.max_input_fields = 2
+        self.parser.handle_input(
+            b"http/1.1 200 OK\r\n"
+            b"One: 1\r\n"
+            b"Two: 2\r\n"
+            b"Three: 3\r\n"
+            b"Content-Length: 0\r\n"
+            b"\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.TooManyFieldsError)
+
+    def test_field_section_size_limit_is_not_permissive(self):
+        self.parser.careful = False
+        self.parser.max_input_field_section_length = 16
+        self.parser.handle_input(b"http/1.1 200 OK\r\nToo-Long")
+        self.assertIsInstance(self.parser.test_err, error.FieldSectionTooLargeError)
+        self.assertEqual(self.parser.test_states, ["ERROR"])
+
     def test_hdr_case(self):
         body = b"12345678901234567890"
         self.checkSingleMsg(
@@ -795,6 +827,18 @@ Baz: 1
         self.assertEqual(
             self.parser.test_trailers, [(b"Foo", b" bar"), (b"Baz", b" 1")]
         )
+
+    def test_trailer_field_section_too_large(self):
+        self.parser.max_input_field_section_length = 16
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"0\r\n"
+            b"Too-Long"
+        )
+        self.assertIsInstance(self.parser.test_err, error.FieldSectionTooLargeError)
+        self.assertEqual(self.parser._input_buffer, [])
 
     def test_pipeline_chunked(self):
         body = b"abc123def456ghi789"

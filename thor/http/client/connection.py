@@ -118,6 +118,12 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         if self.active_exchange or not self.reusable:
             HttpMessageHandler.handle_input(self, inbytes)
         else:
+            if (
+                sum(len(chunk) for chunk in self._input_buffer) + len(inbytes)
+                > self.max_input_field_section_length
+            ):
+                self.input_error(error.FieldSectionTooLargeError())
+                return
             self._input_buffer.append(inbytes)
 
     # HttpMessageHandler implementation

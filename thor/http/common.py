@@ -110,6 +110,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
     """
 
     careful = True  # if False, don't fail on errors, but preserve them.
+    max_input_field_section_length = 131072
+    max_input_fields = 1000
     default_state: States  # QUIET or WAITING
 
     def __init__(self) -> None:
@@ -196,6 +198,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
                         self.input_error(error.TooManyMsgsError())
                         # we can't recover from this, so we bail.
             else:  # partial headers; store it and wait for more
+                if len(inbytes) > self.max_input_field_section_length:
+                    self._input_state = States.ERROR
+                    self.input_error(error.FieldSectionTooLargeError())
+                    return
                 self._input_buffer.append(inbytes)
         elif self._input_state == States.QUIET:  # shouldn't be getting any data now.
             if inbytes.strip():
@@ -319,6 +325,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 self.input_end(trailers)
                 self.handle_input(rest)
             else:  # don't have full trailers yet
+                if len(inbytes) > self.max_input_field_section_length:
+                    self._input_state = States.ERROR
+                    self.input_error(error.FieldSectionTooLargeError())
+                    return
                 self._input_buffer.append(inbytes)
 
     def _handle_counted(self, inbytes: bytes) -> None:
@@ -464,7 +474,13 @@ class HttpMessageHandler(metaclass=ABCMeta):
         Returns True if no fatal problems are found.
         """
         self.input_header_length = len(inbytes)
+        if self.input_header_length > self.max_input_field_section_length:
+            self.input_error(error.FieldSectionTooLargeError())
+            return False
         header_lines = inbytes.splitlines()
+        if len(header_lines) > self.max_input_fields + 1:
+            self.input_error(error.TooManyFieldsError())
+            return False
 
         # chop off the top line
         while True:
