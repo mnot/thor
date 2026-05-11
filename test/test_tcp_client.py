@@ -8,11 +8,39 @@ except ImportError:
 import errno
 import socket
 import unittest
+from unittest.mock import MagicMock, patch
 
 import framework
 
 from thor import loop
 from thor.tcp import TcpClient, TcpConnection
+
+
+class FakeSocket:
+    def __init__(self, sends=None, connect_error=errno.EINPROGRESS):
+        self.sends = sends or []
+        self.sent = []
+        self.connect_error = connect_error
+        self.closed = False
+
+    def fileno(self):
+        return 1
+
+    def setblocking(self, blocking):
+        pass
+
+    def send(self, data):
+        self.sent.append(data)
+        return self.sends.pop(0)
+
+    def close(self):
+        self.closed = True
+
+    def connect_ex(self, address):
+        return self.connect_error
+
+    def getsockopt(self, level, optname):
+        return 0
 
 
 class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -132,19 +160,16 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.timeout_hit, False)
 
 
-#   def test_pause(self):
-
-
     def test_write_closed_crash(self):
         # Use real sockets to avoid issues with loop registration
         rsock, wsock = socket.socketpair()
         rsock.setblocking(False)
-        
+
         # Create connection and close it
         conn = TcpConnection(rsock, ("127.0.0.1", 80), self.loop)
-        conn._close() # Force internal close
+        conn._close()  # Force internal close
         wsock.close()
-        
+
         # Expectation: write should raise OSError
         with self.assertRaisesRegex(OSError, "Connection closed"):
             conn.write(b"foo")
@@ -152,22 +177,61 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
     def test_stuck_close(self):
         rsock, wsock = socket.socketpair()
         rsock.setblocking(False)
-        
+
         conn = TcpConnection(rsock, ("127.0.0.1", 80), self.loop)
         # Simulate buffered data
         conn._write_buffer.append(b"pending")
-        
+
         # Call close
         conn.close()
-        
+
         # Expectation: conn.tcp_connected should still be True because it's waiting to flush
         self.assertTrue(conn.tcp_connected)
         self.assertTrue(conn._closing)
-        
+
         # Use abort to force close
         conn.abort()
         self.assertFalse(conn.tcp_connected)
         wsock.close()
+
+    def test_close_flushes_partial_write_before_closing(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(sends=[2, 5])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        disconnects = []
+        conn.on("disconnect", lambda: disconnects.append(True))
+        conn.write(b"abcdefg")
+
+        conn.close()
+        conn.handle_writable()
+        self.assertTrue(conn.tcp_connected)
+        self.assertEqual(conn._write_buffer, [b"cdefg"])
+        self.assertEqual(disconnects, [])
+        self.assertFalse(sock.closed)
+
+        conn.handle_writable()
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(disconnects, [True])
+        self.assertTrue(sock.closed)
+
+    def test_close_is_idempotent(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        disconnects = []
+        closes = []
+        conn.on("disconnect", lambda: disconnects.append(True))
+        conn.on("close", lambda: closes.append(True))
+
+        conn._handle_close()
+        conn._handle_close()
+        conn.close()
+        conn.abort()
+
+        self.assertEqual(disconnects, [True])
+        self.assertEqual(closes, [True])
+        self.assertTrue(sock.closed)
 
 if __name__ == "__main__":
     unittest.main()

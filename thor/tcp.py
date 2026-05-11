@@ -172,8 +172,9 @@ class TcpConnection(EventSource):
         if self._output_paused and len(self._write_buffer) < self.write_bufsize:
             self._output_paused = False
             self.emit("pause", False)
-        if self._closing:
+        if self._closing and not self._write_buffer:
             self._close()
+            return
         if not self._write_buffer:
             self.event_del("fd_writable")
 
@@ -200,6 +201,8 @@ class TcpConnection(EventSource):
 
     def close(self) -> None:
         "Flush buffered data (if any) and close the connection."
+        if not self.tcp_connected:
+            return
         self.pause(True)
         if self._write_buffer:
             self._closing = True
@@ -212,16 +215,21 @@ class TcpConnection(EventSource):
 
     def _handle_close(self) -> None:
         "The connection has been closed by the other side."
-        self._close()
-        self.emit("close")
+        if self._close():
+            self.emit("close")
 
-    def _close(self) -> None:
-        self.emit("disconnect")
+    def _close(self) -> bool:
+        if not self.tcp_connected:
+            return False
         self.tcp_connected = False
+        self._closing = False
+        self._write_buffer = []
         self.remove_listeners("fd_readable", "fd_writable", "fd_close")
         self.unregister_fd()
         if self.socket:
             self.socket.close()
+        self.emit("disconnect")
+        return True
 
 
 class TcpServer(EventSource):
