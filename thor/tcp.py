@@ -102,6 +102,8 @@ class TcpConnection(EventSource):
             errno.ESHUTDOWN,
             errno.ECONNABORTED,
             errno.ECONNREFUSED,
+            errno.EHOSTUNREACH,
+            errno.ENETUNREACH,
             errno.ENOTCONN,
             errno.EPIPE,
         ]

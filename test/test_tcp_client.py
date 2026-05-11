@@ -17,9 +17,18 @@ from thor.tcp import TcpClient, TcpConnection
 
 
 class FakeSocket:
-    def __init__(self, sends=None, recvs=None, connect_error=errno.EINPROGRESS):
+    def __init__(
+        self,
+        sends=None,
+        recvs=None,
+        send_error=None,
+        recv_error=None,
+        connect_error=errno.EINPROGRESS,
+    ):
         self.sends = sends or []
         self.recvs = recvs or []
+        self.send_error = send_error
+        self.recv_error = recv_error
         self.sent = []
         self.connect_error = connect_error
         self.shutdowns = []
@@ -32,10 +41,14 @@ class FakeSocket:
         pass
 
     def send(self, data):
+        if self.send_error:
+            raise OSError(self.send_error, errno.errorcode[self.send_error])
         self.sent.append(data)
         return self.sends.pop(0)
 
     def recv(self, bufsize):
+        if self.recv_error:
+            raise OSError(self.recv_error, errno.errorcode[self.recv_error])
         return self.recvs.pop(0)
 
     def shutdown(self, how):
@@ -181,6 +194,33 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         # Expectation: write should raise OSError
         with self.assertRaisesRegex(OSError, "Connection closed"):
             conn.write(b"foo")
+
+    def test_read_network_unreachable_closes_connection(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recv_error=errno.ENETUNREACH)
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        closes = []
+        conn.on("close", lambda: closes.append(True))
+
+        conn.handle_readable()
+
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(closes, [True])
+        self.assertTrue(sock.closed)
+
+    def test_write_host_unreachable_closes_connection(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(send_error=errno.EHOSTUNREACH)
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        closes = []
+        conn.on("close", lambda: closes.append(True))
+        conn.write(b"hello")
+
+        conn.handle_writable()
+
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(closes, [True])
+        self.assertTrue(sock.closed)
 
     def test_stuck_close(self):
         rsock, wsock = socket.socketpair()
