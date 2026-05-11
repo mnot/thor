@@ -395,6 +395,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 self.input_error(error.HeaderNameError("empty field-name"))
                 if self.careful:
                     raise ValueError
+                continue
             if fn[-1:] in [b" ", b"\t"]:
                 self.input_error(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
                 if self.careful:

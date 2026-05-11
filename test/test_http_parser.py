@@ -280,7 +280,7 @@ Content-Length: %i
         )
         self.assertIsInstance(self.parser.test_err, error.HeaderNameError)
         headers = [k for k, v in self.parser.test_hdrs]
-        self.assertEqual(headers, [b"Content-Type", b"", b"Content-Length"])
+        self.assertEqual(headers, [b"Content-Type", b"Content-Length"])
 
     def test_hdrs_utf8(self):
         body = b"lorum ipsum whatever goes after that."
