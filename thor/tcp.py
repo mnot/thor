@@ -270,7 +270,7 @@ class TcpConnection(EventSource):
         self.event_del("fd_writable")
         self.event_add("fd_readable")
         self._input_paused = False
-        if self.close_timeout > 0:
+        if self.close_timeout > 0 and not self._close_timeout_ev:
             self._close_timeout_ev = self.loop.schedule(self.close_timeout, self._close)
 
     def _handle_close(self, drain: bool = True) -> None:
