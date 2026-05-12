@@ -135,6 +135,24 @@ class TestEventEmitter(unittest.TestCase):
         self.assertEqual(self.t.foo_count, 0)
         self.assertEqual(self.t.rem1_count, 2)
 
+    def test_multiple_once_listeners_all_fire(self):
+        """
+        Multiple once() listeners for the same event must all fire
+        on a single emit, even though each removes itself before
+        calling its target.
+        """
+        count = [0]
+
+        def inc():
+            count[0] += 1
+
+        ee = EventEmitter()
+        ee.once("ping", inc)
+        ee.once("ping", inc)
+        ee.once("ping", inc)
+        ee.emit("ping")
+        self.assertEqual(count[0], 3)
+
     def test_remove_listener_recursion(self):
         """
         Removing a later listener specifically for

@@ -958,6 +958,13 @@ class TestHttpClient(framework.ClientServerTestCase):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
 
+            self.check_exchange(
+                exchange,
+                {
+                    "error": thor.http.error.ConnectError,
+                },
+            )
+
             @on(exchange)
             def response_done(trailers):
                 self.fail("Should have failed")
@@ -966,13 +973,6 @@ class TestHttpClient(framework.ClientServerTestCase):
             def error(err_msg):
                 self.assertEqual(err_msg.__class__, thor.http.error.ConnectError)
                 self.loop.stop()
-
-            self.check_exchange(
-                exchange,
-                {
-                    "error": thor.http.error.ConnectError,
-                },
-            )
 
             req_uri = b"http://%s:%i/req_retry_fail" % (
                 test_host,
