@@ -329,6 +329,70 @@ Content-Length: 5
             server.idle_timeout, conn.close_conn
         )
 
+    def test_response_done_close_closes_tcp(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"POST", b"/", [], b"1.1")
+        conn.ex_queue = [exchange]
+
+        exchange.response_start(b"413", b"Content Too Large", [])
+        exchange.response_body(b"too big")
+        exchange.response_done([], close=True)
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIsNone(conn.tcp_conn)
+
+    def test_response_done_default_keeps_connection(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+        exchange.req_complete = True
+        conn.ex_queue = [exchange]
+
+        exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+        exchange.response_done([])
+
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_early_response_drops_remaining_body(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        request_done_count = [0]
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_body")
+            def on_body(chunk):
+                if not exchange.res_complete:
+                    exchange.response_start(
+                        b"413", b"Content Too Large", [(b"Content-Length", b"0")]
+                    )
+                    exchange.response_done([], close=True)
+
+            @on(exchange, "request_done")
+            def on_done(trailers):
+                request_done_count[0] += 1
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Length: 10\r\n"
+            b"\r\n"
+            b"0123456789"
+        )
+
+        self.assertEqual(request_done_count[0], 0)
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 413 Content Too Large", output)
+
     def test_reentrancy(self):
         def server_side(server):
             def check(exchange):

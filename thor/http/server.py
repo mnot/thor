@@ -204,13 +204,17 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."
-        self.ex_queue[-1].emit("request_body", chunk)
+        ex = self.ex_queue[-1]
+        if ex.res_complete:
+            return
+        ex.emit("request_body", chunk)
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the request body is complete."
         ex = self.ex_queue[-1]
         ex.req_complete = True
-        ex.emit("request_done", trailers)
+        if not ex.res_complete:
+            ex.emit("request_done", trailers)
         if ex.res_complete and ex in self.ex_queue:
             self.ex_queue.remove(ex)
 
@@ -320,14 +324,18 @@ class HttpServerExchange(EventEmitter):
         "Send part of the response body. May be called zero to many times."
         self.http_conn.output_body(chunk)
 
-    def response_done(self, trailers: RawHeaderListType) -> None:
+    def response_done(
+        self, trailers: RawHeaderListType, close: bool = False
+    ) -> None:
         """
         Signal the end of the response, whether or not there was a body. MUST
-        be called exactly once for each response.
+        be called exactly once for each response. If close is True, the
+        underlying TCP connection is closed after the response is flushed,
+        regardless of response framing.
         """
-        close = self.http_conn.output_end(trailers)
+        should_close = self.http_conn.output_end(trailers)
         self.http_conn.exchange_done(self)
-        if close and self.http_conn.tcp_conn:
+        if (should_close or close) and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
 
 
