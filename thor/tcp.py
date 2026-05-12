@@ -270,7 +270,7 @@ class TcpConnection(EventSource):
         self.event_del("fd_writable")
         self.event_add("fd_readable")
         self._input_paused = False
-        if self.close_timeout > 0:
+        if self.close_timeout > 0 and not self._close_timeout_ev:
             self._close_timeout_ev = self.loop.schedule(self.close_timeout, self._close)
 
     def _handle_close(self, drain: bool = True) -> None:
@@ -279,6 +279,8 @@ class TcpConnection(EventSource):
             return
         if drain:
             eof = self._drain_readable()
+            if not self.tcp_connected:
+                return
             if not eof:
                 self.event_add("fd_readable")
                 if self.close_timeout > 0 and not self._close_timeout_ev:
@@ -291,6 +293,8 @@ class TcpConnection(EventSource):
 
     def _close_after_drain_timeout(self) -> None:
         self._drain_readable()
+        if not self.tcp_connected:
+            return
         if self._close():
             self.emit("close")
 
