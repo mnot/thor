@@ -101,8 +101,9 @@ class EventEmitter:
         """
         events = self.__events.get(event, [])
         if events:
-            for ev in events:
-                ev(*args)
+            for ev in list(events):
+                if ev in events:
+                    ev(*args)
         else:
             sink_event = getattr(self.__sink, event, None)
             if sink_event:
