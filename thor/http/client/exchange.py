@@ -57,6 +57,7 @@ class HttpClientExchange(EventEmitter):
         self._req_done_trailers: Optional[RawHeaderListType] = None
         self._error_sent = False
         self._retries = 0
+        self._retry_pending = False
         self._output_q: List[Tuple[Any, ...]] = []
         self._response_complete = False
 
@@ -180,6 +181,8 @@ class HttpClientExchange(EventEmitter):
     def handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."
 
+        if self._retry_pending:
+            return
         if err_type == "gai":
             self.input_error(DnsError(err_str), False)
         elif err_type == "access":
@@ -194,7 +197,7 @@ class HttpClientExchange(EventEmitter):
     def conn_closed(self, state: States, delimit: Delimiters) -> None:
         "The server closed the connection."
 
-        if self._response_complete or self._error_sent:
+        if self._response_complete or self._error_sent or self._retry_pending:
             return
 
         if state in [States.QUIET, States.ERROR]:
@@ -229,10 +232,12 @@ class HttpClientExchange(EventEmitter):
 
     def _schedule_retry(self) -> None:
         self.conn = None
+        self._retry_pending = True
         self.client.loop.schedule(self.client.retry_delay, self._retry)
 
     def _retry(self) -> None:
         "Retry the request."
+        self._retry_pending = False
         self._retries += 1
         assert self.origin, "origin not found in _retry"
         if self._req_done_trailers is not None:
