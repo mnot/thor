@@ -27,7 +27,7 @@ from typing import (
 from thor.events import EventEmitter
 from thor.types import EventListener, ScheduledEventTuple
 
-__all__ = ["run", "stop", "schedule", "time"]
+__all__ = ["run", "stop", "schedule"]
 
 
 class EventSource(EventEmitter):
@@ -215,10 +215,6 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         "An event has occured on an fd."
         if fd in self._fd_targets:
             self._fd_targets[fd].emit(event)
-
-    def time(self) -> float:
-        "Return the current time (deprecated)."
-        return systime.time()
 
     def schedule(
         self, delta: float, callback: EventListener, *args: Any
@@ -560,4 +556,3 @@ _loop = make()  # by default, just one big loop.
 run = _loop.run
 stop = _loop.stop
 schedule = _loop.schedule
-time = _loop.time
