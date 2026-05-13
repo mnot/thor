@@ -97,7 +97,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
         self.debug = False
-        self.__profiler: cProfile.Profile
+        self.__profiler: Optional[cProfile.Profile] = None
         self.__sched_events: List[ScheduledEventTuple] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__last_event_check: float = 0.0
@@ -118,7 +118,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         if self.debug:
             self.__profiler = cProfile.Profile()
         while self.running:
-            if self.debug:
+            if self.debug and self.__profiler is not None:
                 fd_start = systime.monotonic()
                 self.__profiler.enable()
                 self._run_fd_events()
@@ -154,7 +154,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             when, what = self.__sched_events[0]
             if self.running and when <= self.__last_event_check:
                 self.__sched_events.pop(0)
-                if self.debug:
+                if self.debug and self.__profiler is not None:
                     ev_start = systime.monotonic()
                     self.__profiler.enable()
                     what()
