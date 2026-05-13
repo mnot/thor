@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-from __future__ import absolute_import
-
 from thor.http.client import HttpClient, HttpClientExchange
 from thor.http.common import (
     get_header,
