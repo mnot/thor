@@ -92,7 +92,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.server = server
         self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
         self.output_paused = False
-        self.output_paused = False
         self._idler: Optional[ScheduledEvent] = self.server.loop.schedule(
             self.server.idle_timeout, self.close_conn
         )
