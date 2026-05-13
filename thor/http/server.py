@@ -13,7 +13,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 from thor.events import EventEmitter, on
 from thor.http.common import (
@@ -48,12 +48,12 @@ class HttpServer(EventEmitter):
         self.loop = self.tcp_server.loop
         self.tcp_server.on("connect", self.handle_conn)
         self.loop.schedule(0, self.emit, "start")
-        self.connections: List["HttpServerConnection"] = []
+        self.connections: Set["HttpServerConnection"] = set()
         self.shutting_down = False
 
     def handle_conn(self, tcp_conn: TcpConnection) -> None:
         http_conn = HttpServerConnection(tcp_conn, self)
-        self.connections.append(http_conn)
+        self.connections.add(http_conn)
         tcp_conn.on("data", http_conn.handle_input)
         tcp_conn.on("disconnect", http_conn.conn_closed)
         tcp_conn.on("pause", http_conn.res_body_pause)
@@ -137,8 +137,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def conn_closed(self) -> None:
         "The server connection has closed."
-        if self in self.server.connections:
-            self.server.connections.remove(self)
+        self.server.connections.discard(self)
         self.ex_queue = []
         self.tcp_conn = None
 
