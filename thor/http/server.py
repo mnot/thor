@@ -13,7 +13,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 from thor.events import EventEmitter, on
 from thor.http.common import (
@@ -48,12 +48,12 @@ class HttpServer(EventEmitter):
         self.loop = self.tcp_server.loop
         self.tcp_server.on("connect", self.handle_conn)
         self.loop.schedule(0, self.emit, "start")
-        self.connections: List["HttpServerConnection"] = []
+        self.connections: Set["HttpServerConnection"] = set()
         self.shutting_down = False
 
     def handle_conn(self, tcp_conn: TcpConnection) -> None:
         http_conn = HttpServerConnection(tcp_conn, self)
-        self.connections.append(http_conn)
+        self.connections.add(http_conn)
         tcp_conn.on("data", http_conn.handle_input)
         tcp_conn.on("disconnect", http_conn.conn_closed)
         tcp_conn.on("pause", http_conn.res_body_pause)
@@ -91,7 +91,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.tcp_conn: Optional[TcpConnection] = tcp_conn
         self.server = server
         self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
-        self.output_paused = False
         self.output_paused = False
         self._idler: Optional[ScheduledEvent] = self.server.loop.schedule(
             self.server.idle_timeout, self.close_conn
@@ -138,8 +137,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def conn_closed(self) -> None:
         "The server connection has closed."
-        if self in self.server.connections:
-            self.server.connections.remove(self)
+        self.server.connections.discard(self)
         self.ex_queue = []
         self.tcp_conn = None
 
@@ -324,9 +322,7 @@ class HttpServerExchange(EventEmitter):
         "Send part of the response body. May be called zero to many times."
         self.http_conn.output_body(chunk)
 
-    def response_done(
-        self, trailers: RawHeaderListType, close: bool = False
-    ) -> None:
+    def response_done(self, trailers: RawHeaderListType, close: bool = False) -> None:
         """
         Signal the end of the response, whether or not there was a body. MUST
         be called exactly once for each response. If close is True, the

@@ -135,19 +135,6 @@ class TestLoop(unittest.TestCase):
 
         self.assertEqual(order, ["first-start", "first-end", "second"])
 
-    def test_time(self):
-        run_time = 2
-
-        def check_time():
-            self.assertTrue(
-                abs(systime.time() - self.loop.time()) <= self.loop.precision
-            )
-            self.loop.stop()
-
-        self.loop.schedule(run_time, check_time)
-        self.loop.run()
-
-
 class TestEventSource(unittest.TestCase):
     def setUp(self):
         self.loop = thor.loop.make()

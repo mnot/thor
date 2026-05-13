@@ -7,6 +7,7 @@ This is a generic library for building asynchronous event loops, using
 Python's built-in poll / epoll / kqueue support.
 """
 
+import bisect
 import contextvars
 import cProfile
 import errno
@@ -26,7 +27,7 @@ from typing import (
 from thor.events import EventEmitter
 from thor.types import EventListener, ScheduledEventTuple
 
-__all__ = ["run", "stop", "schedule", "time"]
+__all__ = ["run", "stop", "schedule"]
 
 
 class EventSource(EventEmitter):
@@ -96,7 +97,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         self.precision = precision or 0.1  # of running scheduled queue (secs)
         self.running = False  # whether or not the loop is running (read-only)
         self.debug = False
-        self.__profiler: cProfile.Profile
+        self.__profiler: Optional[cProfile.Profile] = None
         self.__sched_events: List[ScheduledEventTuple] = []
         self._fd_targets: Dict[int, EventSource] = {}
         self.__last_event_check: float = 0.0
@@ -117,7 +118,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         if self.debug:
             self.__profiler = cProfile.Profile()
         while self.running:
-            if self.debug:
+            if self.debug and self.__profiler is not None:
                 fd_start = systime.monotonic()
                 self.__profiler.enable()
                 self._run_fd_events()
@@ -153,7 +154,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             when, what = self.__sched_events[0]
             if self.running and when <= self.__last_event_check:
                 self.__sched_events.pop(0)
-                if self.debug:
+                if self.debug and self.__profiler is not None:
                     ev_start = systime.monotonic()
                     self.__profiler.enable()
                     what()
@@ -215,10 +216,6 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         if fd in self._fd_targets:
             self._fd_targets[fd].emit(event)
 
-    def time(self) -> float:
-        "Return the current time (deprecated)."
-        return systime.time()
-
     def schedule(
         self, delta: float, callback: EventListener, *args: Any
     ) -> "ScheduledEvent":
@@ -238,8 +235,9 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
 
         cb = partial(ctx_callback, *args)
         new_event = (systime.monotonic() + delta, cb)
-        events = self.__sched_events
-        self._insort(events, new_event)
+        bisect.insort(
+            self.__sched_events, new_event, key=lambda ev: ev[0]  # type: ignore[type-var,misc]
+        )
         return ScheduledEvent(self, new_event)
 
     def schedule_del(self, event: ScheduledEventTuple) -> None:
@@ -247,22 +245,6 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             self.__sched_events.remove(event)
         except ValueError:  # already gone
             pass
-
-    @staticmethod
-    def _insort(
-        li: List[Any], thing: Any, lo: int = 0, hi: Optional[int] = None
-    ) -> None:
-        if lo < 0:
-            raise ValueError("lo must be non-negative")
-        if hi is None:
-            hi = len(li)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if thing[0] < li[mid][0]:
-                hi = mid
-            else:
-                lo = mid + 1
-        li.insert(lo, thing)
 
     def _eventmask(self, events: Iterable[str]) -> int:
         "Calculate the mask for a list of events."
@@ -574,4 +556,3 @@ _loop = make()  # by default, just one big loop.
 run = _loop.run
 stop = _loop.stop
 schedule = _loop.schedule
-time = _loop.time
