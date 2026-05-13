@@ -7,6 +7,7 @@ This is a generic library for building asynchronous event loops, using
 Python's built-in poll / epoll / kqueue support.
 """
 
+import bisect
 import contextvars
 import cProfile
 import errno
@@ -238,8 +239,9 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
 
         cb = partial(ctx_callback, *args)
         new_event = (systime.monotonic() + delta, cb)
-        events = self.__sched_events
-        self._insort(events, new_event)
+        bisect.insort(
+            self.__sched_events, new_event, key=lambda ev: ev[0]  # type: ignore[type-var,misc]
+        )
         return ScheduledEvent(self, new_event)
 
     def schedule_del(self, event: ScheduledEventTuple) -> None:
@@ -247,22 +249,6 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             self.__sched_events.remove(event)
         except ValueError:  # already gone
             pass
-
-    @staticmethod
-    def _insort(
-        li: List[Any], thing: Any, lo: int = 0, hi: Optional[int] = None
-    ) -> None:
-        if lo < 0:
-            raise ValueError("lo must be non-negative")
-        if hi is None:
-            hi = len(li)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if thing[0] < li[mid][0]:
-                hi = mid
-            else:
-                lo = mid + 1
-        li.insert(lo, thing)
 
     def _eventmask(self, events: Iterable[str]) -> int:
         "Calculate the mask for a list of events."
