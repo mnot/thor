@@ -323,9 +323,7 @@ class HttpServerExchange(EventEmitter):
         "Send part of the response body. May be called zero to many times."
         self.http_conn.output_body(chunk)
 
-    def response_done(
-        self, trailers: RawHeaderListType, close: bool = False
-    ) -> None:
+    def response_done(self, trailers: RawHeaderListType, close: bool = False) -> None:
         """
         Signal the end of the response, whether or not there was a body. MUST
         be called exactly once for each response. If close is True, the

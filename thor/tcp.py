@@ -94,20 +94,18 @@ class TcpConnection(EventSource):
     read_bufsize = 1024 * 16  # bytes
     close_timeout = 5  # seconds
 
-    block_errs = set([errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT])
-    close_errs = set(
-        [
-            errno.EBADF,
-            errno.ECONNRESET,
-            errno.ESHUTDOWN,
-            errno.ECONNABORTED,
-            errno.ECONNREFUSED,
-            errno.EHOSTUNREACH,
-            errno.ENETUNREACH,
-            errno.ENOTCONN,
-            errno.EPIPE,
-        ]
-    )
+    block_errs = {errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT}
+    close_errs = {
+        errno.EBADF,
+        errno.ECONNRESET,
+        errno.ESHUTDOWN,
+        errno.ECONNABORTED,
+        errno.ECONNREFUSED,
+        errno.EHOSTUNREACH,
+        errno.ENETUNREACH,
+        errno.ENOTCONN,
+        errno.EPIPE,
+    }
 
     def __init__(
         self, sock: socket.socket, address: Address, loop: Optional[LoopBase] = None
