@@ -1,3 +1,4 @@
+# DO NOT EDIT outside marked project regions — managed by https://github.com/mnot/pyproject-tmpl
 # top-most EditorConfig file
 root = true
 
@@ -14,8 +15,11 @@ indent_size = 4
 [Makefile*]
 indent_style = tab
 
-[{*.md,*.js,*.scss,*.yml}]
+[{*.md,*.js,*.css,*.scss,*.yml}]
 indent_size = 2
 
 [*.html]
 max_line_length = unset
+
+# === pyproject-tmpl: start "extras" ===
+# === pyproject-tmpl: end "extras" ===
