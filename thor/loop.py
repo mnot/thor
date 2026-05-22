@@ -236,7 +236,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         cb = partial(ctx_callback, *args)
         new_event = (systime.monotonic() + delta, cb)
         bisect.insort(
-            self.__sched_events, new_event, key=lambda ev: ev[0]  # type: ignore[type-var,misc]
+            self.__sched_events, new_event, key=lambda ev: ev[0]  # type: ignore[misc]
         )
         return ScheduledEvent(self, new_event)
 
@@ -288,10 +288,10 @@ class PollLoop(LoopBase):
     def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
-            select.POLLIN: "fd_readable",  # type: ignore[attr-defined]
-            select.POLLOUT: "fd_writable",  # type: ignore[attr-defined]
-            select.POLLERR: "fd_error",  # type: ignore[attr-defined]
-            select.POLLHUP: "fd_close",  # type: ignore[attr-defined]
+            select.POLLIN: "fd_readable",
+            select.POLLOUT: "fd_writable",
+            select.POLLERR: "fd_error",
+            select.POLLHUP: "fd_close",
         }
 
         LoopBase.__init__(self, *args)
@@ -370,14 +370,14 @@ class EpollLoop(LoopBase):
     def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
-            select.EPOLLIN: "fd_readable",  # type: ignore[attr-defined]
-            select.EPOLLOUT: "fd_writable",  # type: ignore[attr-defined]
-            select.EPOLLRDHUP: "fd_close",  # type: ignore[attr-defined]
-            select.EPOLLHUP: "fd_close",  # type: ignore[attr-defined]
-            select.EPOLLERR: "fd_error",  # type: ignore[attr-defined]
+            select.EPOLLIN: "fd_readable",  # type: ignore[attr-defined, unused-ignore]
+            select.EPOLLOUT: "fd_writable",  # type: ignore[attr-defined, unused-ignore]
+            select.EPOLLRDHUP: "fd_close",  # type: ignore[attr-defined, unused-ignore]
+            select.EPOLLHUP: "fd_close",  # type: ignore[attr-defined, unused-ignore]
+            select.EPOLLERR: "fd_error",  # type: ignore[attr-defined, unused-ignore]
         }
         LoopBase.__init__(self, *args)
-        self._epoll = select.epoll()  # type: ignore[attr-defined]
+        self._epoll = select.epoll()  # type: ignore[attr-defined, unused-ignore]
         # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
@@ -454,12 +454,12 @@ class KqueueLoop(LoopBase):
     def __init__(self, *args: Any) -> None:
         # pylint: disable=E1101
         self._event_types = {
-            select.KQ_FILTER_READ: "fd_readable",  # type: ignore[attr-defined]
-            select.KQ_FILTER_WRITE: "fd_writable",  # type: ignore[attr-defined]
+            select.KQ_FILTER_READ: "fd_readable",  # type: ignore[attr-defined, unused-ignore]
+            select.KQ_FILTER_WRITE: "fd_writable",  # type: ignore[attr-defined, unused-ignore]
         }
         LoopBase.__init__(self, *args)
         self.max_ev = 50  # maximum number of events to pull from the queue
-        self._kq = select.kqueue()  # type: ignore[attr-defined]
+        self._kq = select.kqueue()  # type: ignore[attr-defined, unused-ignore]
         # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
@@ -479,10 +479,10 @@ class KqueueLoop(LoopBase):
     def event_add(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(  # type: ignore[attr-defined]
+            ev = select.kevent(  # type: ignore[attr-defined, unused-ignore]
                 fd,
                 eventmask,
-                select.KQ_EV_ADD | select.KQ_EV_ENABLE,  # type: ignore[attr-defined]
+                select.KQ_EV_ADD | select.KQ_EV_ENABLE,  # type: ignore[attr-defined, unused-ignore]
             )
             try:
                 self._kq.control([ev], 0, 0)
@@ -495,10 +495,10 @@ class KqueueLoop(LoopBase):
     def event_del(self, fd: int, event: str) -> None:
         eventmask = self._eventmask([event])
         if eventmask:
-            ev = select.kevent(  # type: ignore[attr-defined]
+            ev = select.kevent(  # type: ignore[attr-defined, unused-ignore]
                 fd,
                 eventmask,
-                select.KQ_EV_DELETE,  # type: ignore[attr-defined]
+                select.KQ_EV_DELETE,  # type: ignore[attr-defined, unused-ignore]
             )
             if ev:
                 try:
@@ -517,10 +517,10 @@ class KqueueLoop(LoopBase):
             raise
         for ev in events:
             fileno = int(ev.ident)
-            if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined]
+            if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined, unused-ignore]
                 self._fd_event("fd_error", fileno)
                 continue
-            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined]
+            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined, unused-ignore]
                 if ev.fflags:
                     self._fd_event("fd_error", fileno)
 
@@ -528,7 +528,7 @@ class KqueueLoop(LoopBase):
             for event_type in event_types:
                 self._fd_event(event_type, fileno)
 
-            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined]
+            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined, unused-ignore]
                 self._fd_event("fd_close", fileno)
 
 

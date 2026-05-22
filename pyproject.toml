@@ -47,9 +47,3 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 SHORTNAME = ["py.typed"]
-
-[[tool.mypy.overrides]]
-module = "thor.loop"
-warn_unused_ignores = false
-
-
