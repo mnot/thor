@@ -451,8 +451,9 @@ class KqueueLoop(LoopBase):
     A kqueue()-based async loop.
     """
 
+    # pylint: disable=no-member
+
     def __init__(self, *args: Any) -> None:
-        # pylint: disable=E1101
         self._event_types = {
             select.KQ_FILTER_READ: "fd_readable",  # type: ignore[attr-defined, unused-ignore]
             select.KQ_FILTER_WRITE: "fd_writable",  # type: ignore[attr-defined, unused-ignore]
@@ -460,7 +461,6 @@ class KqueueLoop(LoopBase):
         LoopBase.__init__(self, *args)
         self.max_ev = 50  # maximum number of events to pull from the queue
         self._kq = select.kqueue()  # type: ignore[attr-defined, unused-ignore]
-        # pylint: enable=E1101
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         self._fd_targets[fd] = target
