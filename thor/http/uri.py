@@ -1,3 +1,5 @@
+# pylint: disable=raise-missing-from
+
 from string import ascii_letters, digits
 from typing import Tuple
 from urllib.parse import urlsplit, urlunsplit

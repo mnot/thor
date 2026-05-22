@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# pylint: disable=raise-missing-from
+
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from thor.events import EventEmitter

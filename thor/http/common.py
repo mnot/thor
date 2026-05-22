@@ -7,6 +7,8 @@ This module contains utility functions and a base class
 for the parsing portions of the HTTP client and server.
 """
 
+# pylint: disable=raise-missing-from
+
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
