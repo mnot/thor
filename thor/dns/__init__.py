@@ -4,7 +4,7 @@ import socket
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor
 from itertools import cycle, islice
-from typing import Any, Callable, Iterable, List, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Tuple, Union, cast
 
 import dns.inet
 import dns.resolver
@@ -12,14 +12,22 @@ from dns.exception import DNSException
 
 from thor.types import Address, DnsResult, DnsResultList
 
+if TYPE_CHECKING:
+    from thor.loop import LoopBase
+
 POOL_SIZE = 10
 
 
-def lookup(host: bytes, port: int, proto: int, cb: Callable[..., None]) -> None:
+def lookup(
+    loop: "LoopBase", host: bytes, port: int, proto: int, cb: Callable[..., None]
+) -> None:
     job = _pool.submit(_lookup, host, port, proto)
 
     def done(ff: Future[Union[DnsResultList, Exception]]) -> None:
-        cb(ff.result())
+        # add_done_callback runs in the pool worker thread; hand the result
+        # back to the loop thread so cb (which touches loop/socket state) never
+        # runs off-thread. See thor.loop.LoopBase.run_in_loop.
+        loop.run_in_loop(cb, ff.result())
 
     job.add_done_callback(done)
 

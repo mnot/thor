@@ -2,9 +2,11 @@
 
 import errno
 import os
+import select
 import socket
 import sys
 import tempfile
+import threading
 import time as systime
 import unittest
 
@@ -134,6 +136,67 @@ class TestLoop(unittest.TestCase):
         self.loop.running = False
 
         self.assertEqual(order, ["first-start", "first-end", "second"])
+
+    def test_run_in_loop_runs_callback_in_loop_thread(self):
+        # A callback handed off from another thread must execute in the loop
+        # thread, not the caller's.
+        seen = {}
+
+        def record(value):
+            seen["value"] = value
+            seen["thread"] = threading.current_thread()
+            self.loop.stop()
+
+        def worker():
+            self.loop.run_in_loop(record, 42)
+
+        self.loop.schedule(0, lambda: threading.Thread(target=worker).start())
+        self.loop.schedule(4, self.loop.stop)  # safety net
+        self.loop.run()
+
+        self.assertEqual(seen.get("value"), 42)
+        self.assertIs(seen.get("thread"), threading.main_thread())
+
+    def test_run_in_loop_preserves_order(self):
+        order = []
+        self.loop.run_in_loop(order.append, 1)
+        self.loop.run_in_loop(order.append, 2)
+        self.loop.run_in_loop(order.append, 3)
+        self.loop._run_async_queue()
+        self.assertEqual(order, [1, 2, 3])
+
+    def test_run_in_loop_callback_enqueued_during_drain_waits(self):
+        # A callback that enqueues more work should not starve the drain: the
+        # newly-queued item runs on the next iteration, not this one.
+        order = []
+
+        def reentrant():
+            order.append("a")
+            self.loop.run_in_loop(order.append, "b")
+
+        self.loop.run_in_loop(reentrant)
+        self.loop._run_async_queue()
+        self.assertEqual(order, ["a"])  # "b" deferred to next drain
+        self.loop._run_async_queue()
+        self.assertEqual(order, ["a", "b"])
+
+    @unittest.skipUnless(hasattr(select, "epoll"), "epoll only")
+    def test_epoll_register_fd_recovers_from_stale_target(self):
+        # Simulate fd reuse: a stale _fd_targets entry whose fd the kernel
+        # already dropped from the epoll set. register_fd must re-register
+        # rather than raise FileNotFoundError.
+        r_fd, w_fd = os.pipe()
+        self.addCleanup(lambda: os.close(w_fd))
+        es = thor.loop.EventSource(self.loop)
+        # Plant a stale entry for an fd epoll has never seen.
+        self.loop._fd_targets[r_fd] = es
+        try:
+            self.loop.register_fd(r_fd, ["fd_readable"], es)
+            self.assertIn(r_fd, self.loop._fd_targets)
+        finally:
+            self.loop.unregister_fd(r_fd)
+            os.close(r_fd)
+
 
 class TestEventSource(unittest.TestCase):
     def setUp(self):

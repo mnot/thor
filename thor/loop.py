@@ -8,6 +8,7 @@ Python's built-in poll / epoll / kqueue support.
 """
 
 import bisect
+import collections
 import contextvars
 import cProfile
 import errno
@@ -17,17 +18,19 @@ from abc import ABCMeta, abstractmethod
 from functools import partial
 from typing import (
     Any,
+    Deque,
     Dict,
     Iterable,
     List,
     Optional,
     Set,
+    Tuple,
 )
 
 from thor.events import EventEmitter
 from thor.types import EventListener, ScheduledEventTuple
 
-__all__ = ["run", "stop", "schedule"]
+__all__ = ["run", "stop", "schedule", "run_in_loop"]
 
 
 class EventSource(EventEmitter):
@@ -99,6 +102,9 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         self.debug = False
         self.__profiler: Optional[cProfile.Profile] = None
         self.__sched_events: List[ScheduledEventTuple] = []
+        self._async_queue: Deque[Tuple[EventListener, Tuple[Any, ...]]] = (
+            collections.deque()
+        )
         self._fd_targets: Dict[int, EventSource] = {}
         self.__last_event_check: float = 0.0
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
@@ -118,6 +124,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         if self.debug:
             self.__profiler = cProfile.Profile()
         while self.running:
+            self._run_async_queue()
             if self.debug and self.__profiler is not None:
                 fd_start = systime.monotonic()
                 self.__profiler.enable()
@@ -143,6 +150,18 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
     def _run_fd_events(self) -> None:
         "Run loop-specific FD events."
         raise NotImplementedError
+
+    def _run_async_queue(self) -> None:
+        "Run callbacks queued from other threads by run_in_loop()."
+        queue = self._async_queue
+        # Snapshot the length so callbacks that enqueue more work run on the
+        # next iteration rather than starving fd/scheduled events this one.
+        for _ in range(len(queue)):
+            try:
+                callback, args = queue.popleft()
+            except IndexError:  # pragma: no cover - drained concurrently
+                break
+            callback(*args)
 
     def _run_scheduled_events(self) -> None:
         "Run scheduled events."
@@ -239,6 +258,21 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             self.__sched_events, new_event, key=lambda ev: ev[0]  # type: ignore[misc]
         )
         return ScheduledEvent(self, new_event)
+
+    def run_in_loop(self, callback: EventListener, *args: Any) -> None:
+        """
+        Thread-safe: arrange for callback(*args) to run in the loop thread on
+        its next iteration.
+
+        This is the ONLY loop method safe to call from a thread other than the
+        one running the loop. Every other method here (schedule, register_fd,
+        event_add, ...) mutates loop state without locking and MUST only be
+        touched from the loop thread; use this to hand work back to it.
+
+        deque.append is atomic under CPython, so no lock is needed. The work
+        runs within one poll precision (self.precision) of being queued.
+        """
+        self._async_queue.append((callback, args))
 
     def schedule_del(self, event: ScheduledEventTuple) -> None:
         try:
@@ -383,7 +417,14 @@ class EpollLoop(LoopBase):
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
         eventmask = self._eventmask(events)
         if fd in self._fd_targets:
-            self._epoll.modify(fd, eventmask)
+            try:
+                self._epoll.modify(fd, eventmask)
+            except FileNotFoundError:
+                # Stale _fd_targets entry: the fd was closed (and dropped from
+                # the epoll set) and its number reused before we unregistered.
+                # Re-register rather than fail.
+                self._epoll.register(fd, eventmask)
+            self._fd_targets[fd] = target
         else:
             self._fd_targets[fd] = target
             self._epoll.register(fd, eventmask)
@@ -556,3 +597,4 @@ _loop = make()  # by default, just one big loop.
 run = _loop.run
 stop = _loop.stop
 schedule = _loop.schedule
+run_in_loop = _loop.run_in_loop

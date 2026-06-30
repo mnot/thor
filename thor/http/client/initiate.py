@@ -66,4 +66,4 @@ def initiate_connection(
             client.loop.schedule(0, initiate_internal)
 
     _, host, port = origin
-    lookup(host.encode("idna"), port, socket.SOCK_STREAM, handle_dns)
+    lookup(client.loop, host.encode("idna"), port, socket.SOCK_STREAM, handle_dns)
