@@ -180,6 +180,16 @@ class TestLoop(unittest.TestCase):
         self.loop._run_async_queue()
         self.assertEqual(order, ["a", "b"])
 
+    def test_stop_clears_async_queue(self):
+        # Work queued from another thread around stop() must not survive into a
+        # later run(); stop() drops it like it drops scheduled events.
+        ran = []
+        self.loop.run_in_loop(ran.append, "stale")
+        self.loop.stop()
+        self.assertEqual(len(self.loop._async_queue), 0)
+        self.loop._run_async_queue()
+        self.assertEqual(ran, [])
+
     @unittest.skipUnless(hasattr(select, "epoll"), "epoll only")
     def test_epoll_register_fd_recovers_from_stale_target(self):
         # Simulate fd reuse: a stale _fd_targets entry whose fd the kernel

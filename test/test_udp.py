@@ -107,6 +107,30 @@ class TestUdpEndpoint(unittest.TestCase):
         mock_sock.bind.assert_not_called()
 
     @patch("thor.udp.socket.socket")
+    def test_bind_failure_emits_socket_error_not_raise(self, mock_socket_cls):
+        # A bind failure in the (loop-thread) DNS continuation must surface as
+        # a socket_error event, not propagate out and stop the loop.
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.getsockopt.return_value = 8192
+        mock_sock.bind.side_effect = OSError(
+            errno.EADDRNOTAVAIL, "Cannot assign requested address"
+        )
+        mock_socket_cls.return_value = mock_sock
+        endpoint = UdpEndpoint(MagicMock())
+        errors = []
+        endpoint.on("socket_error", lambda *a: errors.append(a))
+
+        endpoint._continue_bind(
+            [(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_IP, "", ("1.2.3.4", 9999))]
+        )
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0][0], "socket")
+        self.assertEqual(errors[0][1], errno.EADDRNOTAVAIL)
+        self.assertIsNone(endpoint.sock)
+
+    @patch("thor.udp.socket.socket")
     def test_send_rejects_oversized_datagram(self, mock_socket_cls):
         mock_sock = MagicMock()
         mock_sock.fileno.return_value = 17

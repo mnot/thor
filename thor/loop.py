@@ -201,6 +201,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
     def stop(self) -> None:
         "Stop the loop and unregister all fds."
         self.__sched_events = []
+        self._async_queue.clear()
         self.running = False
         for fd in list(self._fd_targets):
             self.unregister_fd(fd)
@@ -271,6 +272,9 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
 
         deque.append is atomic under CPython, so no lock is needed. The work
         runs within one poll precision (self.precision) of being queued.
+
+        Like any loop callback (scheduled or fd), the callback must not raise:
+        an unhandled exception propagates out of run() and stops the loop.
         """
         self._async_queue.append((callback, args))
 
