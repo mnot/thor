@@ -55,14 +55,16 @@ class UdpEndpoint(EventSource):
         Bind the socket bound to host:port. If called, must be before
         sending or receiving.
 
-        Can raise socket.error if binding fails.
+        Name resolution and the bind itself happen asynchronously; failures
+        (resolution or bind) are reported via the 'socket_error' event, not
+        raised. Raises OSError synchronously only if the endpoint is closed.
         """
         if not self.sock:
             raise OSError("UDP endpoint closed")
         self.host = host
         self.port = port
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        lookup(host, port, socket.SOCK_DGRAM, self._continue_bind)
+        lookup(self.loop, host, port, socket.SOCK_DGRAM, self._continue_bind)
 
     def _continue_bind(self, dns_results: Union[DnsResultList, Exception]) -> None:
         if not self.sock:
@@ -70,7 +72,13 @@ class UdpEndpoint(EventSource):
         if isinstance(dns_results, Exception):
             self.handle_socket_error(dns_results, "gai")
             return
-        self.sock.bind(dns_results[0][4])
+        # Runs in the loop thread (see thor.dns.lookup); a bind failure must
+        # surface as a socket_error event rather than propagate out and stop
+        # the loop.
+        try:
+            self.sock.bind(dns_results[0][4])
+        except OSError as why:
+            self.handle_socket_error(why)
 
     def shutdown(self) -> None:
         "Close the listening socket."
