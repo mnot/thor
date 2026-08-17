@@ -24,6 +24,9 @@
 #     Bump the __version__ in $PROJECT/__init__.py using semver (https://semver.org/)
 # version <<< COMMITS TO GIT
 #     Bump the version according to $VERSIONING (default: semver-micro).
+# version-calver, version-semver-{major,minor,micro} <<< COMMITS TO GIT
+#     Explicit variants of `version` that pick the bump flavor directly
+#     (so `make version-<TAB>` offers them in shell completion).
 # build
 #     Build the project
 # pypi-pub
@@ -108,8 +111,16 @@ bump-semver-minor: py_version
 bump-semver-major: py_version
 	sed -i "" -e "s/$(VERSION)/$(NEXT_SEMMAJOR).0.0/" $(PROJECT)/__init__.py
 
-.PHONY: version
-version: typecheck lint test bump-$(VERSIONING)
+# `version` dispatches to `version-$(VERSIONING)`; the static pattern rule
+# below does the actual work. Listing the variants explicitly (rather than
+# using a `version-%` implicit rule) is required for two reasons: GNU make
+# won't apply implicit pattern rules to .PHONY targets, and shell
+# completion needs literal names to offer after `make version-<TAB>`.
+VERSION_TARGETS := version-calver version-semver-major version-semver-minor version-semver-micro
+.PHONY: version $(VERSION_TARGETS)
+version: version-$(VERSIONING)
+
+$(VERSION_TARGETS): version-%: typecheck lint test bump-%
 	git add $(PROJECT)/__init__.py
 	git commit -m 'bump version'
 
@@ -117,9 +128,15 @@ version: typecheck lint test bump-$(VERSIONING)
 build: venv
 	$(VENV)/python -m build
 
+.PHONY: changelog.md
 changelog.md:
-	$(eval PREV_RELEASE=$(shell git tag --sort=-taggerdate -l v* | head -1))
-	git --no-pager log --pretty="- %s" $(PREV_RELEASE)..HEAD --grep "^Changed:" --grep "^Fixed:" --grep "^Added:" --grep "^Changed:" --grep "^Removed:" --output=$@
+	$(eval PREV_RELEASE=$(shell git tag --sort=-taggerdate -l 'v*' | head -1))
+	@if [ -n "$(PREV_RELEASE)" ]; then RANGE="$(PREV_RELEASE)..HEAD"; else RANGE="HEAD"; fi; \
+	git --no-pager log --no-merges --pretty="- %s" $$RANGE --grep "^Added:" --grep "^Changed:" --grep "^Fixed:" --grep "^Removed:" > $@.tmp; \
+	rm -f $@; \
+	for p in Added Changed Fixed Removed; do grep "^- $$p:" $@.tmp >> $@ || true; done; \
+	rm -f $@.tmp
+	@if [ ! -s $@ ]; then echo "- Maintenance release (no changelog entries)" > $@; fi
 	sed -i "" -e "1s/^/\n\n/" $@
 
 # Manual pypi publication; no GitHub release
@@ -189,6 +206,7 @@ import pathlib, re, sys
 
 START_RE = re.compile(r'\s*# === pyproject-tmpl: start "([^"]+)" ===\s*')
 END_RE = re.compile(r'\s*# === pyproject-tmpl: end "([^"]+)" ===\s*')
+MANAGED_RE = re.compile(r'#.*pyproject-tmpl')
 
 def extract(text):
     out = {}
@@ -269,10 +287,13 @@ tmpl_text = tmpl.read_text()
 local_regions = extract(local_text) if local_text is not None else {}
 seen, merged = merge(tmpl_text, local_regions)
 # At-risk lines: present in local outside regions, absent from new template entirely.
-# Blank lines and comment formatting churn don't trigger because set membership ignores
-# duplicates and position; only genuinely unique content shows up.
+# Only checked when adopting a file the template does not already manage; once managed,
+# out-of-region content belongs to the template, so a dropped line is template churn.
 at_risk = []
-if local_text is not None:
+already_managed = local_text is not None and any(
+    MANAGED_RE.search(line) for line in local_text.splitlines()
+)
+if local_text is not None and not already_managed:
     tmpl_lines = set(tmpl_text.splitlines())
     for line in skeleton_lines(local_text):
         stripped = line.strip()
@@ -391,3 +412,8 @@ venv: | $(VENV)/$(MARKER)-dev
 $(VENV)/$(MARKER)-dev: $(VENV)/$(MARKER)
 	$(VENV)/pip install -e .[dev]
 	touch $@
+
+
+## Optional per-checkout overrides (not managed by the template, git-ignored)
+
+-include Makefile.local

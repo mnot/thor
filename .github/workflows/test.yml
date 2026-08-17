@@ -22,6 +22,7 @@ jobs:
     # === pyproject-tmpl: start "pre-test" ===
     # === pyproject-tmpl: end "pre-test" ===
     - name: Set up Python ${{ matrix.python-version }}
+      id: setup-python
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
@@ -29,9 +30,11 @@ jobs:
       uses: actions/cache@v6
       with:
         path: .venv
-        key: ${{ runner.os }}-${{ matrix.python-version }}-venv-${{ hashFiles('pyproject.toml') }}
+        key: ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('pyproject.toml') }}
     - name: Set up venv
-      run: make venv
+      run: |
+        .venv/bin/python -V >/dev/null 2>&1 || rm -rf .venv
+        make venv
     - name: Typecheck
       run: make typecheck
     - name: Lint
