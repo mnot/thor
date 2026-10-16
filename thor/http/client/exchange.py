@@ -55,6 +55,9 @@ class HttpClientExchange(EventEmitter):
         self._req_body = False
         self._req_started = False
         self._req_done_trailers: Optional[RawHeaderListType] = None
+        self._req_body_chunks: List[bytes] = []  # kept for replay on retry
+        self._req_body_len = 0
+        self._req_body_overflow = False
         self._error_sent = False
         self._retries = 0
         self._retry_pending = False
@@ -125,6 +128,13 @@ class HttpClientExchange(EventEmitter):
         "Send part of the request body. May be called zero to many times."
         self._req_body = True
         self._req_start()
+        if not self._req_body_overflow:
+            self._req_body_len += len(chunk)
+            if self._req_body_len > self.client.retry_body_limit:
+                self._req_body_overflow = True
+                self._req_body_chunks = []
+            else:
+                self._req_body_chunks.append(chunk)
         if self.conn:
             self.conn.output_body(chunk)
         else:
@@ -240,11 +250,19 @@ class HttpClientExchange(EventEmitter):
         self._retry_pending = False
         self._retries += 1
         assert self.origin, "origin not found in _retry"
+        if self._req_body_overflow:
+            self.input_error(
+                ConnectError("Request body too large to retry"),
+                False,
+            )
+            return
         if self._req_done_trailers is not None:
             self.conn = None
             self._req_started = False
             self._output_q = []
             self._req_start()
+            for chunk in self._req_body_chunks:
+                self._output_q.append(("body", chunk))
             self._output_q.append(("end", self._req_done_trailers))
         self.client.attach_conn(
             self.origin, self.handle_connect, self.handle_connect_error

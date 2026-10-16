@@ -21,6 +21,7 @@ There are several settings available as class variables:
 * _int_ or _None_ `HttpClient.idle_timeout` - how long idle persistent connections are left open, in seconds. Default `60`; `None` to disable.
 * _int_ `HttpClient.retry_limit` - How many additional times to try a request that fails (e.g., dropped connection). Default `2`.
 * _int_ `HttpClient.retry_delay` - how long to wait between retries, in seconds (or fractions thereof). Default `0.5`.
+* _int_ `HttpClient.retry_body_limit` - the largest request body, in bytes, that will be kept so that the request can be retried. A request with a larger body fails with a `ConnectError` instead of being retried. Default `1048576`.
 
 
 ### _thor.http.HttpClientExchange_ thor.http.HttpClient.exchange ()

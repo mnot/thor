@@ -1003,6 +1003,89 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def _retry_body_test(
+        self, req_hdrs, delimiter, body_limit=None, expect_error=False
+    ):
+        "PUT a two-chunk body; the server drops the first connection after reading it."
+        self.second_request = None
+
+        def client_side(client, test_host, test_port):
+            if body_limit is not None:
+                client.retry_body_limit = body_limit
+            exchange = client.exchange()
+            if expect_error:
+                self.check_exchange(exchange, {"error": thor.http.error.ConnectError})
+            else:
+                self.check_exchange(exchange, {"status": b"200", "body": b"12345"})
+
+                @on(exchange)
+                def response_done(trailers):
+                    self.loop.stop()
+
+            req_uri = b"http://%s:%i/retry_body" % (test_host, test_port)
+            exchange.request_start(b"PUT", req_uri, req_hdrs)
+            exchange.request_body(b"IMPORTANT ")
+            exchange.request_body(b"DATA")
+            exchange.request_done([])
+
+        self.conn_num = 0
+        self.conn_lock = threading.Lock()
+
+        def server_side(conn):
+            with self.conn_lock:
+                self.conn_num += 1
+                conn_num = self.conn_num
+            conn.request.settimeout(30.0)
+            data = b""
+            while delimiter not in data:
+                chunk = conn.request.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+            if conn_num == 1:
+                conn.request.close()
+                return
+            self.second_request = data
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_req_retry_body_content_length(self):
+        self._retry_body_test([(b"Content-Length", b"14")], b"IMPORTANT DATA")
+        self.assertIsNotNone(self.second_request)
+        self.assertTrue(
+            self.second_request.startswith(b"PUT /retry_body HTTP/1.1\r\n")
+        )
+        self.assertTrue(self.second_request.endswith(b"\r\n\r\nIMPORTANT DATA"))
+
+    def test_req_retry_body_chunked(self):
+        self._retry_body_test([], b"0\r\n\r\n")
+        self.assertIsNotNone(self.second_request)
+        self.assertTrue(
+            self.second_request.startswith(b"PUT /retry_body HTTP/1.1\r\n")
+        )
+        self.assertTrue(
+            self.second_request.endswith(
+                b"\r\n\r\na\r\nIMPORTANT \r\n4\r\nDATA\r\n0\r\n\r\n"
+            )
+        )
+
+    def test_req_retry_body_over_limit(self):
+        self._retry_body_test(
+            [(b"Content-Length", b"14")],
+            b"IMPORTANT DATA",
+            body_limit=8,
+            expect_error=True,
+        )
+        self.assertIsNone(self.second_request)
+
     def test_nobody(self):
         def client_side(client, test_host, test_port):
             exchange = client.exchange()
