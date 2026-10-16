@@ -134,11 +134,16 @@ class TestHttpServer(framework.ClientServerTestCase):
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 GET / HTTP/1.1
 Host: %s:%i
 
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -152,12 +157,17 @@ Host: %s:%i
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 
 GET / HTTP/1.1
 Host: %s:%i\r
 \r
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -171,13 +181,18 @@ Host: %s:%i\r
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
-12345""" % (test_host, test_port)))
+12345"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -191,14 +206,19 @@ Content-Length: 5
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
 12345
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -280,12 +300,9 @@ Content-Length: 5
             b"\r\n"
         )
 
-        exchanges = [args[0] for event, args in server.events if event == "exchange"]
-        self.assertEqual(len(exchanges), 1)
-        self.assertTrue(tcp_conn.tcp_connected)
-        exchanges[0].response_start(b"200", b"OK", [(b"Content-Length", b"0")])
-        exchanges[0].response_done([])
         self.assertFalse(tcp_conn.tcp_connected)
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
         output = b"".join(tcp_conn.output)
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Too many messages to parse", output)
@@ -316,20 +333,13 @@ Content-Length: 5
         self.assertIn(b"one", output.split(b"HTTP/1.1 505")[0])
         self.assertFalse(tcp_conn.tcp_connected)
 
-    def test_pipelined_error_waits_for_response_not_started(self):
+    def test_pipelined_error_sent_at_once_if_no_response_started(self):
         tcp_conn, conn, first = self.pipelined_conn()
 
         conn.handle_input(b"GET /two HTTP/1.2\r\nHost: example.com\r\n\r\n")
 
-        self.assertTrue(tcp_conn.tcp_connected)
-        self.assertEqual(tcp_conn.output, [])
-
-        first.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
-        first.response_done([])
-
-        output = b"".join(tcp_conn.output)
-        self.assertLess(output.index(b"HTTP/1.1 200 OK"), output.index(b"HTTP/1.1 505"))
         self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"HTTP/1.1 505", b"".join(tcp_conn.output))
 
     def test_pipelined_error_discarded_if_connection_closes(self):
         tcp_conn, conn, first = self.pipelined_conn()
@@ -352,6 +362,22 @@ Content-Length: 5
 
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+    def test_trailer_error_in_flight_exchange_responds_and_closes(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"3\r\nabc\r\n0\r\nbad trailer\r\n\r\n"
+        )
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", b"".join(tcp_conn.output))
 
     def test_idle_timer_waits_for_exchange_queue_to_drain(self):
         tcp_conn = FakeTcpConnection()
@@ -455,12 +481,17 @@ Content-Length: 5
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Length: 0
 
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
