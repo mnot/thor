@@ -284,6 +284,91 @@ Content-Length: 5
 
         self.go([server_side], [client_side])
 
+    def check_bad_chunked_request(self, body):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n" + body
+        )
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", b"".join(tcp_conn.output))
+
+    def test_bad_chunk_size(self):
+        self.check_bad_chunked_request(b"ZZZ\r\n")
+
+    def test_bad_chunk_terminator(self):
+        self.check_bad_chunked_request(b"3\r\nabcXY0\r\n\r\n")
+
+    def test_bad_chunk_size_real_connection(self):
+        def server_side(server):
+            pass
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                b"POST / HTTP/1.1\r\nHost: %s:%i\r\n"
+                b"Transfer-Encoding: chunked\r\n\r\nZZZ\r\n" % (test_host, test_port)
+            )
+            res = client_conn.recv(1024)
+            self.assertIn(b"HTTP/1.1 400 Bad Request", res)
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
+    def test_parse_error_server_statuses(self):
+        bad_request = (b"400", b"Bad Request")
+        for err in [
+            thor.http.error.ChunkError,
+            thor.http.error.ChunkTerminatorError,
+            thor.http.error.ExtraDataError,
+        ]:
+            with self.subTest(err.__name__):
+                self.assertEqual(err.server_status, bad_request)
+
+    def test_default_server_status(self):
+        self.assertEqual(
+            thor.http.error.HttpError.server_status, (b"500", b"Internal Server Error")
+        )
+
+    def start_bad_chunk_exchange(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+        )
+        exchange = [args[0] for event, args in server.events if event == "exchange"][0]
+        return tcp_conn, conn, exchange
+
+    def test_bad_chunk_during_response(self):
+        tcp_conn, conn, exchange = self.start_bad_chunk_exchange()
+        exchange.response_start(b"200", b"OK", [])
+        exchange.response_body(b"hello")
+
+        conn.handle_input(b"ZZZ\r\n")
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 200 OK", output)
+        self.assertNotIn(b"400 Bad Request", output)
+
+    def test_bad_chunk_after_response_complete(self):
+        tcp_conn, conn, exchange = self.start_bad_chunk_exchange()
+        exchange.response_start(b"200", b"OK", [])
+        exchange.response_body(b"hello")
+        exchange.response_done([])
+
+        conn.handle_input(b"ZZZ\r\n")
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 "), 1)
+        self.assertNotIn(b"400 Bad Request", output)
+
     def test_pipeline_queue_limit(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
@@ -306,12 +391,86 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Too many messages to parse", output)
 
-    def test_missing_host_http11_rejected(self):
+    def check_bad_request(self, request, exchanges=0):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(request)
+        seen = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(seen), exchanges)
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+
+    def test_request_te_identity(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: identity\r\n"
+            b"\r\n"
+            b"GET /two HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"\r\n"
+        )
+
+    def test_request_te_chunked_not_final(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: chunked, identity\r\n"
+            b"\r\n"
+        )
+
+    def test_request_te_and_cl(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Length: 4\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"0\r\n\r\n"
+        )
+
+    def test_request_bare_cr(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"X-Foo: a\rTransfer-Encoding: chunked\r\n"
+            b"\r\n"
+        )
+
+    def test_request_bad_chunk_size(self):
+        for size in [b"0x5", b"+5", b" 5", b"5_0"]:
+            with self.subTest(size=size):
+                self.check_bad_request(
+                    b"POST /one HTTP/1.1\r\n"
+                    b"Host: example.com\r\n"
+                    b"Transfer-Encoding: chunked\r\n"
+                    b"\r\n" + size + b"\r\nhello\r\n0\r\n\r\n",
+                    exchanges=1,
+                )
+
+    def test_request_te_chunked(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: identity, chunked\r\n"
+            b"\r\n"
+            b"0\r\n\r\n"
+        )
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def check_missing_host_rejected(self, request):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
         conn = HttpServerConnection(tcp_conn, server)
 
-        conn.handle_input(b"GET / HTTP/1.1\r\n\r\n")
+        conn.handle_input(request)
 
         exchanges = [event for event, args in server.events if event == "exchange"]
         self.assertEqual(exchanges, [])
@@ -320,16 +479,11 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Host header required", output)
 
-    def test_missing_host_http10_allowed(self):
-        tcp_conn = FakeTcpConnection()
-        server = FakeServer()
-        conn = HttpServerConnection(tcp_conn, server)
+    def test_missing_host_http11_rejected(self):
+        self.check_missing_host_rejected(b"GET / HTTP/1.1\r\n\r\n")
 
-        conn.handle_input(b"GET / HTTP/1.0\r\n\r\n")
-
-        exchanges = [event for event, args in server.events if event == "exchange"]
-        self.assertEqual(len(exchanges), 1)
-        self.assertTrue(tcp_conn.tcp_connected)
+    def test_missing_host_http10_rejected(self):
+        self.check_missing_host_rejected(b"GET / HTTP/1.0\r\n\r\n")
 
     def test_missing_host_after_valid_request_pipelined(self):
         tcp_conn = FakeTcpConnection()
