@@ -471,6 +471,78 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def test_max_server_conn_close(self):
+        """
+        max_server_conn holds when every response closes the connection.
+
+        Covers sequential reuse (double-decrement and queue draining) only;
+        counting of in-flight connects during a burst is #152.
+        """
+        total = 20
+        lock = threading.Lock()
+        both_arrived = threading.Barrier(2)
+        active = 0
+        arrived = 0
+        self.peak = 0
+        self.done_count = 0
+
+        def check_done(trailers):
+            self.done_count += 1
+            if self.done_count == total:
+                self.loop.stop()
+
+        def client_side(client, test_host, test_port):
+            client.max_server_conn = 2
+            req_uri = b"http://%s:%i/max_conn" % (test_host, test_port)
+            rest_started = False
+
+            def start(count):
+                for _ in range(count):
+                    exchange = client.exchange()
+                    self.check_exchange(
+                        exchange,
+                        {"status": b"200", "body": b"12345"},
+                    )
+                    exchange.on("response_done", check_done)
+                    exchange.on("response_start", start_rest)
+                    exchange.request_start(b"GET", req_uri, [])
+                    exchange.request_done([])
+
+            def start_rest(*args):
+                # Both connections are open now, so the rest have to queue.
+                nonlocal rest_started
+                if not rest_started:
+                    rest_started = True
+                    start(total - 2)
+
+            start(2)
+
+        def server_side(conn):
+            nonlocal active, arrived
+            drain(conn)
+            with lock:
+                arrived += 1
+                first_wave = arrived <= 2
+                active += 1
+                self.peak = max(self.peak, active)
+            if first_wave:
+                both_arrived.wait(timeout=10)
+            time.sleep(0.02)
+            with lock:
+                active -= 1
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+        self.assertEqual(self.done_count, total)
+        self.assertLessEqual(self.peak, 2)
+
     def test_conn_refuse_err(self):
         def server_side(conn):
             pass
@@ -504,6 +576,30 @@ class TestHttpClient(framework.ClientServerTestCase):
         req_uri = b"http://foo.bar/conn_noname_err"
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
+
+    def test_conn_bad_idna_err(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+
+        errors = []
+
+        @on(exchange)
+        def error(err_msg):
+            errors.append(err_msg)
+            self.loop.stop()
+
+        def do_timeout():
+            self.timeout_hit = True
+            self.loop.stop()
+
+        # Passes URL parsing, but the lookup cannot decode it; no query is made.
+        req_uri = b"http://xn--a.example/bad_idna"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+        self.loop.schedule(5, do_timeout)
+        self.loop.run()
+        self.assertFalse(self.timeout_hit)
+        self.assertEqual([e.__class__ for e in errors], [thor.http.error.DnsError])
 
     def test_url_unsupported_scheme(self):
         client = HttpClient(loop=self.loop)
@@ -802,6 +898,96 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def test_slow_body_not_timed_out(self):
+        self.check_slow_body(read_timeout=1.5)
+
+    def test_slow_body_not_timed_out_default(self):
+        # read_timeout unset: connect_timeout applies.
+        self.check_slow_body(read_timeout=None)
+
+    def check_slow_body(self, read_timeout):
+        # A response that keeps making progress outlives the timeout.
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1.5
+            client.read_timeout = read_timeout
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange,
+                {
+                    "version": b"1.1",
+                    "status": b"200",
+                    "phrase": b"OK",
+                    "body": b"abcdef",
+                },
+            )
+
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/slow_body" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 6\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            for byte in (b"a", b"b", b"c", b"d", b"e", b"f"):
+                time.sleep(0.3)
+                conn.request.sendall(byte)
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_stalled_body_times_out(self):
+        self.check_stalled_body(read_timeout=1)
+
+    def test_stalled_body_times_out_default(self):
+        # read_timeout unset: connect_timeout applies.
+        self.check_stalled_body(read_timeout=None)
+
+    def check_stalled_body(self, read_timeout):
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1
+            client.read_timeout = read_timeout
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange, {"error": thor.http.error.ReadTimeoutError}
+            )
+
+            @on(exchange)
+            def error(err):
+                self.assertEqual(err.detail, "read")
+
+            req_uri = b"http://%s:%i/stalled_body" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 6\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"abc"
+            )
+            # Stall until the client gives up and closes the connection.
+            conn.request.settimeout(10.0)
+            try:
+                conn.request.recv(1024)
+            except socket.timeout:
+                pass
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
     def test_conn_reuse(self):
         self.conn_checked = False
 
@@ -1069,6 +1255,104 @@ class TestHttpClient(framework.ClientServerTestCase):
             conn.request.close()
 
         self.go([server_side], [client_side])
+
+    def _retry_body_test(
+        self, req_hdrs, delimiter, body_limit=None, expect_error=False
+    ):
+        "PUT a two-chunk body; the server drops the first connection after reading it."
+        self.second_request = None
+
+        def client_side(client, test_host, test_port):
+            client.retry_delay = 0.01
+            if body_limit is not None:
+                client.retry_body_limit = body_limit
+            exchange = client.exchange()
+            if expect_error:
+                self.check_exchange(exchange, {"error": thor.http.error.ConnectError})
+            else:
+                self.check_exchange(exchange, {"status": b"200", "body": b"12345"})
+
+                @on(exchange)
+                def response_done(trailers):
+                    self.loop.stop()
+
+            req_uri = b"http://%s:%i/retry_body" % (test_host, test_port)
+            exchange.request_start(b"PUT", req_uri, req_hdrs)
+            exchange.request_body(b"IMPORTANT ")
+            exchange.request_body(b"DATA")
+            exchange.request_done([])
+
+        self.conn_num = 0
+        self.conn_lock = threading.Lock()
+
+        def server_side(conn):
+            with self.conn_lock:
+                self.conn_num += 1
+                conn_num = self.conn_num
+            conn.request.settimeout(30.0)
+            data = b""
+            while delimiter not in data:
+                chunk = conn.request.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+            if conn_num == 1:
+                conn.request.close()
+                return
+            self.second_request = data
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Length: 5\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_req_retry_body_content_length(self):
+        self._retry_body_test([(b"Content-Length", b"14")], b"IMPORTANT DATA")
+        self.assertIsNotNone(self.second_request)
+        self.assertTrue(
+            self.second_request.startswith(b"PUT /retry_body HTTP/1.1\r\n")
+        )
+        self.assertTrue(self.second_request.endswith(b"\r\n\r\nIMPORTANT DATA"))
+
+    def test_req_retry_body_chunked(self):
+        self._retry_body_test([], b"0\r\n\r\n")
+        self.assertIsNotNone(self.second_request)
+        self.assertTrue(
+            self.second_request.startswith(b"PUT /retry_body HTTP/1.1\r\n")
+        )
+        self.assertTrue(
+            self.second_request.endswith(
+                b"\r\n\r\na\r\nIMPORTANT \r\n4\r\nDATA\r\n0\r\n\r\n"
+            )
+        )
+
+    def test_retry_body_not_kept_for_non_idempotent(self):
+        client = HttpClient(loop=MagicMock())
+        client.attach_conn = MagicMock()
+        exchange = client.exchange()
+        exchange.request_start(b"POST", b"http://example.com/", [])
+        exchange.request_body(b"IMPORTANT DATA")
+        self.assertEqual(exchange._req_body_chunks, [])
+
+        # A connect-failure retry leaves the queued body intact.
+        exchange.request_done([])
+        exchange._retry()
+        queued_events = [item[0] for item in exchange._output_q]
+        self.assertEqual(queued_events, ["start", "body", "end"])
+
+    def test_req_retry_body_over_limit(self):
+        self._retry_body_test(
+            [(b"Content-Length", b"14")],
+            b"IMPORTANT DATA",
+            body_limit=8,
+            expect_error=True,
+        )
+        self.assertIsNone(self.second_request)
 
     def test_nobody(self):
         def client_side(client, test_host, test_port):
