@@ -29,6 +29,7 @@ class HttpError(Exception):
 
 class ChunkError(HttpError):
     desc = "Chunked encoding error"
+    server_status = (b"400", b"Bad Request")
 
 
 class ChunkTerminatorError(ChunkError):

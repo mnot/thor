@@ -184,7 +184,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.input_error(HostRequiredError())
             raise ValueError
         for code in transfer_codes:
-            # we only support 'identity' and chunked' codes in requests
+            # only chunked is supported; 'identity' is tolerated before it
             if code not in [b"identity", b"chunked"]:
                 self.input_error(TransferCodeError(code.decode("utf-8", "replace")))
                 raise ValueError
