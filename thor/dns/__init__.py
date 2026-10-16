@@ -27,13 +27,20 @@ def lookup(
         # add_done_callback runs in the pool worker thread; hand the result
         # back to the loop thread so cb (which touches loop/socket state) never
         # runs off-thread. See thor.loop.LoopBase.run_in_loop.
-        loop.run_in_loop(cb, ff.result())
+        try:
+            result: Union[DnsResultList, Exception] = ff.result()
+        except Exception as why:  # pylint: disable=broad-exception-caught
+            result = socket.gaierror(1, f"{type(why).__name__}: {why}")
+        loop.run_in_loop(cb, result)
 
     job.add_done_callback(done)
 
 
 def _lookup(host: bytes, port: int, socktype: int) -> Union[DnsResultList, Exception]:
-    host_str = host.decode("idna")
+    try:
+        host_str = host.decode("idna")
+    except UnicodeError as why:
+        return socket.gaierror(1, str(why))
 
     if dns.inet.is_address(host_str):
         family: socket.AddressFamily  # pylint: disable=no-member

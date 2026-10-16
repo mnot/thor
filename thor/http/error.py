@@ -9,7 +9,8 @@ from typing import Optional, Tuple
 
 class HttpError(Exception):
     desc = "Unknown Error"
-    server_status: Tuple[bytes, bytes]  # status this produces in a server
+    # status this produces in a server; subclasses override where 500 is wrong
+    server_status: Tuple[bytes, bytes] = (b"500", b"Internal Server Error")
     server_recoverable = False  # whether a server can recover the connection
     client_recoverable = False  # whether a client can recover the connection
 
@@ -29,6 +30,7 @@ class HttpError(Exception):
 
 class ChunkError(HttpError):
     desc = "Chunked encoding error"
+    server_status = (b"400", b"Bad Request")
 
 
 class ChunkTerminatorError(ChunkError):
@@ -48,6 +50,7 @@ class MalformedCLError(HttpError):
 
 class ExtraDataError(HttpError):
     desc = "Extra data was sent after this message was supposed to end"
+    server_status = (b"400", b"Bad Request")
 
 
 class OutputError(HttpError):
@@ -116,6 +119,22 @@ class TooManyFieldsError(HttpError):
     client_recoverable = True
 
 
+class BareCRError(HttpError):
+    desc = "Bare CR in field section"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
+class TransferEncodingCLError(HttpError):
+    desc = "Both Transfer-Encoding and Content-Length present"
+    server_status = (b"400", b"Bad Request")
+
+
+class RequestTransferEncodingError(HttpError):
+    desc = "Request Transfer-Encoding does not end in chunked"
+    server_status = (b"400", b"Bad Request")
+
+
 class HeaderLineEndingError(HttpError):
     desc = "Header line was terminated with LF instead of CRLF"
     server_status = (b"400", b"Bad Request")
@@ -173,4 +192,4 @@ class AccessError(HttpError):
 
 class HostRequiredError(HttpError):
     desc = "Host header required"
-    server_recoverable = True
+    server_status = (b"400", b"Bad Request")
