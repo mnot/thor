@@ -623,7 +623,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._check_output_headers(trailers, "trailer")
             self.output(
                 b"0\r\n%s\r\n"
-                % b"\r\n".join([b"%s: %s" % (k.strip(), v) for k, v in trailers])
+                % b"".join([b"%s: %s\r\n" % (k.strip(), v) for k, v in trailers])
             )
         elif self._output_delimit == Delimiters.COUNTED:
             pass

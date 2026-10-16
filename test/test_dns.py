@@ -5,13 +5,39 @@ import socket
 import sys
 import threading
 import unittest
+from typing import Any, List, Tuple
+from unittest import mock
+
+import dns.exception
 
 from thor import loop
 from thor.dns import lookup
 
 
+class FakeAnswer:
+    "Stands in for the result of dns.resolver.resolve_name()."
+
+    def __init__(self, addresses: List[Tuple[str, int]]) -> None:
+        self.addresses = addresses
+
+    def addresses_and_families(self) -> List[Tuple[str, int]]:
+        return self.addresses
+
+
+def fake_resolve_name(name: str, *args: Any, **kwargs: Any) -> FakeAnswer:
+    "A resolver that answers locally, so the tests don't depend on the network."
+    if name.endswith(".invalid"):
+        raise dns.exception.DNSException(f"{name} does not exist")
+    return FakeAnswer(
+        [("192.0.2.1", socket.AF_INET), ("2001:db8::1", socket.AF_INET6)]
+    )
+
+
 class TestDns(unittest.TestCase):
     def setUp(self):
+        patcher = mock.patch("dns.resolver.resolve_name", fake_resolve_name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.loop = loop.make()
         self.loop.schedule(5, self.timeout)
         self.timeout_hit = False
