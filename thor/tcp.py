@@ -346,22 +346,33 @@ class TcpServer(EventSource):
                 for name in (
                     "EPROTO",
                     "ENETDOWN",
-                    "ENOPROTOOPT",
                     "EHOSTDOWN",
                     "ENONET",
                     "EHOSTUNREACH",
-                    "EOPNOTSUPP",
                     "ENETUNREACH",
                     "ETIMEDOUT",
-                    "EPERM",
                 )
             ),
         )
         if err is not None
     }
-    # Resource exhaustion; the pending connection stays queued, so the listener
-    # stays readable. Stop watching it for accept_backoff seconds, then retry.
-    accept_backoff_errs = {errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM}
+    # The pending connection may stay queued (resource exhaustion, or a policy
+    # layer refusing before it is dequeued), so the listener stays readable.
+    # Stop watching it for accept_backoff seconds, then retry.
+    accept_backoff_errs = {
+        err
+        for err in (
+            errno.EMFILE,
+            errno.ENFILE,
+            errno.ENOBUFS,
+            errno.ENOMEM,
+            *(
+                getattr(errno, name, None)
+                for name in ("EPERM", "EOPNOTSUPP", "ENOPROTOOPT")
+            ),
+        )
+        if err is not None
+    }
     accept_backoff = 1.0
 
     def __init__(

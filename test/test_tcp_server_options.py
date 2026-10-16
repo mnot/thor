@@ -97,31 +97,43 @@ class TestTcpServerOptions(unittest.TestCase):
         names = [
             "EPROTO",
             "ENETDOWN",
-            "ENOPROTOOPT",
             "EHOSTDOWN",
             "ENONET",
             "EHOSTUNREACH",
-            "EOPNOTSUPP",
             "ENETUNREACH",
             "ETIMEDOUT",
-            "EPERM",
         ]
         for name in names:
             err = getattr(errno, name, None)
             if err is None:
                 continue
             with self.subTest(err=name):
-                mock_sock = MagicMock()
-                mock_sock.fileno.return_value = 17
-                mock_sock.accept.side_effect = OSError(err, os.strerror(err))
-                mock_loop = MagicMock()
-                server = TcpServer(b"localhost", 1234, sock=mock_sock, loop=mock_loop)
+                server, _, mock_loop = self.make_exhausted_server(err)
                 connects = []
                 server.on("connect", connects.append)
 
                 server.handle_accept()
 
                 self.assertEqual(connects, [])
+                mock_loop.event_del.assert_not_called()
+                mock_loop.schedule.assert_not_called()
+                self.assertIn("fd_readable", server.interesting_events())
+                self.assertIsNone(server._accept_timer)  # pylint: disable=protected-access
+
+    def test_handle_accept_backs_off_on_policy_accept_errors(self):
+        for name in ["EPERM", "EOPNOTSUPP", "ENOPROTOOPT"]:
+            err = getattr(errno, name, None)
+            if err is None:
+                continue
+            with self.subTest(err=name):
+                server, _, mock_loop = self.make_exhausted_server(err)
+
+                server.handle_accept()
+
+                mock_loop.event_del.assert_called_once_with(17, "fd_readable")
+                self.assertEqual(mock_loop.schedule.call_count, 1)
+                self.assertNotIn("fd_readable", server.interesting_events())
+                self.assertIsNotNone(server.sock)
 
     def test_handle_accept_reraises_unexpected_accept_errors(self):
         mock_sock = MagicMock()
