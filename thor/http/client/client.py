@@ -109,9 +109,10 @@ class HttpClient:
         self._conn_is_dead(conn)
 
     def _conn_is_dead(self, conn: HttpClientConnection) -> None:
-        if conn.counted_dead:  # Several paths can report the same death.
+        # Several paths can report the same death.
+        if getattr(conn, "_counted_dead", False):
             return
-        conn.counted_dead = True
+        setattr(conn, "_counted_dead", True)
         origin = conn.origin
         assert origin, "origin not found in _conn_is_dead"
         count = self.conn_counts[origin] - 1

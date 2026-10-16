@@ -405,7 +405,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.go([server_side], [client_side])
 
     def test_max_server_conn_close(self):
-        "max_server_conn holds when every response closes the connection."
+        """
+        max_server_conn holds when every response closes the connection.
+
+        Covers sequential reuse (double-decrement and queue draining) only;
+        counting of in-flight connects during a burst is #152.
+        """
         total = 20
         lock = threading.Lock()
         both_arrived = threading.Barrier(2)

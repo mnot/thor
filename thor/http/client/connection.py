@@ -44,7 +44,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.last_active_exchange: Optional[HttpClientExchange] = None
         self.res_version: Optional[bytes] = None
         self.reusable = False
-        self.counted_dead = False  # removed from client.conn_counts
+        self._counted_dead = False  # removed from client.conn_counts
         self.idler: Optional[ScheduledEvent] = None
         self._read_timeout_ev: Optional[ScheduledEvent] = None
 
