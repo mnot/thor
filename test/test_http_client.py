@@ -172,6 +172,11 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], thor.http.error.OutputError)
 
+    def test_request_bad_content_length_output_syntax(self) -> None:
+        for value in [b"+5", b"1_0", b"abc", b""]:
+            with self.subTest(value=value):
+                self.check_invalid_request_output(b"POST", [(b"Content-Length", value)])
+
     def test_request_bad_method_output_syntax(self):
         self.check_invalid_request_output(b"GET\r\nX-Injected: yes", [])
 

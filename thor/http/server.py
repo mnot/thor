@@ -22,10 +22,10 @@ from thor.http.common import (
     Delimiters,
     HttpMessageHandler,
     States,
-    get_header,
     header_names,
     hop_by_hop_hdrs,
     no_body_status,
+    output_content_length,
 )
 from thor.http.error import (
     HostRequiredError,
@@ -401,10 +401,7 @@ class HttpServerExchange(EventEmitter):
     ) -> None:
         "Start a response. Must only be called once per response."
         res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
-        try:
-            body_len = int(get_header(res_hdrs, b"content-length").pop(0))
-        except (IndexError, ValueError):
-            body_len = None
+        body_len = output_content_length(res_hdrs)
         # A final response with a 1xx status is not an interim response; use
         # response_nonfinal for those.
         bodiless = (

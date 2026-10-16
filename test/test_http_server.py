@@ -4,6 +4,7 @@ import socket
 import sys
 import time
 import unittest
+from typing import List
 from unittest.mock import MagicMock
 
 import framework
@@ -22,6 +23,15 @@ def wire(data):
 class DummyServerConnection(framework.DummyHttpParser):
     def exchange_done(self, exchange):
         pass
+
+
+class CapturingServerConnection(DummyServerConnection):
+    def __init__(self) -> None:
+        DummyServerConnection.__init__(self)
+        self.written: List[bytes] = []
+
+    def output(self, data: bytes) -> None:
+        self.written.append(data)
 
 
 class FakeTcpConnection:
@@ -120,6 +130,20 @@ class TestHttpServer(framework.ClientServerTestCase):
 
     def test_response_bad_header_name_output_syntax(self):
         self.check_invalid_response_output(b"OK", [(b"Bad Name", b"value")])
+
+    def test_response_bad_content_length_output_syntax(self) -> None:
+        for value in [b"+5", b"1_0", b" 0x10", b"abc", b""]:
+            with self.subTest(value=value):
+                conn = CapturingServerConnection()
+                exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+                with self.assertRaises(thor.http.error.OutputSyntaxError):
+                    exchange.response_start(b"200", b"OK", [(b"Content-Length", value)])
+                self.assertEqual(conn.written, [])
+
+    def test_response_conflicting_content_length_output_syntax(self) -> None:
+        self.check_invalid_response_output(
+            b"OK", [(b"Content-Length", b"5"), (b"Content-Length", b"6")]
+        )
 
     def test_nonfinal_bad_status_phrase_output_syntax(self):
         conn = DummyServerConnection()

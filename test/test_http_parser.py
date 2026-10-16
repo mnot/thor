@@ -1089,6 +1089,44 @@ Content-Length: %(body_len)i
                 Delimiters.NOBODY,
             )
 
+    def check_invalid_output_content_length(
+        self, hdr_tuples: List[Tuple[bytes, bytes]]
+    ) -> None:
+        writer = CapturingHttpParser()
+        with self.assertRaises(error.OutputSyntaxError):
+            writer.output_start(b"HTTP/1.1 200 OK", hdr_tuples, Delimiters.COUNTED)
+        self.assertEqual(writer.written, [])
+
+    def test_output_content_length_not_digits(self) -> None:
+        for value in [b"+5", b"-5", b"1_0", b"0x10", b"1 0", b"", b"abc", b"1.5"]:
+            with self.subTest(value=value):
+                self.check_invalid_output_content_length([(b"Content-Length", value)])
+
+    def test_output_content_length_conflicting(self) -> None:
+        self.check_invalid_output_content_length(
+            [(b"Content-Length", b"5"), (b"Content-Length", b"6")]
+        )
+        self.check_invalid_output_content_length([(b"Content-Length", b"5, 6")])
+
+    def test_output_content_length_repeated_same(self) -> None:
+        writer = CapturingHttpParser()
+        writer.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Content-Length", b"5"), (b"Content-Length", b"5")],
+            Delimiters.COUNTED,
+        )
+        writer.output_body(b"hello")
+        with self.assertRaises(error.OutputError):
+            writer.output_body(b"!")
+
+    def test_output_content_length_surrounding_ows(self) -> None:
+        writer = CapturingHttpParser()
+        writer.output_start(
+            b"HTTP/1.1 200 OK", [(b"Content-Length", b" 5 ")], Delimiters.COUNTED
+        )
+        with self.assertRaises(error.OutputError):
+            writer.output_body(b"hello!")
+
     def test_output_trailer_value_crlf(self):
         self.parser.output_start(
             b"HTTP/1.1 200 OK",

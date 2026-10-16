@@ -68,6 +68,24 @@ def parse_uint(value: bytes, base: int = 10) -> int:
     return int(value, base)
 
 
+def output_content_length(hdr_tuples: RawHeaderListType) -> Optional[int]:
+    """
+    Return the Content-Length of an outgoing message, or None if it has none.
+    Raises OutputSyntaxError if the value isn't strictly 1*DIGIT, or if
+    multiple values disagree.
+    """
+    values = get_header(hdr_tuples, b"content-length")
+    try:
+        lengths = {parse_uint(v) for v in values}
+    except ValueError as why:
+        raise error.OutputSyntaxError(
+            f"Invalid Content-Length {why.args[0]!r}"
+        ) from None
+    if len(lengths) > 1:
+        raise error.OutputSyntaxError("Conflicting Content-Length values")
+    return lengths.pop() if lengths else None
+
+
 def header_names(hdr_tuples: RawHeaderListType) -> Set[bytes]:
     """
     Given a list of header tuples, return the set of the header names seen.
@@ -611,16 +629,12 @@ class HttpMessageHandler(metaclass=ABCMeta):
             raise error.OutputStateError("HTTP output already started")
         self._check_output_line(top_line, "start line")
         self._check_output_headers(hdr_tuples)
+        content_length = output_content_length(hdr_tuples)
         self._output_delimit = delimit
         self._output_body_sent = 0
         self._output_content_length = None
         if delimit == Delimiters.COUNTED:
-            try:
-                self._output_content_length = int(
-                    get_header(hdr_tuples, b"content-length").pop(0)
-                )
-            except (IndexError, ValueError):
-                pass
+            self._output_content_length = content_length
         out = [top_line]
         out.extend([b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples])
         out.extend([b"", b""])
