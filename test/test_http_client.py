@@ -145,10 +145,17 @@ class TestHttpClient(framework.ClientServerTestCase):
             handle_connect(conn)
 
         client.attach_conn = attach_conn
+        client.dead_conn = MagicMock()
         exchange = client.exchange()
+        errors = []
+        exchange.on("error", errors.append)
         exchange.request_start(method, b"http://example.com/", headers)
-        with self.assertRaises(thor.http.error.OutputSyntaxError):
-            exchange.request_done([])
+        exchange.request_body(b"abc")
+        exchange.request_done([])
+
+        client.dead_conn.assert_called_once_with(conn)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
 
     def test_request_short_body_reports_error(self):
         client = HttpClient(loop=self.loop)
@@ -173,7 +180,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertIsInstance(errors[0], thor.http.error.OutputError)
 
     def test_request_bad_content_length_output_syntax(self) -> None:
-        for value in [b"+5", b"1_0", b"abc", b""]:
+        for value in [b"+5", b"1_0", b"abc", b"", b"\x0c5", b"5\x0b", b"5,5", b"5, 5"]:
             with self.subTest(value=value):
                 self.check_invalid_request_output(b"POST", [(b"Content-Length", value)])
 

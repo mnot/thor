@@ -121,7 +121,11 @@ class HttpClientExchange(EventEmitter):
 
         top_line = b"%s %s HTTP/1.1" % (self.method, self.req_target)
         if self.conn:
-            self.conn.output_start(top_line, req_hdrs, delimit)
+            try:
+                self.conn.output_start(top_line, req_hdrs, delimit)
+            except OutputError as why:
+                self.client.dead_conn(self.conn)
+                self.input_error(why)
         else:
             self._output_q.append(("start", top_line, req_hdrs, delimit))
 
@@ -129,6 +133,8 @@ class HttpClientExchange(EventEmitter):
         "Send part of the request body. May be called zero to many times."
         self._req_body = True
         self._req_start()
+        if self.conn and self._error_sent:
+            return
         if self.method in idempotent_methods and not self._req_body_overflow:
             self._req_body_len += len(chunk)
             if self._req_body_len > self.client.retry_body_limit:
@@ -148,6 +154,8 @@ class HttpClientExchange(EventEmitter):
         """
         self._req_done_trailers = trailers
         self._req_start()
+        if self.conn and self._error_sent:
+            return
         if self.conn:
             self._output_end(trailers)
         else:

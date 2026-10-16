@@ -1098,7 +1098,22 @@ Content-Length: %(body_len)i
         self.assertEqual(writer.written, [])
 
     def test_output_content_length_not_digits(self) -> None:
-        for value in [b"+5", b"-5", b"1_0", b"0x10", b"1 0", b"", b"abc", b"1.5"]:
+        for value in [
+            b"+5",
+            b"-5",
+            b"1_0",
+            b"0x10",
+            b"1 0",
+            b"",
+            b"abc",
+            b"1.5",
+            b"\x0c5",
+            b"5\x0b",
+            b"\x0b5",
+            b"5,5",
+            b"5, 5",
+            b"9" * 5000,
+        ]:
             with self.subTest(value=value):
                 self.check_invalid_output_content_length([(b"Content-Length", value)])
 
@@ -1118,6 +1133,17 @@ Content-Length: %(body_len)i
         writer.output_body(b"hello")
         with self.assertRaises(error.OutputError):
             writer.output_body(b"!")
+
+    def test_output_content_length_matches_input(self) -> None:
+        # whatever the output side accepts, the input parser must read back
+        for value in [b"5", b" 5", b"5\t", b"\t 05 "]:
+            writer = CapturingHttpParser()
+            writer.output_start(
+                b"HTTP/1.1 200 OK", [(b"Content-Length", value)], Delimiters.COUNTED
+            )
+            reader = DummyHttpParser()
+            reader.handle_input(b"".join(writer.written) + b"hello")
+            self.assertNotIn("ERROR", reader.test_states, value)
 
     def test_output_content_length_surrounding_ows(self) -> None:
         writer = CapturingHttpParser()

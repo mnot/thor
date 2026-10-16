@@ -132,12 +132,22 @@ class TestHttpServer(framework.ClientServerTestCase):
         self.check_invalid_response_output(b"OK", [(b"Bad Name", b"value")])
 
     def test_response_bad_content_length_output_syntax(self) -> None:
-        for value in [b"+5", b"1_0", b" 0x10", b"abc", b""]:
+        for value in [b"+5", b"1_0", b" 0x10", b"abc", b"", b"\x0c5", b"5,5"]:
             with self.subTest(value=value):
                 conn = CapturingServerConnection()
                 exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
                 with self.assertRaises(thor.http.error.OutputSyntaxError):
                     exchange.response_start(b"200", b"OK", [(b"Content-Length", value)])
+                self.assertEqual(conn.written, [])
+
+    def test_response_bodiless_bad_content_length_output_syntax(self) -> None:
+        # Validated even where the header would be stripped (204) or unused.
+        for method, status in [(b"HEAD", b"200"), (b"GET", b"204"), (b"GET", b"304")]:
+            with self.subTest(method=method, status=status):
+                conn = CapturingServerConnection()
+                exchange = HttpServerExchange(conn, method, b"/", [], b"1.1")
+                with self.assertRaises(thor.http.error.OutputSyntaxError):
+                    exchange.response_start(status, b"X", [(b"Content-Length", b"")])
                 self.assertEqual(conn.written, [])
 
     def test_response_conflicting_content_length_output_syntax(self) -> None:

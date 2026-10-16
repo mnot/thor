@@ -68,19 +68,27 @@ def parse_uint(value: bytes, base: int = 10) -> int:
     return int(value, base)
 
 
+def parse_content_length(value: bytes) -> int:
+    "Strictly parse a Content-Length value, ignoring surrounding SP / HTAB."
+    return parse_uint(value.strip(b" \t"))
+
+
 def output_content_length(hdr_tuples: RawHeaderListType) -> Optional[int]:
     """
     Return the Content-Length of an outgoing message, or None if it has none.
-    Raises OutputSyntaxError if the value isn't strictly 1*DIGIT, or if
-    multiple values disagree.
+    Raises OutputSyntaxError if a value isn't strictly valid (as on input), or
+    if multiple Content-Length lines disagree.
     """
-    values = get_header(hdr_tuples, b"content-length")
-    try:
-        lengths = {parse_uint(v) for v in values}
-    except ValueError as why:
-        raise error.OutputSyntaxError(
-            f"Invalid Content-Length {why.args[0]!r}"
-        ) from None
+    lengths = set()
+    for name, value in hdr_tuples:
+        if name.strip().lower() != b"content-length":
+            continue
+        try:
+            lengths.add(parse_content_length(value))
+        except ValueError:
+            raise error.OutputSyntaxError(
+                f"Invalid Content-Length {value[:32]!r}"
+            ) from None
     if len(lengths) > 1:
         raise error.OutputSyntaxError("Conflicting Content-Length values")
     return lengths.pop() if lengths else None
@@ -456,10 +464,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
             elif f_name == b"transfer-encoding":
                 transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
             elif f_name == b"content-length":
-                cl_val = fv.strip(b" \t")
                 if content_length is not None:
                     try:
-                        if parse_uint(cl_val) == content_length:
+                        if parse_content_length(fv) == content_length:
                             # we have a duplicate, non-conflicting c-l.
                             continue
                     except ValueError:
@@ -468,7 +475,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
                     if self.careful:
                         raise ValueError
                 try:
-                    content_length = parse_uint(cl_val)
+                    content_length = parse_content_length(fv)
                 except ValueError:
                     self.input_error(
                         error.MalformedCLError(f_val.decode("utf-8", "replace"))
