@@ -16,8 +16,8 @@ HTTP clients share a pool of idle connections.
 There are several settings available as class variables:
 
 * _thor.TcpClient_ `HttpClient.tcp_client_class` - what to use as a TCP client.
-* _int_ `HttpClient.connect_timeout` - connect timeout, in seconds; also the read timeout when `read_timeout` is `None`. Default `3`.
-* _int_ or _None_ `HttpClient.read_timeout` - how long to wait for data while a response is outstanding, in seconds; the timer restarts whenever data is received (not when data is written). If `None`, `connect_timeout` is used. Default `None`.
+* _int_ or _None_ `HttpClient.connect_timeout` - connect timeout, in seconds; also the read timeout when `read_timeout` is `None`. Default `3`; `None` to disable.
+* _int_ or _None_ `HttpClient.read_timeout` - how long to wait for data while a response is outstanding, in seconds; the timer restarts whenever data is received or written. If `None`, `connect_timeout` is used (and if that is also `None`, there is no read timeout). Default `None`.
 * _int_ or _None_ `HttpClient.idle_timeout` - how long idle persistent connections are left open, in seconds. Default `60`; `None` to disable.
 * _int_ `HttpClient.retry_limit` - How many additional times to try a request that fails (e.g., dropped connection). Default `2`.
 * _int_ `HttpClient.retry_delay` - how long to wait between retries, in seconds (or fractions thereof). Default `0.5`.

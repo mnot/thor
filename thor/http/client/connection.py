@@ -84,13 +84,15 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             self.close()
         self.client.dead_conn(self)
 
-    def set_timeout(self, timeout: float, kind: str) -> None:
+    def set_timeout(self, timeout: Optional[float], kind: str) -> None:
         self.clear_timeout()
+        if timeout is None:
+            return
         self._read_timeout_ev = self.client.loop.schedule(
             timeout, self.input_error, error.ReadTimeoutError(kind)
         )
 
-    def _read_timeout(self) -> int:
+    def _read_timeout(self) -> Optional[float]:
         if self.client.read_timeout is not None:
             return self.client.read_timeout
         return self.client.connect_timeout
@@ -118,6 +120,8 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             )
 
     def _conn_paused(self, paused: bool) -> None:
+        if not paused:
+            self._restart_timeout()  # the write buffer drained
         self.emit("pause", paused)
         if self.active_exchange:
             self.active_exchange.req_body_pause(paused)
@@ -139,10 +143,14 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             if inbytes.strip():
                 self._extra_data(inbytes)
         else:
-            if inbytes and self._read_timeout_ev:
-                # Inactivity timeout: restart whenever data arrives.
-                self.set_timeout(self._read_timeout(), "read")
+            if inbytes:
+                self._restart_timeout()
             HttpMessageHandler.handle_input(self, inbytes)
+
+    def _restart_timeout(self) -> None:
+        "Inactivity timeout: restart on progress, if one is running."
+        if self._read_timeout_ev:
+            self.set_timeout(self._read_timeout(), "read")
 
     def _extra_data(self, inbytes: bytes) -> None:
         "Data arrived when no response is due; the connection can't be trusted."
@@ -236,6 +244,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             exchange.input_error(err)
 
     def output(self, data: bytes) -> None:
+        self._restart_timeout()
         self.tcp_conn.write(data)
 
     def output_done(self) -> None:

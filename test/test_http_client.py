@@ -19,6 +19,7 @@ import thor
 import thor.http.error
 from thor.events import on
 from thor.http import HttpClient
+from thor.http.client.connection import HttpClientConnection
 from thor.http.common import Delimiters, States
 
 
@@ -987,6 +988,104 @@ class TestHttpClient(framework.ClientServerTestCase):
             conn.request.close()
 
         self.go([server_side], [client_side])
+
+    def test_slow_upload_not_timed_out(self):
+        # A request body that keeps being written outlives the timeout, even
+        # though no response bytes arrive until it is complete.
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1
+            client.read_timeout = None
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
+
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/slow_upload" % (test_host, test_port)
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"6")])
+            chunks = [b"a", b"b", b"c", b"d", b"e", b"f"]
+
+            def send_chunk() -> None:
+                exchange.request_body(chunks.pop(0))
+                if chunks:
+                    self.loop.schedule(0.4, send_chunk)
+                else:
+                    exchange.request_done([])
+
+            send_chunk()
+
+        def server_side(conn):
+            drain(conn, b"abcdef")
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                b"Connection: close\r\n\r\nok"
+            )
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_stalled_upload_times_out(self):
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1
+            client.read_timeout = None
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange, {"error": thor.http.error.ReadTimeoutError}
+            )
+
+            req_uri = b"http://%s:%i/stalled_upload" % (test_host, test_port)
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"6")])
+            exchange.request_body(b"a")
+
+        def server_side(conn):
+            drain(conn)
+            # Stall until the client gives up and closes the connection.
+            conn.request.settimeout(10.0)
+            try:
+                conn.request.recv(1024)
+            except socket.timeout:
+                pass
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_no_timeouts(self):
+        # connect_timeout and read_timeout may both be None: no timer at all.
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = None
+            client.read_timeout = None
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
+
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/no_timeouts" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                b"Connection: close\r\n\r\nok"
+            )
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_no_timeouts_schedules_nothing(self):
+        client = HttpClient(loop=MagicMock())
+        client.connect_timeout = None
+        client.read_timeout = None
+        tcp_conn = MagicMock()
+        conn = HttpClientConnection(client, (b"http", b"localhost", 80), tcp_conn)
+        conn.attach(MagicMock())
+        conn.output(b"data")
+        conn.handle_input(b"HTTP/1.1 200 OK\r\n")
+        client.loop.schedule.assert_not_called()
 
     def test_conn_reuse(self):
         self.conn_checked = False
