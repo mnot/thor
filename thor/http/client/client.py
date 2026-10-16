@@ -23,6 +23,7 @@ class HttpClient:
         self.read_timeout: Optional[int] = None  # seconds
         self.retry_limit: int = 2
         self.retry_delay: float = 0.5  # seconds
+        self.retry_body_limit: int = 1024 * 1024  # bytes
         self.max_server_conn: int = 6
         self.check_ip: Optional[Callable[[str], bool]] = None
         self.careful: bool = True
