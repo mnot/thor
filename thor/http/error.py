@@ -67,7 +67,6 @@ class OutputStateError(OutputError):
 
 class StartLineError(HttpError):
     desc = "The start line of the message couldn't be parsed"
-    server_status = (b"400", b"Bad Request")
 
 
 class HttpVersionError(HttpError):
@@ -77,7 +76,6 @@ class HttpVersionError(HttpError):
 
 class ReadTimeoutError(HttpError):
     desc = "Read Timeout"
-    server_status = (b"504", b"Gateway Timeout")
 
 
 class TransferCodeError(HttpError):

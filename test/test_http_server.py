@@ -318,12 +318,56 @@ Content-Length: 5
 
         self.go([server_side], [client_side])
 
-    def test_all_errors_have_server_status(self):
-        for name, cls in vars(thor.http.error).items():
-            if isinstance(cls, type) and issubclass(cls, thor.http.error.HttpError):
-                with self.subTest(name):
-                    status_code, _ = cls().server_status
-                    self.assertTrue(status_code.isdigit())
+    def test_parse_error_server_statuses(self):
+        bad_request = (b"400", b"Bad Request")
+        for err in [
+            thor.http.error.ChunkError,
+            thor.http.error.ChunkTerminatorError,
+            thor.http.error.ExtraDataError,
+        ]:
+            with self.subTest(err.__name__):
+                self.assertEqual(err.server_status, bad_request)
+
+    def test_default_server_status(self):
+        self.assertEqual(
+            thor.http.error.HttpError.server_status, (b"500", b"Internal Server Error")
+        )
+
+    def start_bad_chunk_exchange(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+        )
+        exchange = [args[0] for event, args in server.events if event == "exchange"][0]
+        return tcp_conn, conn, exchange
+
+    def test_bad_chunk_during_response(self):
+        tcp_conn, conn, exchange = self.start_bad_chunk_exchange()
+        exchange.response_start(b"200", b"OK", [])
+        exchange.response_body(b"hello")
+
+        conn.handle_input(b"ZZZ\r\n")
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 200 OK", output)
+        self.assertNotIn(b"400 Bad Request", output)
+
+    def test_bad_chunk_after_response_complete(self):
+        tcp_conn, conn, exchange = self.start_bad_chunk_exchange()
+        exchange.response_start(b"200", b"OK", [])
+        exchange.response_body(b"hello")
+        exchange.response_done([])
+
+        conn.handle_input(b"ZZZ\r\n")
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 "), 1)
+        self.assertNotIn(b"400 Bad Request", output)
 
     def test_pipeline_queue_limit(self):
         tcp_conn = FakeTcpConnection()
