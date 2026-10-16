@@ -190,7 +190,16 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if len(self.ex_queue) >= self.max_pipeline_requests:
             self.input_error(TooManyMsgsError())
             raise ValueError
-        exchange = HttpServerExchange(self, method, uri, hdr_tuples, req_version)
+        if req_version == b"1.1":
+            persistent = b"close" not in conn_tokens
+        else:
+            persistent = b"keep-alive" in conn_tokens and b"close" not in conn_tokens
+        exchange = HttpServerExchange(
+            self, method, uri, hdr_tuples, req_version, persistent
+        )
+        if not persistent:
+            # silently ignore anything pipelined after a request that closes
+            self.default_state = States.ERROR
         self.ex_queue.append(exchange)
         self.server.emit("exchange", exchange)
         if not self.output_paused:
@@ -261,6 +270,7 @@ class HttpServerExchange(EventEmitter):
         uri: bytes,
         req_hdrs: RawHeaderListType,
         req_version: bytes,
+        persistent: bool = True,
     ) -> None:
         EventEmitter.__init__(self)
         self.http_conn = http_conn
@@ -268,6 +278,7 @@ class HttpServerExchange(EventEmitter):
         self.uri = uri
         self.req_hdrs = req_hdrs
         self.req_version = req_version
+        self.persistent = persistent
         self.started = False
         self.req_complete = False
         self.res_complete = False
@@ -305,13 +316,15 @@ class HttpServerExchange(EventEmitter):
             body_len = None
         if body_len is not None:
             delimit = Delimiters.COUNTED
-            res_hdrs.append((b"Connection", b"keep-alive"))
         elif self.req_version == b"1.1":
             delimit = Delimiters.CHUNKED
             res_hdrs.append((b"Transfer-Encoding", b"chunked"))
         else:
             delimit = Delimiters.CLOSE
+        if delimit is Delimiters.CLOSE or not self.persistent:
             res_hdrs.append((b"Connection", b"close"))
+        elif self.req_version == b"1.0":
+            res_hdrs.append((b"Connection", b"keep-alive"))
 
         self.http_conn.output_start(
             b"HTTP/1.1 %s %s" % (status_code, status_phrase),
@@ -333,7 +346,7 @@ class HttpServerExchange(EventEmitter):
         """
         should_close = self.http_conn.output_end(trailers)
         self.http_conn.exchange_done(self)
-        if (should_close or close) and self.http_conn.tcp_conn:
+        if (should_close or close or not self.persistent) and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
 
 

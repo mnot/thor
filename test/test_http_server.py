@@ -356,6 +356,61 @@ Content-Length: 5
 
         self.assertTrue(tcp_conn.tcp_connected)
 
+    def check_connection_handling(self, request, closes, conn_header):
+        "Send a GET request through a fake connection and check its fate."
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        seen = []
+
+        def handle_exchange(exchange):
+            seen.append(exchange.uri)
+
+            @on(exchange, "request_start")
+            def start(method, uri, headers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
+                exchange.response_body(b"foo")
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+
+        conn.handle_input(request + b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n")
+
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(tcp_conn.tcp_connected, not closes)
+        self.assertEqual(seen, [b"/one"] if closes else [b"/one", b"/two"])
+        if conn_header is None:
+            self.assertNotIn(b"Connection:", output)
+        else:
+            self.assertIn(b"Connection: " + conn_header + b"\r\n", output)
+
+    def test_http11_connection_close(self):
+        self.check_connection_handling(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n",
+            True,
+            b"close",
+        )
+
+    def test_http11_default_persistent(self):
+        self.check_connection_handling(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\n", False, None
+        )
+
+    def test_http10_default_closes(self):
+        self.check_connection_handling(
+            b"GET /one HTTP/1.0\r\nHost: example.com\r\n\r\n", True, b"close"
+        )
+
+    def test_http10_keep_alive(self):
+        self.check_connection_handling(
+            b"GET /one HTTP/1.0\r\nHost: example.com\r\n"
+            b"Connection: keep-alive\r\n\r\n",
+            False,
+            b"keep-alive",
+        )
+
     def test_early_response_drops_remaining_body(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
