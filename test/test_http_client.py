@@ -997,13 +997,16 @@ class TestHttpClient(framework.ClientServerTestCase):
         # A request body that keeps being written outlives the timeout, even
         # though no response bytes arrive until it is complete.
         def client_side(client, test_host, test_port):
-            client.connect_timeout = 1.5
+            client.connect_timeout = 1
             client.read_timeout = None
             exchange = client.exchange()
             self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
+            started = time.monotonic()
 
             @on(exchange)
             def response_done(trailers):
+                # The upload must have outlasted the timeout to mean anything.
+                self.assertGreater(time.monotonic() - started, 1)
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/slow_upload" % (test_host, test_port)
@@ -1013,7 +1016,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             def send_chunk() -> None:
                 exchange.request_body(chunks.pop(0))
                 if chunks:
-                    self.loop.schedule(0.3, send_chunk)
+                    self.loop.schedule(0.2, send_chunk)
                 else:
                     exchange.request_done([])
 
@@ -1081,7 +1084,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             if not hasattr(tcp_conn, "shrunk"):
                 tcp_conn.shrunk = True
                 tcp_conn.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
-                tcp_conn.max_write_buffer_chunks = 4
+                tcp_conn.max_write_buffer_chunks = 2
             on_chunk(chunk)
             self.loop.schedule(interval, send_chunk)
 
@@ -1107,10 +1110,12 @@ class TestHttpClient(framework.ClientServerTestCase):
             self.check_exchange(
                 exchange, {"error": thor.http.error.ReadTimeoutError}
             )
+            started = time.monotonic()
 
             @on(exchange)
             def error(err):
                 release.set()
+                self.assertGreater(time.monotonic() - started, 1)
 
             def write(chunk):
                 try:
@@ -1154,18 +1159,23 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_slow_reading_peer_upload_not_timed_out(self):
         # A peer that reads slowly but steadily keeps the send making progress,
         # so an upload that outlasts the timeout still completes.
-        total = 16384 * 16
+        # The reader takes at most 4 KiB per 25 ms (160 KB/s), so this takes
+        # over three seconds whatever the socket buffer sizes are.
+        total = 16384 * 32
         self.small_rcvbuf = True
 
         def client_side(client, test_host, test_port):
-            client.connect_timeout = 2.5
+            client.connect_timeout = 2
             client.read_timeout = None
             exchange = client.exchange()
             self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
             sent = [0]
+            started = time.monotonic()
 
             @on(exchange)
             def response_done(trailers):
+                # The upload must have outlasted the timeout to mean anything.
+                self.assertGreater(time.monotonic() - started, 2)
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/slow_reader" % (test_host, test_port)
@@ -1194,12 +1204,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         def server_side(conn):
             conn.request.settimeout(30.0)
             data = b""
-            # Header block plus body; read 16 KiB per 50 ms.
+            # Header block plus body; read 4 KiB per 25 ms.
             while b"\r\n\r\n" not in data or len(data) < total + data.index(
                 b"\r\n\r\n"
             ) + 4:
-                time.sleep(0.05)
-                chunk = conn.request.recv(16384)
+                time.sleep(0.025)
+                chunk = conn.request.recv(4096)
                 if not chunk:
                     break
                 data += chunk
