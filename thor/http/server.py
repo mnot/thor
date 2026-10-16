@@ -30,6 +30,7 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    RequestTransferEncodingError,
     TooManyMsgsError,
     TransferCodeError,
 )
@@ -187,6 +188,14 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             if code not in [b"identity", b"chunked"]:
                 self.input_error(TransferCodeError(code.decode("utf-8", "replace")))
                 raise ValueError
+        if transfer_codes and transfer_codes[-1] != b"chunked":
+            # RFC 9112 6.3: the body length can't be determined reliably
+            self.input_error(
+                RequestTransferEncodingError(
+                    transfer_codes[-1].decode("utf-8", "replace")
+                )
+            )
+            raise ValueError
         if len(self.ex_queue) >= self.max_pipeline_requests:
             self.input_error(TooManyMsgsError())
             raise ValueError

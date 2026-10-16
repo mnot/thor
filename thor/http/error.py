@@ -116,6 +116,22 @@ class TooManyFieldsError(HttpError):
     client_recoverable = True
 
 
+class BareCRError(HttpError):
+    desc = "Bare CR in field section"
+    server_status = (b"400", b"Bad Request")
+    client_recoverable = True
+
+
+class TransferEncodingCLError(HttpError):
+    desc = "Both Transfer-Encoding and Content-Length present"
+    server_status = (b"400", b"Bad Request")
+
+
+class RequestTransferEncodingError(HttpError):
+    desc = "Request Transfer-Encoding does not end in chunked"
+    server_status = (b"400", b"Bad Request")
+
+
 class HeaderLineEndingError(HttpError):
     desc = "Header line was terminated with LF instead of CRLF"
     server_status = (b"400", b"Bad Request")
