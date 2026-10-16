@@ -25,6 +25,7 @@ from thor.http.common import (
     get_header,
     header_names,
     hop_by_hop_hdrs,
+    no_body_status,
 )
 from thor.http.error import (
     HostRequiredError,
@@ -44,6 +45,7 @@ class HttpServer(EventEmitter):
 
     tcp_server_class = TcpServer
     idle_timeout = 60  # in seconds
+    request_timeout: Optional[float] = 60  # in seconds; None or 0 to disable
 
     def __init__(self, host: bytes, port: int, loop: Optional[LoopBase] = None) -> None:
         EventEmitter.__init__(self)
@@ -98,6 +100,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._idler: Optional[ScheduledEvent] = self.server.loop.schedule(
             self.server.idle_timeout, self.close_conn
         )
+        self._req_timer: Optional[ScheduledEvent] = None
+        self._req_in_progress = False  # request body incomplete
+        self._req_paused = False
+        self._in_input = False
 
     @property
     def is_idle(self) -> bool:
@@ -110,9 +116,41 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         """
         if self.tcp_conn:
             self.tcp_conn.pause(paused)
+        # a paused request isn't the client's fault
+        self._req_paused = paused
+        if paused:
+            self._stop_req_timer()
+        elif self._req_in_progress:
+            self._start_req_timer()
+
+    def _stop_req_timer(self) -> None:
+        if self._req_timer:
+            self._req_timer.delete()
+            self._req_timer = None
+
+    def _start_req_timer(self) -> None:
+        "(Re)start the inactivity timer for the request being received."
+        self._stop_req_timer()
+        if self.server.request_timeout and self.tcp_conn and not self._req_paused:
+            self._req_timer = self.server.loop.schedule(
+                self.server.request_timeout, self.close_conn
+            )
+
+    def handle_input(self, inbytes: bytes) -> None:
+        if self._in_input:  # the parser calls itself for pipelined data
+            HttpMessageHandler.handle_input(self, inbytes)
+            return
+        self._in_input = True
+        try:
+            HttpMessageHandler.handle_input(self, inbytes)
+        finally:
+            self._in_input = False
+        if self._req_in_progress:
+            self._start_req_timer()
 
     def close_conn(self) -> None:
         "Close the connection."
+        self._stop_req_timer()
         if self.tcp_conn and self.tcp_conn.tcp_connected:
             self.tcp_conn.close()
             self.tcp_conn = None
@@ -141,6 +179,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def conn_closed(self) -> None:
         "The server connection has closed."
         self.server.connections.discard(self)
+        self._stop_req_timer()
         self.ex_queue = []
         self.tcp_conn = None
 
@@ -220,6 +259,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         allows_body = bool(content_length and content_length > 0) or (
             transfer_codes != []
         )
+        self._req_in_progress = allows_body  # timer is started by handle_input
         return allows_body, True
 
     def input_body(self, chunk: bytes) -> None:
@@ -231,6 +271,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the request body is complete."
+        self._req_in_progress = False
+        self._stop_req_timer()
         ex = self.ex_queue[-1]
         ex.req_complete = True
         if not ex.res_complete:
@@ -331,7 +373,21 @@ class HttpServerExchange(EventEmitter):
             body_len = int(get_header(res_hdrs, b"content-length").pop(0))
         except (IndexError, ValueError):
             body_len = None
-        if body_len is not None:
+        # A final response with a 1xx status is not an interim response; use
+        # response_nonfinal for those.
+        bodiless = (
+            self.method == b"HEAD"
+            or status_code in no_body_status
+            or status_code.startswith(b"1")
+        )
+        if bodiless:
+            # No body framing. Content-Length is kept for HEAD and 304 (it
+            # describes the unsent representation) but must not be sent
+            # with 204 or 1xx (RFC 9110 section 8.6).
+            delimit = Delimiters.NOBODY
+            if status_code == b"204" or status_code.startswith(b"1"):
+                res_hdrs = [i for i in res_hdrs if i[0].lower() != b"content-length"]
+        elif body_len is not None:
             delimit = Delimiters.COUNTED
         elif self.req_version == b"1.1":
             delimit = Delimiters.CHUNKED

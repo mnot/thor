@@ -967,6 +967,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -995,6 +996,119 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
+
+    def test_idle_timeout_closes_conn(self):
+        "Guards that the server sees EOF after expiry; says nothing about the fd."
+        server_eof = threading.Event()
+        server_done = threading.Event()
+
+        def client_side(client, test_host, test_port):
+            client.idle_timeout = 0.1
+            req_uri = b"http://%s:%i/idle_timeout" % (test_host, test_port)
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"body": b"12345"})
+
+            def wait_for_eof():
+                if server_done.is_set():
+                    self.assertEqual(len(client._idle_conns), 0)
+                    self.assertEqual(len(client.conn_counts), 0)
+                    self.loop.stop()
+                else:
+                    self.loop.schedule(0.05, wait_for_eof)
+
+            @on(exchange)
+            def response_done(trailers):
+                wait_for_eof()
+
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            conn.request.settimeout(3.0)
+            try:
+                while conn.request.recv(8192):
+                    pass
+                server_eof.set()
+            except socket.timeout:
+                pass
+            finally:
+                server_done.set()
+
+        self.go([server_side], [client_side])
+        self.assertTrue(server_eof.is_set())
+
+    def test_idle_timeout_unresponsive_peer(self):
+        """
+        Guards that an expired idle connection is fully closed (a peer that
+        ignores the FIN is reset when it writes) and releases its slot.
+        """
+        release = threading.Event()
+        self.peer_reset = False
+
+        def client_side(client, test_host, test_port):
+            client.idle_timeout = 0.1
+            client.max_server_conn = 1
+            req_uri = b"http://%s:%i/idle_timeout" % (test_host, test_port)
+            exchange1 = client.exchange()
+            self.check_exchange(exchange1, {"body": b"12345"})
+            exchange2 = client.exchange()
+            self.check_exchange(exchange2, {"body": b"12345"})
+
+            def second_request():
+                self.assertEqual(len(client._idle_conns), 0)
+                self.assertEqual(len(client.conn_counts), 0)
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
+
+            @on(exchange1)
+            def response_done(trailers):
+                self.loop.schedule(0.5, second_request)
+
+            @on(exchange2)
+            def response_done(trailers):
+                release.set()
+                self.loop.stop()
+
+            exchange1.request_start(b"GET", req_uri, [])
+            exchange1.request_done([])
+
+        def server_side(conn):
+            self.conn_num += 1
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            if self.conn_num == 1:
+                # Ignore the client closing, then probe whether it's really gone;
+                # a half-closed client would still accept this data.
+                conn.request.settimeout(0.25)
+                try:
+                    while conn.request.recv(8192):
+                        pass
+                    for _ in range(20):
+                        try:
+                            conn.request.sendall(b"x")
+                        except (ConnectionResetError, BrokenPipeError):
+                            self.peer_reset = True
+                            break
+                        time.sleep(0.05)  # give any RST time to arrive
+                except socket.timeout:
+                    pass
+                release.wait(10)
+
+        self.go([server_side], [client_side])
+        self.assertEqual(self.conn_num, 2)
+        self.assertTrue(self.peer_reset)
 
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
@@ -1382,21 +1496,103 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
-    def test_coalesced_extra(self):
+    def check_injected_response(self, injected, queued):
         """
-        Verify that if the server sends data for a second response before the
-        first one is complete, and it is NOT Connection: close, it's buffered.
+        The server sends a second, unsolicited response in the same write as the
+        first. It must not be delivered to the next request, and the connection
+        must be dropped. The next request is attached from the first one's
+        response_done handler, or (if queued) by a handoff from the pool.
         """
 
+        test_done = threading.Event()
+
         def client_side(client, test_host, test_port):
+            self.loop.on("stop", test_done.set)
+            client.max_server_conn = 1
             req_uri = b"http://%s:%i/" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {"body": b"12345"})
+            exchange2 = client.exchange()
+            self.check_exchange(exchange2, {"error": thor.http.error.ExtraDataError})
 
-            @on(exchange1)
-            def response_done(trailers):
+            @on(exchange2)
+            def response_start(*args):
+                self.fail(f"Injected response delivered: {args!r}")
+
+            @on(exchange2)
+            def response_body(chunk):
+                self.fail(f"Injected response delivered: {chunk!r}")
+
+            @on(exchange2)
+            def error(err):
+                conn = exchange2.conn
+                self.assertFalse(client._idle_conns)
+                tcp = conn.tcp_conn
+                self.assertTrue(
+                    tcp._closing or tcp._closed_output or not tcp.tcp_connected
+                )
+
+            def start2():
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
+
+            exchange1.request_start(b"GET", req_uri, [])
+            exchange1.request_done([])
+            # Once the connection exists the second request has to queue for it.
+            event = "response_start" if queued else "response_done"
+            exchange1.on(event, lambda *args: start2())
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n12345" + injected
+            )
+            test_done.wait(30)
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_coalesced_extra(self):
+        self.check_injected_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nPOISON", False
+        )
+
+    def test_coalesced_extra_nobody(self):
+        self.check_injected_response(b"HTTP/1.1 204 No Content\r\n\r\n", False)
+
+    def test_coalesced_extra_queued(self):
+        self.check_injected_response(
+            b"HTTP/1.1 200 OK\r\nX-Evil: 1\r\nContent-Length: 0\r\n\r\n", True
+        )
+
+    def test_coalesced_extra_queued_nobody(self):
+        self.check_injected_response(b"HTTP/1.1 204 No Content\r\n\r\n", True)
+
+    def test_idle_extra_data(self):
+        """
+        Data that arrives on a pooled connection after a complete response must
+        not be buffered and parsed as the response to a later request; the
+        connection is discarded instead.
+        """
+        self.conn_num = 0
+        self.conn_checked = False
+        first_done = threading.Event()
+        test_done = threading.Event()
+
+        def client_side(client, test_host, test_port):
+            self.loop.on("stop", test_done.set)
+            req_uri = b"http://%s:%i/" % (test_host, test_port)
+            exchange1 = client.exchange()
+            self.check_exchange(exchange1, {"body": b"A"})
+
+            def start2():
                 exchange2 = client.exchange()
-                self.check_exchange(exchange2, {"body": b"54321"})
+                self.check_exchange(exchange2, {"body": b"GOOD"})
+
+                @on(exchange2)
+                def response_start(*args):
+                    self.assertNotEqual(self.conn_id, id(exchange2.conn.tcp_conn))
+                    self.conn_checked = True
 
                 @on(exchange2)
                 def response_done(trailers):
@@ -1405,26 +1601,41 @@ class TestHttpClient(framework.ClientServerTestCase):
                 exchange2.request_start(b"GET", req_uri, [])
                 exchange2.request_done([])
 
+            @on(exchange1)
+            def response_start(*args):
+                self.conn_id = id(exchange1.conn.tcp_conn)
+
+            @on(exchange1)
+            def response_done(trailers):
+                # Run after the connection has seen the unsolicited data.
+                exchange1.conn.tcp_conn.once(
+                    "data", lambda _: self.loop.schedule(0, start2)
+                )
+                first_done.set()
+
             exchange1.request_start(b"GET", req_uri, [])
             exchange1.request_done([])
 
         def server_side(conn):
-            # Send first response and the START of the second one
-            conn.request.sendall(
-                b"HTTP/1.1 200 OK\r\n"
-                b"Content-Type: text/plain\r\n"
-                b"Content-Length: 5\r\n"
-                b"\r\n"
-                b"12345"
-                b"HTTP/1.1 200 OK\r\n"
-                b"Content-Type: text/plain\r\n"
-                b"Content-Length: 5\r\n"
-                b"\r\n"
-                b"54321"
-            )
+            self.conn_num += 1
+            drain(conn)
+            if self.conn_num == 1:
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nA"
+                )
+                first_done.wait(30)
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nPOISON"
+                )
+            else:
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nGOOD"
+                )
+            test_done.wait(30)
             conn.request.close()
 
         self.go([server_side], [client_side])
+        self.assertTrue(self.conn_checked)
 
 
 #    def test_req_body(self):

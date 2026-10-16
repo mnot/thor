@@ -192,6 +192,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
         """
         raise NotImplementedError
 
+    def input_extra_data(self, inbytes: bytes) -> None:
+        "Indicate that data was received after the message was supposed to end."
+        self.input_error(error.ExtraDataError(inbytes.decode("utf-8", "replace")))
+
     def handle_input(self, inbytes: bytes) -> None:
         """
         Given a bytes representing a chunk of input, figure out what state
@@ -221,9 +225,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 self._input_buffer.append(inbytes)
         elif self._input_state == States.QUIET:  # shouldn't be getting any data now.
             if inbytes.strip():
-                self.input_error(
-                    error.ExtraDataError(inbytes.decode("utf-8", "replace"))
-                )
+                self.input_extra_data(inbytes)
         elif (
             self._input_state == States.HEADERS_DONE
         ):  # we found a complete header/trailer set
@@ -636,7 +638,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             return
         if self._output_state != States.HEADERS_DONE:
             raise error.OutputStateError("HTTP output body before final headers")
-        if self._output_delimit is Delimiters.NONE:
+        if self._output_delimit in (Delimiters.NONE, Delimiters.NOBODY):
             return
         self._output_body_sent += len(chunk)
         if self._output_delimit == Delimiters.COUNTED:
