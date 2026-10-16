@@ -87,6 +87,7 @@ The following settings are available as class variables:
 
 * _thor.TcpServer_ `HttpServer.tcp_server_class` - what to use as a TCP server.
 * _int_ or _None_ `HttpServer.idle_timeout` - how long idle persistent connections are left open, in seconds. Default 60; None to disable.
+* _int_ or _None_ `HttpServer.request_timeout` - how long a connection can go without receiving data while a request is being received (headers read, body incomplete), in seconds. The connection is closed when it expires. Pausing the request body suspends the timer; it does not apply while waiting for the application to respond to a fully received request. Default 60; None or 0 to disable.
 
 ### event 'start' ()
 
