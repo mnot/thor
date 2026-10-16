@@ -104,6 +104,14 @@ class HttpClient:
     def dead_conn(self, conn: HttpClientConnection) -> None:
         "Notify the client that a connection is dead."
         conn.detach()
+        idle = self._idle_conns.get(conn.origin)
+        if idle and conn in idle:
+            if conn.idler:
+                conn.idler.delete()
+                conn.idler = None
+            idle.remove(conn)
+            if not idle:
+                del self._idle_conns[conn.origin]
         if conn.tcp_connected:
             conn.close()
         self._conn_is_dead(conn)

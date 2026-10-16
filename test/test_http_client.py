@@ -1100,8 +1100,9 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def test_coalesced_extra(self):
         """
-        Verify that if the server sends data for a second response before the
-        first one is complete, and it is NOT Connection: close, it's buffered.
+        If the server sends a second response in the same read as the first, and
+        the next request is already attached when it is parsed, it must not be
+        treated as the response to that request.
         """
 
         def client_side(client, test_host, test_port):
@@ -1112,11 +1113,13 @@ class TestHttpClient(framework.ClientServerTestCase):
             @on(exchange1)
             def response_done(trailers):
                 exchange2 = client.exchange()
-                self.check_exchange(exchange2, {"body": b"54321"})
+                self.check_exchange(
+                    exchange2, {"error": thor.http.error.ExtraDataError}
+                )
 
                 @on(exchange2)
-                def response_done(trailers):
-                    self.loop.stop()
+                def response_body(chunk):
+                    self.fail(f"Injected response delivered: {chunk!r}")
 
                 exchange2.request_start(b"GET", req_uri, [])
                 exchange2.request_done([])
@@ -1125,7 +1128,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
-            # Send first response and the START of the second one
+            # Send the first response and a complete second one
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -1134,13 +1137,82 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"12345"
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
-                b"Content-Length: 5\r\n"
+                b"Content-Length: 6\r\n"
                 b"\r\n"
-                b"54321"
+                b"POISON"
             )
+            drain(conn)
             conn.request.close()
 
         self.go([server_side], [client_side])
+
+    def test_idle_extra_data(self):
+        """
+        Data that follows a complete response on a pooled connection must not
+        be buffered and parsed as the response to a later request; the
+        connection is discarded instead.
+        """
+        self.conn_num = 0
+        self.conn_checked = False
+
+        def client_side(client, test_host, test_port):
+            req_uri = b"http://%s:%i/" % (test_host, test_port)
+            exchange1 = client.exchange()
+            self.check_exchange(exchange1, {"body": b"A"})
+
+            @on(exchange1)
+            def response_start(*args):
+                self.conn_id = id(exchange1.conn.tcp_conn)
+
+            @on(exchange1)
+            def response_done(trailers):
+                def start2():
+                    exchange2 = client.exchange()
+                    self.check_exchange(exchange2, {"body": b"GOOD"})
+
+                    @on(exchange2)
+                    def response_start(*args):
+                        self.assertNotEqual(self.conn_id, id(exchange2.conn.tcp_conn))
+                        self.conn_checked = True
+
+                    @on(exchange2)
+                    def response_done(trailers):
+                        self.loop.stop()
+
+                    exchange2.request_start(b"GET", req_uri, [])
+                    exchange2.request_done([])
+
+                self.loop.schedule(0.2, start2)
+
+            exchange1.request_start(b"GET", req_uri, [])
+            exchange1.request_done([])
+
+        def server_side(conn):
+            self.conn_num += 1
+            if self.conn_num == 1:
+                drain(conn)
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nA"
+                )
+                time.sleep(0.05)
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nPOISON"
+                )
+                conn.request.settimeout(5.0)
+                try:
+                    conn.request.recv(8192)
+                except socket.timeout:
+                    pass
+            else:
+                drain(conn)
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nGOOD"
+                )
+                drain(conn)
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+        self.assertTrue(self.conn_checked)
 
 
 #    def test_req_body(self):

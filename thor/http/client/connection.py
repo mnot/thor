@@ -46,8 +46,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.reusable = False
         self.idler: Optional[ScheduledEvent] = None
         self._read_timeout_ev: Optional[ScheduledEvent] = None
+        self._response_ended = False
 
-        self.tcp_conn.on("data", self.handle_input)
+        self.tcp_conn.on("data", self._handle_data)
         self.tcp_conn.once("close", self._conn_closed)
         self.tcp_conn.on("pause", self._conn_paused)
 
@@ -116,17 +117,29 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     # HttpMessageHandler overrides
 
+    def _handle_data(self, inbytes: bytes) -> None:
+        self._response_ended = False
+        self.handle_input(inbytes)
+
     def handle_input(self, inbytes: bytes) -> None:
-        if self.active_exchange or not self.reusable:
-            HttpMessageHandler.handle_input(self, inbytes)
+        if self.reusable and (self._response_ended or not self.active_exchange):
+            # No response is outstanding, so nothing should arrive.
+            if inbytes.strip():
+                self._extra_data(inbytes)
         else:
-            if (
-                sum(len(chunk) for chunk in self._input_buffer) + len(inbytes)
-                > self.max_input_field_section_length
-            ):
-                self.input_error(error.FieldSectionTooLargeError())
-                return
-            self._input_buffer.append(inbytes)
+            HttpMessageHandler.handle_input(self, inbytes)
+
+    def _extra_data(self, inbytes: bytes) -> None:
+        "Data arrived when no response is due; the connection can't be trusted."
+        self.reusable = False
+        self._input_state = States.ERROR
+        self._input_buffer = []
+        err = error.ExtraDataError(inbytes.decode("utf-8", "replace"))
+        if self.active_exchange:
+            self.input_error(err)
+        else:
+            self.clear_timeout()
+            self.client.dead_conn(self)
 
     # HttpMessageHandler implementation
 
@@ -195,6 +208,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             self.client.release_conn(self)
         else:
             self.client.dead_conn(self)
+        self._response_ended = True
         if exchange:
             exchange.input_end_notify(trailers)
 
