@@ -385,8 +385,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Walk through the exchange queue and kick off unstarted requests
         until we run out of output buffer.
         """
-        for exchange in self.ex_queue:
-            if not exchange.started:
+        # Iterate over a copy, since handlers can answer (and so dequeue)
+        # exchanges, or close the connection, from inside request_start.
+        for exchange in list(self.ex_queue):
+            if self.output_paused or not self.tcp_conn:
+                break
+            if exchange in self.ex_queue and not exchange.started:
                 exchange.request_start()
 
 

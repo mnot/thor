@@ -1619,6 +1619,112 @@ Content-Length: 0
         self.assertTrue(self.exchange_handled)
 
 
+    def make_pipeline_conn(self, on_start):
+        """
+        A connection with output paused and three pipelined requests queued.
+        on_start(exchange, index) runs when the application is told about a
+        request; the uris of those requests are collected in started.
+        """
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchanges = []
+        started = []
+
+        def handle_exchange(exchange):
+            index = len(exchanges)
+            exchanges.append(exchange)
+
+            @on(exchange, "request_start")
+            def request_start(method, uri, headers):
+                started.append(uri)
+                on_start(exchange, index)
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.res_body_pause(True)
+        for i in range(3):
+            conn.handle_input(b"GET /%i HTTP/1.1\r\nHost: example.com\r\n\r\n" % i)
+        self.assertEqual(started, [])
+        self.assertEqual(len(conn.ex_queue), 3)
+        return tcp_conn, conn, exchanges, started
+
+    @staticmethod
+    def answer(exchange):
+        exchange.response_start(
+            b"200", b"OK", [(b"Content-Length", b"0"), (b"X-Uri", exchange.uri)]
+        )
+        exchange.response_done([])
+
+    def test_drain_exchange_queue_synchronous_handlers(self):
+        tcp_conn, conn, exchanges, started = self.make_pipeline_conn(
+            lambda exchange, index: self.answer(exchange)
+        )
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0", b"/1", b"/2"])
+        self.assertEqual(conn.ex_queue, [])
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 200 OK"), 3)
+        positions = [output.index(b"X-Uri: /%i" % i) for i in range(3)]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_drain_exchange_queue_mixed_handlers(self):
+        def on_start(exchange, index):
+            if index != 1:
+                self.answer(exchange)
+
+        tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0", b"/1", b"/2"])
+        self.assertEqual(conn.ex_queue, [exchanges[1]])
+        self.answer(exchanges[1])
+        self.assertEqual(conn.ex_queue, [])
+
+    def test_drain_exchange_queue_stops_when_connection_closed(self):
+        def on_start(exchange, index):
+            exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+            exchange.response_done([], close=True)
+
+        tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0"])
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_drain_exchange_queue_stops_when_connection_lost(self):
+        tcp_conn, conn, exchanges, started = self.make_pipeline_conn(
+            lambda exchange, index: conn.conn_closed()
+        )
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0"])
+
+    def test_drain_exchange_queue_skips_exchanges_answered_meanwhile(self):
+        def on_start(exchange, index):
+            if index == 0:
+                self.answer(exchanges[1])  # answered without being started
+            self.answer(exchange)
+
+        tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0", b"/2"])
+        self.assertEqual(conn.ex_queue, [])
+
+    def test_drain_exchange_queue_stops_when_output_pauses_again(self):
+        def on_start(exchange, index):
+            self.answer(exchange)
+            conn.res_body_pause(True)  # e.g., the response filled the buffer
+
+        tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0"])
+        self.assertEqual(conn.ex_queue, exchanges[1:])
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0", b"/1"])
+        conn.res_body_pause(False)
+        self.assertEqual(started, [b"/0", b"/1", b"/2"])
+        self.assertEqual(conn.ex_queue, [])
+
+
 #    def test_pipeline(self):
 #        def server_side(server):
 #            server.ex_count = 0
