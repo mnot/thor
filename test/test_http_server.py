@@ -39,6 +39,7 @@ class FakeTcpConnection:
 
 class FakeServer:
     idle_timeout = 60
+    request_timeout = 30
     shutting_down = False
 
     def __init__(self):
@@ -689,6 +690,127 @@ Content-Length: 5
         server.loop.schedule.assert_called_once_with(
             server.idle_timeout, conn.close_conn
         )
+
+    def make_timer_conn(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        timers = []
+
+        def schedule(delay, callback, *args):
+            timer = MagicMock()
+            timer.delay = delay
+            timer.callback = callback
+            timers.append(timer)
+            return timer
+
+        server.loop.schedule.side_effect = schedule
+        conn = HttpServerConnection(tcp_conn, server)
+        timers.clear()
+        return tcp_conn, server, conn, timers
+
+    def test_request_timer_restarts_on_data_and_stops_when_complete(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n"
+        )
+        self.assertEqual(len(timers), 1)
+        self.assertEqual(timers[0].delay, server.request_timeout)
+        self.assertEqual(timers[0].callback, conn.close_conn)
+        timers[0].delete.assert_not_called()
+
+        conn.handle_input(b"012")
+        self.assertEqual(len(timers), 2)
+        timers[0].delete.assert_called_once()
+        timers[1].delete.assert_not_called()
+
+        conn.handle_input(b"3456789")
+        timers[1].delete.assert_called_once()
+        self.assertEqual(len(timers), 2)
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_request_timer_expiry_closes_connection(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n"
+        )
+        timers[0].callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_request_timer_not_used_without_body(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        self.assertEqual(timers, [])
+
+    def test_request_timer_disabled(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.request_timeout = None
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n"
+        )
+        conn.handle_input(b"012")
+        self.assertEqual(timers, [])
+
+    def test_request_timer_paused_while_request_body_paused(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        tcp_conn.pause = lambda paused: None
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n"
+        )
+        conn.req_body_pause(True)
+        timers[0].delete.assert_called_once()
+        conn.req_body_pause(False)
+        self.assertEqual(len(timers), 2)
+
+    def test_request_timer_not_rearmed_when_paused_during_input(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        tcp_conn.pause = lambda paused: None
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_body")
+            def on_body(chunk):
+                conn.req_body_pause(True)
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n012"
+        )
+        self.assertTrue(all(t.delete.called for t in timers))
+        conn.req_body_pause(False)
+        self.assertFalse(timers[-1].delete.called)
+
+    def test_request_timer_not_rearmed_after_close_during_input(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_start")
+            def on_start(method, uri, headers):
+                exchange.response_start(b"413", b"Content Too Large", [])
+                exchange.response_done([], close=True)
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n"
+        )
+        self.assertIsNone(conn.tcp_conn)
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_request_timeout_stalled_body(self):
+        def server_side(server):
+            server.request_timeout = 0.2
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                b"POST / HTTP/1.1\r\nHost: %s:%i\r\nContent-Length: 10\r\n\r\n01"
+                % (test_host, test_port)
+            )
+            self.assertEqual(client_conn.recv(1024), b"")
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
 
     def test_response_done_close_closes_tcp(self):
         tcp_conn = FakeTcpConnection()
