@@ -1198,12 +1198,9 @@ Content-Length: 5
         conn.handle_input(b"GET / HTTP/1.1\r\nHo")
         conn.req_body_pause(True)
         timers[0].delete.assert_called_once()
-        self.assertEqual(timers[1].delay, server.idle_timeout)  # the backstop
         conn.req_body_pause(False)
-        self.assertEqual(len(timers), 3)
-        timers[1].delete.assert_called_once()
-        timers[2].delete.assert_not_called()
-        self.assertEqual(timers[2].delay, server.request_timeout)
+        self.assertEqual(len(timers), 2)
+        timers[1].delete.assert_not_called()
 
     def test_request_timer_partial_headers_not_left_on_closed_connection(self):
         tcp_conn, server, conn, timers = self.make_timer_conn()
@@ -1401,37 +1398,60 @@ Content-Length: 5
 
     def live_delays(self, timers):
         "The delays of the timers that haven't been deleted."
-        return [t.delay for t in timers if not t.delete.called]
+        return sorted(t.delay for t in timers if not t.delete.called)
 
-    def test_idle_timer_off_while_next_request_trickles_in(self):
+    def test_idle_timer_is_total_deadline_for_next_header_block(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        idler = conn._idler  # pylint: disable=protected-access
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
-        conn.handle_input(b"GET /2 HTTP/1.1\r\nHo")
-        self.assertEqual(self.live_delays(timers), [server.request_timeout])
-        conn.handle_input(b"st: example.com\r\n")
-        self.assertEqual(self.live_delays(timers), [server.request_timeout])
+        both = [server.idle_timeout, server.request_timeout]
+        for piece in [b"GET /2 HTTP/1.1\r\nHo", b"st: example.com\r\n"]:
+            conn.handle_input(piece)
+            self.assertEqual(self.live_delays(timers), both)
+            self.assertIs(conn._idler, idler)  # pylint: disable=protected-access
+            idler.delete.assert_not_called()
         conn.handle_input(b"\r\n")
+        idler.delete.assert_called_once()
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         self.assertTrue(tcp_conn.tcp_connected)
 
-    def test_request_timer_cuts_trickled_request_after_idle(self):
+    def test_idle_timer_cuts_trickled_header_block(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
         conn.handle_input(b"GET /2 HTTP/1.1\r\nHo")
-        (live,) = [t for t in timers if not t.delete.called]
-        live.callback()
+        conn._idler.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.live_delays(timers), [])
 
-    def test_idle_timer_off_with_partial_request_in_same_read(self):
+    def test_request_timer_cuts_stalled_header_block_first(self):
+        tcp_conn, server, conn, timers, _ = self.make_idle_conn()
+        conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        conn.handle_input(b"GET /2 HTTP/1.1\r\nHo")
+        (req_timer,) = [t for t in timers if t.delay == server.request_timeout]
+        req_timer.callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertEqual(self.live_delays(timers), [])
+
+    def test_idle_timer_runs_with_partial_request_in_same_read(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(
             b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HTTP/1.1\r\nHo"
         )
-        self.assertEqual(self.live_delays(timers), [server.request_timeout])
+        self.assertEqual(
+            self.live_delays(timers), [server.idle_timeout, server.request_timeout]
+        )
         conn.handle_input(b"st: example.com\r\n\r\n")
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
+
+    def test_idle_timer_not_running_during_request_body(self):
+        tcp_conn, server, conn, timers, _ = self.make_idle_conn(sync_paths=[])
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n0"
+        )
+        self.assertEqual(self.live_delays(timers), [server.request_timeout])
+        conn.handle_input(b"1")
+        self.assertEqual(self.live_delays(timers), [server.request_timeout])
 
     def test_idle_timer_stays_when_request_timeout_disabled(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
@@ -1447,7 +1467,9 @@ Content-Length: 5
         )
         self.assertEqual(self.live_delays(timers), [server.request_timeout])
         self.respond(exchanges[0], b"")
-        self.assertEqual(self.live_delays(timers), [server.request_timeout])
+        self.assertEqual(
+            self.live_delays(timers), [server.idle_timeout, server.request_timeout]
+        )
 
     def test_idle_timer_not_reset_by_blank_lines(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
@@ -1455,6 +1477,15 @@ Content-Length: 5
         conn.handle_input(b"\r\n")
         self.assertEqual(len([t for t in timers if t.delay == 7]), 1)
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
+
+    def test_shutdown_closes_idle_connection_with_partial_request(self):
+        tcp_conn, server, conn, timers, _ = self.make_idle_conn()
+        server.shutting_down = True
+        conn.handle_input(
+            b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HTTP/1.1\r\nHo"
+        )
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertEqual(self.live_delays(timers), [])
 
     def test_idle_connection_waits_for_pipelined_requests_when_shutting_down(self):
         tcp_conn, server, conn, timers, exchanges = self.make_idle_conn()
@@ -1481,7 +1512,7 @@ Content-Length: 5
                 server.loop.schedule.assert_not_called()
                 self.assertTrue(tcp_conn.tcp_connected)
 
-    def test_idle_timer_backstops_paused_request_with_partial_next_request(self):
+    def test_idle_timer_runs_for_paused_request_with_partial_next_request(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn(sync_paths=[])
         tcp_conn.pause = lambda paused: None
 
@@ -1503,9 +1534,14 @@ Content-Length: 5
         )
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         conn.req_body_pause(False)
-        self.assertEqual(self.live_delays(timers), [server.request_timeout])
+        self.assertEqual(
+            self.live_delays(timers), [server.idle_timeout, server.request_timeout]
+        )
+        conn._idler.callback()  # pylint: disable=protected-access
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertEqual(self.live_delays(timers), [])
 
-    def test_idle_timer_rearmed_on_unpause_without_request_timeout(self):
+    def test_idle_timer_runs_on_unpause_without_request_timeout(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         tcp_conn.pause = lambda paused: None
         server.request_timeout = None
@@ -1515,22 +1551,20 @@ Content-Length: 5
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         conn.req_body_pause(False)
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
+        conn._idler.callback()  # pylint: disable=protected-access
+        self.assertFalse(tcp_conn.tcp_connected)
 
     def check_timer_invariants(self, server, conn, timers, history):
         "What an open connection's timers must look like at rest."
         live = [t for t in timers if not t.delete.called]
         idle = [t for t in live if t.delay == server.idle_timeout]
         msg = repr(history)
-        self.assertLessEqual(len(idle), 1, msg)
-        self.assertIs(conn._idler, idle[0] if idle else None, msg)
-        if conn.ex_queue:
+        if conn.ex_queue:  # a request or response is in progress
             self.assertEqual(idle, [], msg)
             return
-        self.assertTrue(live, msg)  # never none while idle
-        if not conn._receiving:  # pylint: disable=protected-access
-            self.assertEqual(live, idle, msg)
-        else:  # idle is only a fallback for the request timer
-            self.assertEqual(len(live), 1, msg)
+        # idle, or still receiving the next header block
+        self.assertEqual(len(idle), 1, msg)
+        self.assertIs(conn._idler, idle[0], msg)  # pylint: disable=protected-access
 
     def run_timer_sequence(self, request_timeout, requests, history):
         tcp_conn = FakeTcpConnection()
@@ -1591,10 +1625,10 @@ Content-Length: 5
                 for history in itertools.product(ops, repeat=length):
                     self.run_timer_sequence(request_timeout, requests, history)
 
-    def test_idle_timeout_not_applied_to_trickled_request(self):
+    def test_idle_timeout_cuts_trickled_header_block(self):
         def server_side(server):
             server.idle_timeout = 0.5
-            server.request_timeout = 5
+            server.request_timeout = 5  # a trickle never trips this
 
             def handle_exchange(exchange):
                 @on(exchange, "request_start")
@@ -1604,20 +1638,49 @@ Content-Length: 5
             server.on("exchange", handle_exchange)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.settimeout(10)
+            client_conn.settimeout(0.2)  # also paces the trickle
             host = b"Host: %s:%i\r\n" % (test_host, test_port)
             client_conn.sendall(b"GET /1 HTTP/1.1\r\n" + host + b"\r\n")
-            received = client_conn.recv(1024)
-            self.assertIn(b"200 OK", received)
-            for piece in [b"GET /2 HTTP/1.1\r\n", host, b"X-A: 1\r\n", b"X-B: 2\r\n"]:
-                time.sleep(0.2)  # each gap is under idle_timeout; the total isn't
-                client_conn.sendall(piece)
-            time.sleep(0.2)
-            client_conn.sendall(b"\r\n")
-            while received.count(b"200 OK") < 2:
-                data = client_conn.recv(1024)
-                self.assertNotEqual(data, b"")  # the server hung up
-                received += data
+            self.assertIn(b"200 OK", client_conn.recv(1024))
+            pieces = [b"GET /2 HTTP/1.1\r\n", host] + [b"X-A: 1\r\n"] * 24
+            closed = False
+            for piece in pieces:
+                try:
+                    client_conn.sendall(piece)
+                    closed = client_conn.recv(1024) == b""
+                except socket.timeout:
+                    pass
+                except OSError:  # reset
+                    closed = True
+                if closed:
+                    break
+            self.assertTrue(closed)
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
+    def test_idle_timeout_not_applied_to_trickled_request_body(self):
+        def server_side(server):
+            server.idle_timeout = 0.5
+            server.request_timeout = 5
+
+            def handle_exchange(exchange):
+                @on(exchange, "request_done")
+                def on_done(trailers):
+                    self.respond(exchange, b"OK")
+
+            server.on("exchange", handle_exchange)
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.settimeout(10)
+            client_conn.sendall(
+                b"POST / HTTP/1.1\r\nHost: %s:%i\r\nContent-Length: 6\r\n\r\n"
+                % (test_host, test_port)
+            )
+            for byte in b"012345":  # slower overall than idle_timeout
+                time.sleep(0.2)
+                client_conn.sendall(bytes([byte]))
+            self.assertIn(b"200 OK", client_conn.recv(1024))
             self.assertEqual(client_conn.recv(1024), b"")  # idle at last
             self.loop.stop()
 

@@ -125,7 +125,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._stop_req_timer()
         elif self._receiving:
             self._start_req_timer()
-        self._update_idle_timer(restart=False)
 
     @property
     def _receiving(self) -> bool:
@@ -202,16 +201,13 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         """
         Once nothing is in flight, close a connection that's shutting down or
         else make sure the idle timer is running (restarting it if asked).
-        Either an exchange completing or the request ending can come last, so
-        both call this. It waits until the parser has finished with a read,
-        and leaves a partly received request to the request timer, if that's
-        running.
+        It stays running while the next request's header block arrives, as a
+        total deadline for it; input_start stops it. Waits until the parser
+        has finished with a read, so pipelined requests aren't cut off.
         """
         if not self.tcp_conn or not self.is_idle or self._in_input:
             return
-        if self._receiving and self._req_timer:
-            self._stop_idle_timer()
-        elif self.server.shutting_down:
+        if self.server.shutting_down:
             self.close_conn()
         elif restart or not self._idler:
             self._arm_idle_timer()
