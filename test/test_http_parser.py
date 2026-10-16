@@ -954,7 +954,6 @@ Content-Length: %(body_len)i
         with self.assertRaises(error.OutputStateError):
             self.parser.output_body(b"body")
 
-
     def test_output_body_too_long(self):
         sent = []
         self.parser.output = sent.append
@@ -967,6 +966,19 @@ Content-Length: %(body_len)i
         with self.assertRaises(error.OutputError):
             self.parser.output_body(b"abcd")
         self.assertEqual(sent, [])
+
+    def test_output_body_dropped_for_nobody(self):
+        sent = []
+        self.parser.output = sent.append
+        self.parser.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Content-Length", b"3")],
+            Delimiters.NOBODY,
+        )
+        sent.clear()
+        self.parser.output_body(b"abcdefgh")
+        self.assertEqual(sent, [])
+        self.assertFalse(self.parser.output_end([]))
 
     def test_output_end_short_counted_body(self):
         done = []

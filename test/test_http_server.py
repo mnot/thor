@@ -404,6 +404,21 @@ Content-Length: 5
     def test_head_response_with_content_length_keeps_connection(self):
         self.check_bodiless_pipeline(b"HEAD", b"200", b"OK")
 
+    def test_head_response_body_is_not_sent(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"HEAD", b"/", [], b"1.1")
+        exchange.req_complete = True
+        conn.ex_queue = [exchange]
+
+        exchange.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
+        exchange.response_body(b"abcdefgh")
+        exchange.response_done([])
+
+        self.assertNotIn(b"abcdefgh", b"".join(tcp_conn.output))
+        self.assertTrue(tcp_conn.tcp_connected)
+
     def test_304_response_with_content_length_keeps_connection(self):
         self.check_bodiless_pipeline(b"GET", b"304", b"Not Modified")
 

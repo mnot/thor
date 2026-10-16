@@ -426,6 +426,51 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def test_queued_long_body_reports_error(self):
+        server_state = {"conns": 0, "data": b"", "eof": threading.Event()}
+
+        def server_side(conn):
+            server_state["conns"] += 1
+            conn.request.settimeout(10.0)
+            try:
+                while True:
+                    chunk = conn.request.recv(1024)
+                    if not chunk:
+                        break
+                    server_state["data"] += chunk
+            except socket.timeout:
+                pass
+            server_state["eof"].set()
+
+        def client_side(client, test_host, test_port):
+            errors = []
+            exchange = client.exchange()
+
+            @on(exchange)
+            def error(err_msg):
+                errors.append(err_msg)
+
+            @on(exchange)
+            def response_start(*args):
+                errors.append("unexpected response")
+
+            def check():
+                self.assertTrue(server_state["eof"].wait(5))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIsInstance(errors[0], thor.http.error.OutputError)
+                self.assertEqual(client.conn_counts, {})
+                self.assertEqual(server_state["conns"], 1)
+                self.assertTrue(server_state["data"].endswith(b"\r\n\r\n"))
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/queued" % (test_host, test_port)
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"10")])
+            exchange.request_body(b"x" * 20)
+            exchange.request_done([])
+            self.loop.schedule(0.5, check)
+
+        self.go([server_side], [client_side])
+
     def test_conn_refuse_err(self):
         def server_side(conn):
             pass

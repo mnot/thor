@@ -173,14 +173,18 @@ class HttpClientExchange(EventEmitter):
         "The connection has succeeded."
         self.conn = conn
         self.conn.attach(self)
-        for item in self._output_q:
-            if item[0] == "start":
-                self.conn.output_start(*item[1:])
-            elif item[0] == "body":
-                self.conn.output_body(*item[1:])
-            elif item[0] == "end":
-                self._output_end(*item[1:])
-        self._output_q = []
+        queued, self._output_q = self._output_q, []
+        try:
+            for item in queued:
+                if item[0] == "start":
+                    self.conn.output_start(*item[1:])
+                elif item[0] == "body":
+                    self.conn.output_body(*item[1:])
+                elif item[0] == "end":
+                    self._output_end(*item[1:])
+        except OutputError as why:
+            self.client.dead_conn(self.conn)
+            self.input_error(why)
 
     def handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."

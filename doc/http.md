@@ -42,12 +42,12 @@ After calling *request_start*, *request_body* may be called zero or more times, 
 
 #### _void_ request\_body ( _bytes_ `chunk` ) 
 
-Send a `chunk` of request body content.
+Send a `chunk` of request body content. If the request declared a _Content-Length_ and `chunk` would make the body longer, *thor.http.error.OutputError* is raised (or, if the request was queued while the connection was being made, it is emitted as an *error* event).
 
 
 #### _void_ request\_done ( _[headers](#headers)_ `trailers`? )
 
-Signal that the request body is finished. This must be called for every request. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+Signal that the request body is finished. This must be called for every request. If the request declared a _Content-Length_ and less body was sent, the connection is closed and an *error* event with *thor.http.error.OutputError* is emitted. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
 #### event 'response\_start' ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
@@ -144,12 +144,12 @@ Send a non-final (1xx) HTTP response. This can be called zero to many times befo
 
 #### _void_ response\_body ( _bytes_ `chunk` )
 
-Send a `chunk` of response body content.
+Send a `chunk` of response body content. If the response declared a _Content-Length_ and `chunk` would make the body longer, *thor.http.error.OutputError* is raised.
 
 
 #### _void_ response\_done ( _[headers](#headers)_ `trailers` )
 
-Signal that the response body is finished. This must be called for every response. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+Signal that the response body is finished. This must be called for every response. If the response declared a _Content-Length_ and less body was sent, the connection is closed. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
 
