@@ -9,6 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 # pylint: disable=raise-missing-from
 
+import re
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
@@ -22,6 +23,8 @@ NEWLINE = ord("\n")
 RETURN = ord("\r")
 _BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
 _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
+_DIGITS = re.compile(rb"[0-9]+")
+_HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
 
 
 class Delimiters(Enum):
@@ -53,6 +56,16 @@ hop_by_hop_hdrs = [
     b"upgrade",
     b"proxy-connection",
 ]
+
+
+def parse_uint(value: bytes, base: int = 10) -> int:
+    """
+    Strictly parse an unsigned integer (1*DIGIT or 1*HEXDIG, per `base`),
+    raising ValueError for anything else (sign, underscore, 0x, whitespace).
+    """
+    if not (_HEX_DIGITS if base == 16 else _DIGITS).fullmatch(value):
+        raise ValueError(value)
+    return int(value, base)
 
 
 def header_names(hdr_tuples: RawHeaderListType) -> Set[bytes]:
@@ -123,6 +136,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
         self._input_state = self.default_state
         self._input_delimit: Delimiters = Delimiters.NONE
         self._input_body_left = 0
+        self._input_chunk_term: Optional[bytes] = None  # CRLF bytes seen so far
         self._output_state = States.WAITING
         self._output_delimit: Delimiters = Delimiters.NONE
         self._output_body_sent = 0
@@ -239,7 +253,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
     def _handle_chunked(self, inbytes: bytes) -> None:
         "Handle input where the body is delimited by chunked encoding."
         while inbytes:
-            if self._input_body_left < 0:  # new chunk
+            if self._input_chunk_term is not None:
+                inbytes = self._handle_chunk_term(inbytes)
+            elif self._input_body_left < 0:  # new chunk
                 inbytes = self._handle_chunk_new(inbytes)
             elif self._input_body_left > 0:
                 # we're in the middle of reading a chunk
@@ -263,9 +279,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 self._input_buffer.append(inbytes)
             return b""
         if b";" in chunk_size:  # ignore chunk extensions
-            chunk_size = chunk_size.split(b";", 1)[0]
+            chunk_size = chunk_size.split(b";", 1)[0].rstrip(b" \t")  # BWS
         try:
-            self._input_body_left = int(chunk_size, 16)
+            self._input_body_left = parse_uint(chunk_size, 16)
         except ValueError:
             self.input_error(error.ChunkError(chunk_size.decode("utf-8", "replace")))
             if self.careful:
@@ -276,29 +292,29 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
     def _handle_chunk_body(self, inbytes: bytes) -> bytes:
         "Handle a continuing body chunk."
-        got = len(inbytes)
-        if self._input_body_left + 2 < got:  # got more than the chunk
-            this_chunk = self._input_body_left
-            if not self._check_chunk_terminator(inbytes[this_chunk : this_chunk + 2]):
-                return b""
-            self.input_body(inbytes[:this_chunk])
-            self.input_transfer_length += this_chunk + 2
-            self._input_body_left = -1
-            return inbytes[this_chunk + 2 :]  # +2 consumes the trailing CRLF
-        if self._input_body_left + 2 == got:
-            # got the whole chunk exactly (including CRLF)
-            if not self._check_chunk_terminator(inbytes[-2:]):
-                return b""
-            self.input_body(inbytes[:-2])
-            self.input_transfer_length += self._input_body_left + 2
-            self._input_body_left = -1
-        elif self._input_body_left == got:  # corner case
-            self._input_buffer.append(inbytes)
-        else:  # got partial chunk
-            self.input_body(inbytes)
-            self.input_transfer_length += got
-            self._input_body_left -= got
-        return b""
+        this_chunk = min(len(inbytes), self._input_body_left)
+        # data is delivered before its terminator is checked
+        self.input_body(inbytes[:this_chunk])
+        self.input_transfer_length += this_chunk
+        self._input_body_left -= this_chunk
+        if self._input_body_left == 0:
+            self._input_chunk_term = b""  # now expecting the chunk's CRLF
+        return inbytes[this_chunk:]
+
+    def _handle_chunk_term(self, inbytes: bytes) -> bytes:
+        "Handle the CRLF after chunk data, which may be split across inputs."
+        seen = self._input_chunk_term or b""
+        needed = len(LINESEP) - len(seen)
+        terminator = seen + inbytes[:needed]
+        self.input_transfer_length += min(len(inbytes), needed)
+        if len(terminator) < len(LINESEP):
+            self._input_chunk_term = terminator
+            return b""
+        self._input_chunk_term = None
+        if not self._check_chunk_terminator(terminator):
+            return b""
+        self._input_body_left = -1
+        return inbytes[needed:]
 
     def _check_chunk_terminator(self, terminator: bytes) -> bool:
         "Flag a malformed chunk terminator, optionally continuing in permissive mode."
@@ -326,7 +342,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if trailer_block is not None:
                 self._input_state = self.default_state
                 try:
-                    trailers = self._parse_fields(trailer_block.splitlines())[0]
+                    trailers = self._parse_fields(self._split_lines(trailer_block))[0]
                 except ValueError:
                     self._input_state = States.ERROR
                     return
@@ -422,9 +438,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
             elif f_name == b"transfer-encoding":
                 transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
             elif f_name == b"content-length":
+                cl_val = fv.strip(b" \t")
                 if content_length is not None:
                     try:
-                        if int(f_val) == content_length:
+                        if parse_uint(cl_val) == content_length:
                             # we have a duplicate, non-conflicting c-l.
                             continue
                     except ValueError:
@@ -433,9 +450,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
                     if self.careful:
                         raise ValueError
                 try:
-                    content_length = int(f_val)
-                    assert content_length >= 0
-                except (ValueError, AssertionError):
+                    content_length = parse_uint(cl_val)
+                except ValueError:
                     self.input_error(
                         error.MalformedCLError(f_val.decode("utf-8", "replace"))
                     )
@@ -443,6 +459,23 @@ class HttpMessageHandler(metaclass=ABCMeta):
                         raise ValueError
 
         return hdr_tuples, conn_tokens, transfer_codes, content_length
+
+    def _split_lines(self, block: bytes) -> List[bytes]:
+        """
+        Split a field section into lines on CRLF or LF only. A bare CR is an
+        error, or is replaced with SP if not careful.
+        """
+        lines = block.split(b"\n")
+        for i, line in enumerate(lines):
+            if line[-1:] == b"\r":
+                line = line[:-1]
+            if b"\r" in line:
+                self.input_error(error.BareCRError(line.decode("utf-8", "replace")))
+                if self.careful:
+                    raise ValueError
+                line = line.replace(b"\r", b" ")
+            lines[i] = line
+        return lines
 
     def _split_headers(self, inbytes: bytes) -> Tuple[Optional[bytes], bytes]:
         """
@@ -475,7 +508,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
                     return inbytes[: pos - back - 1], inbytes[pos + 1 :]
         return None, inbytes
 
-    def _parse_headers(self, inbytes: bytes) -> bool:
+    def _parse_headers(  # pylint: disable=too-many-return-statements
+        self, inbytes: bytes
+    ) -> bool:
         """
         Given a bytes that we knows starts with a header block,
         parse the headers. Calls self.input_start to kick off processing.
@@ -486,7 +521,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
         if self.input_header_length > self.max_input_field_section_length:
             self.input_error(error.FieldSectionTooLargeError())
             return False
-        header_lines = inbytes.splitlines()
+        try:
+            header_lines = self._split_lines(inbytes)
+        except ValueError:
+            return False
         if len(header_lines) > self.max_input_fields + 1:
             self.input_error(error.TooManyFieldsError())
             return False
@@ -512,6 +550,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
         # ignore content-length if transfer-encoding is present
         if transfer_codes != [] and content_length is not None:
+            if self.careful:
+                self.input_error(error.TransferEncodingCLError())
+                return False
             content_length = None
 
         try:
@@ -622,7 +663,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._check_output_headers(trailers, "trailer")
             self.output(
                 b"0\r\n%s\r\n"
-                % b"\r\n".join([b"%s: %s" % (k.strip(), v) for k, v in trailers])
+                % b"".join([b"%s: %s\r\n" % (k.strip(), v) for k, v in trailers])
             )
         elif self._output_delimit == Delimiters.COUNTED:
             pass

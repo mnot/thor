@@ -44,6 +44,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.last_active_exchange: Optional[HttpClientExchange] = None
         self.res_version: Optional[bytes] = None
         self.reusable = False
+        self._counted_dead = False  # removed from client.conn_counts
         self.idler: Optional[ScheduledEvent] = None
         self._read_timeout_ev: Optional[ScheduledEvent] = None
         self._response_ended = False
@@ -60,6 +61,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._input_state = self.default_state
         self._input_delimit = Delimiters.NONE
         self._input_body_left = 0
+        self._input_chunk_term = None
         self._output_state = States.WAITING
         self._output_delimit = Delimiters.NONE
         # Reset per-message metrics
@@ -68,7 +70,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.tcp_conn.pause(False)
         if self._input_buffer:
             self.handle_input(b"")
-        self.set_timeout(self.client.connect_timeout, "connect")
+        self.set_timeout(self._read_timeout(), "read")
 
     def detach(self) -> None:
         self.last_active_exchange = self.active_exchange
@@ -87,6 +89,11 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._read_timeout_ev = self.client.loop.schedule(
             timeout, self.input_error, error.ReadTimeoutError(kind)
         )
+
+    def _read_timeout(self) -> int:
+        if self.client.read_timeout is not None:
+            return self.client.read_timeout
+        return self.client.connect_timeout
 
     def clear_timeout(self) -> None:
         if self._read_timeout_ev:
@@ -132,6 +139,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             if inbytes.strip():
                 self._extra_data(inbytes)
         else:
+            if inbytes and self._read_timeout_ev:
+                # Inactivity timeout: restart whenever data arrives.
+                self.set_timeout(self._read_timeout(), "read")
             HttpMessageHandler.handle_input(self, inbytes)
 
     def _extra_data(self, inbytes: bytes) -> None:

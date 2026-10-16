@@ -333,6 +333,10 @@ class TcpServer(EventSource):
     """
 
     accept_errs = {errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR, errno.ECONNABORTED}
+    # Resource exhaustion; the pending connection stays queued, so the listener
+    # stays readable. Stop watching it for accept_backoff seconds, then retry.
+    accept_backoff_errs = {errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM}
+    accept_backoff = 1.0
 
     def __init__(
         self,
@@ -354,6 +358,7 @@ class TcpServer(EventSource):
         self.loop.schedule(0, self.emit, "start")
         self.active_connections: Set[TcpConnection] = set()
         self._shutting_down_gracefully = False
+        self._accept_timer: Optional[ScheduledEvent] = None
 
     def handle_accept(self) -> None:
         if not self.sock:
@@ -367,6 +372,9 @@ class TcpServer(EventSource):
         except OSError as why:
             if why.errno in self.accept_errs:
                 return
+            if why.errno in self.accept_backoff_errs:
+                self._pause_accept()
+                return
             raise
         conn.setblocking(False)
         try:
@@ -379,6 +387,28 @@ class TcpServer(EventSource):
         tcp_conn.on("disconnect", lambda: self._conn_closed(tcp_conn))
         self.emit("connect", tcp_conn)
 
+    def _pause_accept(self) -> None:
+        self.event_del("fd_readable")
+        if not self._accept_timer:
+            self._accept_timer = self.loop.schedule(
+                self.accept_backoff, self._resume_accept
+            )
+
+    def _resume_accept(self) -> None:
+        self._accept_timer = None
+        if self.sock:
+            self.event_add("fd_readable")
+
+    def _stop_listening(self) -> None:
+        self.remove_listeners("fd_readable")
+        if self._accept_timer:
+            self._accept_timer.delete()
+            self._accept_timer = None
+        if self.sock:
+            self.unregister_fd()
+            self.sock.close()
+            self.sock = None
+
     def _conn_closed(self, conn: TcpConnection) -> None:
         self.active_connections.discard(conn)
         if self._shutting_down_gracefully and not self.active_connections:
@@ -390,22 +420,14 @@ class TcpServer(EventSource):
 
         Emits "stop" when all connections are closed.
         """
-        self.remove_listeners("fd_readable")
-        if self.sock:
-            self.unregister_fd()
-            self.sock.close()
-            self.sock = None
+        self._stop_listening()
         self._shutting_down_gracefully = True
         if not self.active_connections:
             self.emit("stop")
 
     def shutdown(self) -> None:
         "Stop accepting requests and close the listening socket."
-        self.remove_listeners("fd_readable")
-        if self.sock:
-            self.unregister_fd()
-            self.sock.close()
-            self.sock = None
+        self._stop_listening()
         self.emit("stop")
 
 

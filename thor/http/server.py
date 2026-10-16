@@ -30,6 +30,7 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    RequestTransferEncodingError,
     TooManyMsgsError,
     TransferCodeError,
 )
@@ -183,10 +184,18 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.input_error(HostRequiredError())
             raise ValueError
         for code in transfer_codes:
-            # we only support 'identity' and chunked' codes in requests
+            # only chunked is supported; 'identity' is tolerated before it
             if code not in [b"identity", b"chunked"]:
                 self.input_error(TransferCodeError(code.decode("utf-8", "replace")))
                 raise ValueError
+        if transfer_codes and transfer_codes[-1] != b"chunked":
+            # RFC 9112 6.3: the body length can't be determined reliably
+            self.input_error(
+                RequestTransferEncodingError(
+                    transfer_codes[-1].decode("utf-8", "replace")
+                )
+            )
+            raise ValueError
         if len(self.ex_queue) >= self.max_pipeline_requests:
             self.input_error(TooManyMsgsError())
             raise ValueError
@@ -227,6 +236,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.emit("error", err)
         else:
             self._input_state = States.ERROR
+            if self._output_state != States.WAITING or any(
+                ex.res_complete for ex in self.ex_queue
+            ):
+                # a response is under way or already sent; can't send another
+                self.close_conn()
+                return
             status_code, status_phrase = err.server_status
             hdrs = [(b"Content-Type", b"text/plain")]
             body = err.desc.encode("utf-8")
