@@ -30,6 +30,7 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    RequestTransferEncodingError,
     TooManyMsgsError,
     TransferCodeError,
 )
@@ -133,7 +134,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         "Send the deferred error response, once the response in progress is done."
         if self._pending_error and self._output_state == States.WAITING:
             err, self._pending_error = self._pending_error, None
-            self._send_error(err)
+            if any(ex.res_complete for ex in self.ex_queue):
+                self.close_conn()  # the request in error was already answered
+            else:
+                self._send_error(err)
 
     # Methods called by tcp
 
@@ -191,10 +195,18 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.input_error(HostRequiredError())
             raise ValueError
         for code in transfer_codes:
-            # we only support 'identity' and chunked' codes in requests
+            # only chunked is supported; 'identity' is tolerated before it
             if code not in [b"identity", b"chunked"]:
                 self.input_error(TransferCodeError(code.decode("utf-8", "replace")))
                 raise ValueError
+        if transfer_codes and transfer_codes[-1] != b"chunked":
+            # RFC 9112 6.3: the body length can't be determined reliably
+            self.input_error(
+                RequestTransferEncodingError(
+                    transfer_codes[-1].decode("utf-8", "replace")
+                )
+            )
+            raise ValueError
         if len(self.ex_queue) >= self.max_pipeline_requests:
             self.input_error(TooManyMsgsError())
             raise ValueError
@@ -236,6 +248,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         else:
             self._input_state = States.ERROR
             if self._pending_error:
+                return
+            if any(ex.res_complete for ex in self.ex_queue):
+                # the request in error has already been answered; a second
+                # response can't follow it
+                self.close_conn()
                 return
             if self._output_state == States.WAITING:
                 self._send_error(err)
