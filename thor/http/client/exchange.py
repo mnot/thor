@@ -14,6 +14,7 @@ from thor.http.error import (
     ConnectError,
     DnsError,
     HttpError,
+    OutputError,
     UrlError,
 )
 from thor.http.uri import parse_uri
@@ -55,6 +56,9 @@ class HttpClientExchange(EventEmitter):
         self._req_body = False
         self._req_started = False
         self._req_done_trailers: Optional[RawHeaderListType] = None
+        self._req_body_chunks: List[bytes] = []  # kept for replay on retry
+        self._req_body_len = 0
+        self._req_body_overflow = False
         self._error_sent = False
         self._retries = 0
         self._retry_pending = False
@@ -125,6 +129,13 @@ class HttpClientExchange(EventEmitter):
         "Send part of the request body. May be called zero to many times."
         self._req_body = True
         self._req_start()
+        if self.method in idempotent_methods and not self._req_body_overflow:
+            self._req_body_len += len(chunk)
+            if self._req_body_len > self.client.retry_body_limit:
+                self._req_body_overflow = True
+                self._req_body_chunks = []
+            else:
+                self._req_body_chunks.append(chunk)
         if self.conn:
             self.conn.output_body(chunk)
         else:
@@ -138,11 +149,16 @@ class HttpClientExchange(EventEmitter):
         self._req_done_trailers = trailers
         self._req_start()
         if self.conn:
-            close = self.conn.output_end(trailers)
-            if close:
-                self.client.dead_conn(self.conn)
+            self._output_end(trailers)
         else:
             self._output_q.append(("end", trailers))
+
+    def _output_end(self, trailers: RawHeaderListType) -> None:
+        "Finish the request; a close here means the body was shorter than declared."
+        assert self.conn, "conn not found in _output_end"
+        if self.conn.output_end(trailers):
+            self.client.dead_conn(self.conn)
+            self.input_error(OutputError("Request body shorter than Content-Length"))
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
@@ -167,16 +183,18 @@ class HttpClientExchange(EventEmitter):
         "The connection has succeeded."
         self.conn = conn
         self.conn.attach(self)
-        for item in self._output_q:
-            if item[0] == "start":
-                self.conn.output_start(*item[1:])
-            elif item[0] == "body":
-                self.conn.output_body(*item[1:])
-            elif item[0] == "end":
-                close = self.conn.output_end(*item[1:])
-                if close:
-                    self.client.dead_conn(self.conn)
-        self._output_q = []
+        queued, self._output_q = self._output_q, []
+        try:
+            for item in queued:
+                if item[0] == "start":
+                    self.conn.output_start(*item[1:])
+                elif item[0] == "body":
+                    self.conn.output_body(*item[1:])
+                elif item[0] == "end":
+                    self._output_end(*item[1:])
+        except OutputError as why:
+            self.client.dead_conn(self.conn)
+            self.input_error(why)
 
     def handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."
@@ -240,11 +258,21 @@ class HttpClientExchange(EventEmitter):
         self._retry_pending = False
         self._retries += 1
         assert self.origin, "origin not found in _retry"
-        if self._req_done_trailers is not None:
+        if self._req_body_overflow:
+            self.input_error(
+                ConnectError("Request body too large to retry"),
+                False,
+            )
+            return
+        # Non-idempotent requests are only retried before anything is sent,
+        # when the queue is still intact.
+        if self._req_done_trailers is not None and self.method in idempotent_methods:
             self.conn = None
             self._req_started = False
             self._output_q = []
             self._req_start()
+            for chunk in self._req_body_chunks:
+                self._output_q.append(("body", chunk))
             self._output_q.append(("end", self._req_done_trailers))
         self.client.attach_conn(
             self.origin, self.handle_connect, self.handle_connect_error

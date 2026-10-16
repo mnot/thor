@@ -192,6 +192,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
         """
         raise NotImplementedError
 
+    def input_extra_data(self, inbytes: bytes) -> None:
+        "Indicate that data was received after the message was supposed to end."
+        self.input_error(error.ExtraDataError(inbytes.decode("utf-8", "replace")))
+
     def handle_input(self, inbytes: bytes) -> None:
         """
         Given a bytes representing a chunk of input, figure out what state
@@ -221,9 +225,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 self._input_buffer.append(inbytes)
         elif self._input_state == States.QUIET:  # shouldn't be getting any data now.
             if inbytes.strip():
-                self.input_error(
-                    error.ExtraDataError(inbytes.decode("utf-8", "replace"))
-                )
+                self.input_extra_data(inbytes)
         elif (
             self._input_state == States.HEADERS_DONE
         ):  # we found a complete header/trailer set
@@ -636,14 +638,15 @@ class HttpMessageHandler(metaclass=ABCMeta):
             return
         if self._output_state != States.HEADERS_DONE:
             raise error.OutputStateError("HTTP output body before final headers")
-        if self._output_delimit is Delimiters.NONE:
+        if self._output_delimit in (Delimiters.NONE, Delimiters.NOBODY):
             return
+        if (
+            self._output_delimit == Delimiters.COUNTED
+            and self._output_content_length is not None
+            and self._output_body_sent + len(chunk) > self._output_content_length
+        ):
+            raise error.OutputError("Too many body bytes sent")
         self._output_body_sent += len(chunk)
-        if self._output_delimit == Delimiters.COUNTED:
-            assert (
-                self._output_content_length is None
-                or self._output_body_sent <= self._output_content_length
-            ), "Too many body bytes sent"
         if self._output_delimit == Delimiters.CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode("ascii"), chunk)
         self.output(chunk)
@@ -664,7 +667,12 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 % b"".join([b"%s: %s\r\n" % (k.strip(), v) for k, v in trailers])
             )
         elif self._output_delimit == Delimiters.COUNTED:
-            pass
+            if (
+                self._output_content_length is not None
+                and self._output_body_sent < self._output_content_length
+            ):
+                self._output_state = States.WAITING
+                return True  # incomplete body; the connection can't be reused.
         elif self._output_delimit == Delimiters.CLOSE:
             return True
         elif self._output_delimit is Delimiters.NONE:
