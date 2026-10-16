@@ -153,11 +153,6 @@ Send a `chunk` of response body content.
 Signal that the response body is finished. This must be called for every response. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
-#### _bool_ persistent
-
-Whether the connection is kept open after this exchange. Following HTTP semantics, it is true for HTTP/1.1 requests unless they carry `Connection: close`, and for HTTP/1.0 requests only if they carry `Connection: keep-alive`. When false, the server sends `Connection: close` and closes the connection after the response; any data pipelined after the request is ignored.
-
-
 
 <span id="headers"/>
 
