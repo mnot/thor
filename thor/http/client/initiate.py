@@ -66,4 +66,9 @@ def initiate_connection(
             client.loop.schedule(0, initiate_internal)
 
     _, host, port = origin
-    lookup(client.loop, host.encode("idna"), port, socket.SOCK_STREAM, handle_dns)
+    try:
+        host_bytes = host.encode("idna")
+    except UnicodeError as why:
+        client.loop.schedule(0, handle_dns, socket.gaierror(1, str(why)))
+        return
+    lookup(client.loop, host_bytes, port, socket.SOCK_STREAM, handle_dns)
