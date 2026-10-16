@@ -4,6 +4,7 @@ import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
+import thor
 from thor.tcp import TcpServer, server_listen
 
 
@@ -192,6 +193,43 @@ class TestTcpServerOptions(unittest.TestCase):
 
                 mock_loop.event_add.assert_not_called()
                 self.assertNotIn("fd_readable", server.interesting_events())
+
+
+    def test_sets_are_disjoint(self):
+        self.assertFalse(TcpServer.accept_errs & TcpServer.accept_backoff_errs)
+
+    def test_persistent_accept_failure_does_not_spin(self):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.addCleanup(sender.close)
+        listener.bind(("127.0.0.1", 0))
+        listener.setblocking(False)
+        try:
+            listener.accept()
+        except OSError as why:
+            if why.errno not in TcpServer.accept_backoff_errs:
+                listener.close()
+                self.skipTest(f"accept() on a datagram socket gave {why!r}")
+        # the datagram is never consumed, so the listener stays readable
+        sender.sendto(b"x", listener.getsockname())
+
+        class CountingServer(TcpServer):
+            accepts = 0
+            accept_backoff = 0.05
+
+            def handle_accept(self) -> None:
+                self.accepts += 1
+                super().handle_accept()
+
+        window = 0.5
+        loop = thor.loop.make()
+        server = CountingServer(b"127.0.0.1", 0, sock=listener, loop=loop)
+        loop.schedule(window, loop.stop)
+        loop.run()
+        server.shutdown()
+
+        self.assertGreaterEqual(server.accepts, 1)
+        self.assertLessEqual(server.accepts, window / server.accept_backoff + 2)
 
 
 if __name__ == "__main__":

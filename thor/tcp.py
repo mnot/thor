@@ -317,6 +317,11 @@ class TcpConnection(EventSource):
         return sum(len(chunk) for chunk in self._write_buffer)
 
 
+def _errnos(*names: str) -> Set[int]:
+    "Errno values for those names that this platform defines."
+    return {getattr(errno, name) for name in names if hasattr(errno, name)}
+
+
 class TcpServer(EventSource):
     """
     An asynchronous TCP server.
@@ -332,47 +337,26 @@ class TcpServer(EventSource):
     conn_handler is called every time a new client connects.
     """
 
-    # Failures of the pending connection itself (see accept(2)); not all errnos
-    # exist on every platform.
-    accept_errs = {
-        err
-        for err in (
-            errno.EAGAIN,
-            errno.EWOULDBLOCK,
-            errno.EINTR,
-            errno.ECONNABORTED,
-            *(
-                getattr(errno, name, None)
-                for name in (
-                    "EPROTO",
-                    "ENETDOWN",
-                    "EHOSTDOWN",
-                    "ENONET",
-                    "EHOSTUNREACH",
-                    "ENETUNREACH",
-                    "ETIMEDOUT",
-                )
-            ),
-        )
-        if err is not None
-    }
+    # Failures of the pending connection itself (see accept(2)).
+    accept_errs = _errnos(
+        "EAGAIN",
+        "EWOULDBLOCK",
+        "EINTR",
+        "ECONNABORTED",
+        "EPROTO",
+        "ENETDOWN",
+        "EHOSTDOWN",
+        "ENONET",
+        "EHOSTUNREACH",
+        "ENETUNREACH",
+        "ETIMEDOUT",
+    )
     # The pending connection may stay queued (resource exhaustion, or a policy
     # layer refusing before it is dequeued), so the listener stays readable.
     # Stop watching it for accept_backoff seconds, then retry.
-    accept_backoff_errs = {
-        err
-        for err in (
-            errno.EMFILE,
-            errno.ENFILE,
-            errno.ENOBUFS,
-            errno.ENOMEM,
-            *(
-                getattr(errno, name, None)
-                for name in ("EPERM", "EOPNOTSUPP", "ENOPROTOOPT")
-            ),
-        )
-        if err is not None
-    }
+    accept_backoff_errs = _errnos(
+        "EMFILE", "ENFILE", "ENOBUFS", "ENOMEM", "EPERM", "EOPNOTSUPP", "ENOPROTOOPT"
+    )
     accept_backoff = 1.0
 
     def __init__(
