@@ -47,8 +47,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._counted_dead = False  # removed from client.conn_counts
         self.idler: Optional[ScheduledEvent] = None
         self._read_timeout_ev: Optional[ScheduledEvent] = None
+        self._response_ended = False
 
-        self.tcp_conn.on("data", self.handle_input)
+        self.tcp_conn.on("data", self._handle_data)
         self.tcp_conn.once("close", self._conn_closed)
         self.tcp_conn.on("pause", self._conn_paused)
 
@@ -123,20 +124,37 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     # HttpMessageHandler overrides
 
+    def _handle_data(self, inbytes: bytes) -> None:
+        self._response_ended = False
+        self.handle_input(inbytes)
+
     def handle_input(self, inbytes: bytes) -> None:
-        if self.active_exchange or not self.reusable:
+        if self._response_ended:
+            # Whatever follows a complete response is not a response, even if
+            # the next exchange has already been attached.
+            if inbytes.strip():
+                self._extra_data(inbytes)
+        elif self.reusable and not self.active_exchange:
+            # No response is outstanding, so nothing should arrive.
+            if inbytes.strip():
+                self._extra_data(inbytes)
+        else:
             if inbytes and self._read_timeout_ev:
                 # Inactivity timeout: restart whenever data arrives.
                 self.set_timeout(self._read_timeout(), "read")
             HttpMessageHandler.handle_input(self, inbytes)
+
+    def _extra_data(self, inbytes: bytes) -> None:
+        "Data arrived when no response is due; the connection can't be trusted."
+        self.reusable = False
+        self._response_ended = False
+        self._input_state = States.ERROR
+        self._input_buffer = []
+        if self.active_exchange:
+            self.input_extra_data(inbytes)
         else:
-            if (
-                sum(len(chunk) for chunk in self._input_buffer) + len(inbytes)
-                > self.max_input_field_section_length
-            ):
-                self.input_error(error.FieldSectionTooLargeError())
-                return
-            self._input_buffer.append(inbytes)
+            self.clear_timeout()
+            self.client.dead_conn(self)
 
     # HttpMessageHandler implementation
 
@@ -201,10 +219,12 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
     def input_end(self, trailers: RawHeaderListType) -> None:
         self.clear_timeout()
         exchange = self.active_exchange
-        if self.reusable:
+        keep = self.reusable
+        if keep:
             self.client.release_conn(self)
         else:
             self.client.dead_conn(self)
+        self._response_ended = keep
         if exchange:
             exchange.input_end_notify(trailers)
 

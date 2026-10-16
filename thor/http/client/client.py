@@ -79,24 +79,35 @@ class HttpClient:
         origin = conn.origin
         assert origin, "origin not found in release_conn"
 
+        def unpool() -> None:
+            idle = self._idle_conns.get(origin)  # avoid defaultdict's auto-create
+            if idle and conn in idle:
+                idle.remove(conn)
+                if not idle:
+                    del self._idle_conns[origin]
+
         def idle_close() -> None:
             "Remove the connection from the pool when it closes."
             if conn.idler:
                 conn.idler.delete()
             self._conn_is_dead(conn)
-            try:
-                self._idle_conns[origin].remove(conn)
-                if not self._idle_conns[origin]:
-                    del self._idle_conns[origin]
-            except (KeyError, ValueError):
-                pass
+            unpool()
+
+        def idle_expire() -> None:
+            "Close the connection once it has been idle too long."
+            unpool()
+            # abort() emits no 'close', so nothing else will count this connection
+            # as dead, and an unresponsive peer can't hold its slot.
+            conn.tcp_conn.abort()
+            conn.remove_listeners("close")  # drop the now-stale idle_close
+            self._conn_is_dead(conn)
 
         if self._req_q[origin]:
             handle_connect = self._req_q[origin].pop(0)[0]
             handle_connect(conn)
         elif self.idle_timeout > 0:
             conn.once("close", idle_close)
-            conn.idler = self.loop.schedule(self.idle_timeout, idle_close)
+            conn.idler = self.loop.schedule(self.idle_timeout, idle_expire)
             self._idle_conns[origin].append(conn)
         else:
             conn.close()
@@ -105,6 +116,14 @@ class HttpClient:
     def dead_conn(self, conn: HttpClientConnection) -> None:
         "Notify the client that a connection is dead."
         conn.detach()
+        idle = self._idle_conns.get(conn.origin)
+        if idle and conn in idle:
+            if conn.idler:
+                conn.idler.delete()
+                conn.idler = None
+            idle.remove(conn)
+            if not idle:
+                del self._idle_conns[conn.origin]
         if conn.tcp_connected:
             conn.close()
         self._conn_is_dead(conn)
