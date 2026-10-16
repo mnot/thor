@@ -130,9 +130,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     @property
     def _receiving(self) -> bool:
         "Is part of a request body or header block waiting on more data?"
-        return self._req_in_progress or (
-            self._input_state == States.WAITING
-            and any(chunk.strip() for chunk in self._input_buffer)
+        return self._req_in_progress or any(
+            chunk.strip() for chunk in self._input_buffer
         )
 
     def _stop_req_timer(self) -> None:
@@ -159,7 +158,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if self._receiving:
             self._start_req_timer()
         else:
-            self._stop_req_timer()  # e.g., the header block completed
+            self._stop_req_timer()  # e.g., a deferred header error
 
     def _stop_res_timer(self) -> None:
         if self._res_timer:
@@ -175,7 +174,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         """
         target = None
         timeout = self.server.response_timeout
-        if timeout and timeout > 0 and self.tcp_conn and self.tcp_conn.tcp_connected:
+        if timeout and timeout > 0 and self.tcp_conn:
             for ex in self.ex_queue:
                 if not ex.res_complete:
                     target = ex if ex.req_complete and ex.started else None

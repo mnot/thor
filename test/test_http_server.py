@@ -1180,6 +1180,14 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertTrue(all(t.delete.called for t in timers))
 
+    def test_request_timer_stopped_after_deferred_header_error(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HT")
+        self.assertEqual(sum(1 for t in timers if not t.delete.called), 1)
+        conn.handle_input(b"TP/1.1\r\nHost: x\r\nBad Header\r\n\r\n")
+        self.assertTrue(tcp_conn.tcp_connected)  # error waits for /1's response
+        self.assertTrue(all(t.delete.called for t in timers))
+
     def test_response_timeout_unanswered_request(self):
         def server_side(server):
             server.response_timeout = 0.2
