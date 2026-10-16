@@ -25,6 +25,7 @@ _BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
 _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
+_MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
 
 class Delimiters(Enum):
@@ -83,6 +84,10 @@ def output_content_length(hdr_tuples: RawHeaderListType) -> Optional[int]:
     for name, value in hdr_tuples:
         if name.strip().lower() != b"content-length":
             continue
+        if len(value.strip(b" \t")) > _MAX_OUTPUT_CL_DIGITS:
+            raise error.OutputSyntaxError(
+                f"Content-Length longer than {_MAX_OUTPUT_CL_DIGITS} digits"
+            )
         try:
             lengths.add(parse_content_length(value))
         except ValueError:

@@ -1112,6 +1112,7 @@ Content-Length: %(body_len)i
             b"\x0b5",
             b"5,5",
             b"5, 5",
+            b"1" * 21,
             b"9" * 5000,
         ]:
             with self.subTest(value=value):
@@ -1144,6 +1145,12 @@ Content-Length: %(body_len)i
             reader = DummyHttpParser()
             reader.handle_input(b"".join(writer.written) + b"hello")
             self.assertNotIn("ERROR", reader.test_states, value)
+
+    def test_output_content_length_max_digits(self) -> None:
+        writer = CapturingHttpParser()
+        writer.output_start(
+            b"HTTP/1.1 200 OK", [(b"Content-Length", b"1" * 20)], Delimiters.COUNTED
+        )
 
     def test_output_content_length_surrounding_ows(self) -> None:
         writer = CapturingHttpParser()
