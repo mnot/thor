@@ -98,6 +98,7 @@ class HttpClient:
             # abort() emits no 'close', so nothing else will count this connection
             # as dead, and an unresponsive peer can't hold its slot.
             conn.tcp_conn.abort()
+            conn.remove_listeners("close")  # drop the now-stale idle_close
             self._conn_is_dead(conn)
 
         if self._req_q[origin]:

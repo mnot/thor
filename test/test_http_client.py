@@ -811,6 +811,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertTrue(self.conn_checked)
 
     def test_idle_timeout_closes_conn(self):
+        "Guards that the server sees EOF after expiry; says nothing about the fd."
         server_eof = threading.Event()
         server_done = threading.Event()
 
@@ -857,8 +858,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertTrue(server_eof.is_set())
 
     def test_idle_timeout_unresponsive_peer(self):
-        "A peer that ignores the close can't hold on to the connection slot."
+        """
+        Guards that an expired idle connection is fully closed (a peer that
+        ignores the FIN is reset when it writes) and releases its slot.
+        """
         release = threading.Event()
+        self.peer_reset = False
 
         def client_side(client, test_host, test_port):
             client.idle_timeout = 0.1
@@ -897,10 +902,26 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"12345"
             )
             if self.conn_num == 1:
-                release.wait(10)  # ignore the client closing
+                # Ignore the client closing, then probe whether it's really gone;
+                # a half-closed client would still accept this data.
+                conn.request.settimeout(0.25)
+                try:
+                    while conn.request.recv(8192):
+                        pass
+                    for _ in range(20):
+                        try:
+                            conn.request.sendall(b"x")
+                        except (ConnectionResetError, BrokenPipeError):
+                            self.peer_reset = True
+                            break
+                        time.sleep(0.05)  # give any RST time to arrive
+                except socket.timeout:
+                    pass
+                release.wait(10)
 
         self.go([server_side], [client_side])
         self.assertEqual(self.conn_num, 2)
+        self.assertTrue(self.peer_reset)
 
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
