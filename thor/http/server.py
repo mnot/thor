@@ -186,8 +186,30 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._res_timer_ex = target
             self._res_timer = self.server.loop.schedule(timeout, self.close_conn)
 
+    def _stop_idle_timer(self) -> None:
+        if self._idler:
+            self._idler.delete()
+            self._idler = None
+
+    def _start_idle_timer(self) -> None:
+        """
+        If nothing is in flight, close a connection that's shutting down, or
+        else (re)arm the idle timer. Called when an exchange completes in
+        either direction, since either can come last.
+        """
+        if not self.tcp_conn or not self.is_idle:
+            return
+        if self.server.shutting_down:
+            self.close_conn()
+            return
+        self._stop_idle_timer()
+        self._idler = self.server.loop.schedule(
+            self.server.idle_timeout, self.close_conn
+        )
+
     def close_conn(self) -> None:
         "Close the connection."
+        self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
         if self.tcp_conn and self.tcp_conn.tcp_connected:
@@ -200,13 +222,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.ex_queue.remove(exchange)
         self._handle_pending_error()
         self._update_res_timer()
-        if exchange.req_complete and self.tcp_conn:
-            if self.is_idle and self.server.shutting_down:
-                self.close_conn()
-            elif self.is_idle:
-                self._idler = self.server.loop.schedule(
-                    self.server.idle_timeout, self.close_conn
-                )
+        self._start_idle_timer()
 
     def _handle_pending_error(self) -> None:
         """
@@ -246,6 +262,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def conn_closed(self) -> None:
         "The server connection has closed."
         self.server.connections.discard(self)
+        self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
         self.ex_queue = []
@@ -273,9 +290,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Take the top set of headers from the input stream, parse them
         and queue the request to be processed by the application.
         """
-        if self._idler:
-            self._idler.delete()
-            self._idler = None
+        self._stop_idle_timer()
         try:
             method, req_line = top_line.split(None, 1)
             uri, req_version_txt = req_line.rsplit(None, 1)
@@ -349,6 +364,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if ex.res_complete and ex in self.ex_queue:
             self.ex_queue.remove(ex)
         self._update_res_timer()
+        self._start_idle_timer()
 
     def input_error(self, err: HttpError) -> None:
         """
@@ -371,13 +387,13 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if err.detail:
             body += b" (%s)" % err.detail.encode("utf-8")
         ex = HttpServerExchange(self, b"", b"", [], b"1.1")
+        self.ex_queue.append(ex)  # so completing it doesn't arm the idle timer
         try:
             ex.response_start(status_code, status_phrase, hdrs)
             ex.response_body(body)
             ex.response_done([])
         except (BufferError, OSError):
             pass  # can't deliver it; just make sure the connection goes away
-        self.ex_queue.append(ex)
         self.close_conn()
 
     def drain_exchange_queue(self) -> None:
