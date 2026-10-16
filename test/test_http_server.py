@@ -50,6 +50,7 @@ class FakeTcpConnection:
 class FakeServer:
     idle_timeout = 60
     request_timeout = 30
+    response_timeout = None
     shutting_down = False
 
     def __init__(self):
@@ -1069,6 +1070,273 @@ Content-Length: 5
                 % (test_host, test_port)
             )
             self.assertEqual(client_conn.recv(1024), b"")
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
+    def test_response_timer_off_by_default(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        self.assertEqual(timers, [])
+
+    def test_response_timer_bodiless_request(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        self.assertEqual(len(timers), 1)
+        self.assertEqual(timers[0].delay, 5)
+        self.assertEqual(timers[0].callback, conn.close_conn)
+        timers[0].delete.assert_not_called()
+
+        exchanges[0].response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+        timers[0].delete.assert_not_called()  # until the response is complete
+        exchanges[0].response_done([])
+        timers[0].delete.assert_called_once()
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_response_timer_expiry_closes_connection(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        timers[0].callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_response_timer_waits_for_request_body(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n01"
+        )
+        self.assertEqual([t.delay for t in timers], [server.request_timeout])
+        conn.handle_input(b"23")
+        self.assertEqual([t.delay for t in timers], [server.request_timeout, 5])
+        timers[0].delete.assert_called_once()
+        timers[1].delete.assert_not_called()
+
+    def test_response_timer_pipelined_requests_timed_in_turn(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(
+            b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            b"GET /2 HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        )
+        self.assertEqual(len(timers), 1)  # the second isn't charged yet
+        exchanges[0].response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+        exchanges[0].response_done([])
+        timers[0].delete.assert_called_once()
+        self.assertEqual(len(timers), 2)
+        timers[1].delete.assert_not_called()
+        exchanges[1].response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+        exchanges[1].response_done([])
+        timers[1].delete.assert_called_once()
+
+    def test_response_timer_not_left_on_closed_connection(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        exchanges[0].response_start(b"500", b"Error", [])
+        exchanges[0].response_done([], close=True)
+        self.assertIsNone(conn.tcp_conn)
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_response_timer_cleared_when_connection_drops(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        conn.conn_closed()
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_request_timer_covers_partial_headers(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HT")
+        self.assertEqual(len(timers), 1)
+        self.assertEqual(timers[0].delay, server.request_timeout)
+        self.assertEqual(timers[0].callback, conn.close_conn)
+
+        conn.handle_input(b"TP/1.1\r\nHost: exa")
+        self.assertEqual(len(timers), 2)
+        timers[0].delete.assert_called_once()
+        timers[1].delete.assert_not_called()
+
+        conn.handle_input(b"mple.com\r\n\r\n")  # headers complete; no body
+        timers[1].delete.assert_called_once()
+        self.assertEqual(len(timers), 2)
+        self.assertEqual(len(exchanges), 2)
+
+    def test_request_timer_partial_headers_then_body(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-")
+        conn.handle_input(b"Length: 4\r\n\r\n")
+        # the body timer takes over from the header timer
+        self.assertEqual(len(timers), 2)
+        timers[0].delete.assert_called_once()
+        timers[1].delete.assert_not_called()
+        conn.handle_input(b"0123")
+        timers[1].delete.assert_called_once()
+
+    def test_request_timer_partial_headers_after_body(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n"
+            b"0123GET /2 HT"
+        )
+        self.assertEqual(sum(1 for t in timers if not t.delete.called), 1)
+
+    def test_request_timer_partial_headers_paused(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        tcp_conn.pause = lambda paused: None
+        conn.handle_input(b"GET / HTTP/1.1\r\nHo")
+        conn.req_body_pause(True)
+        timers[0].delete.assert_called_once()
+        conn.req_body_pause(False)
+        self.assertEqual(len(timers), 2)
+        timers[1].delete.assert_not_called()
+
+    def test_request_timer_partial_headers_not_left_on_closed_connection(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"GET / HTTP/1.1\r\nHo")
+        conn.conn_closed()
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_request_timer_stopped_after_header_error(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"GET / HTTP/1.1\r\nHo")
+        conn.handle_input(b"st: example.com\r\nBad Header\r\n\r\nGET / HTTP/1.1\r\nHo")
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_request_timer_stopped_after_deferred_header_error(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HT")
+        self.assertEqual(sum(1 for t in timers if not t.delete.called), 1)
+        conn.handle_input(b"TP/1.1\r\nHost: x\r\nBad Header\r\n\r\n")
+        self.assertTrue(tcp_conn.tcp_connected)  # error waits for /1's response
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_response_timeout_unanswered_request(self):
+        def server_side(server):
+            server.response_timeout = 0.2
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.settimeout(10)
+            client_conn.sendall(
+                b"GET / HTTP/1.1\r\nHost: %s:%i\r\n\r\n" % (test_host, test_port)
+            )
+            self.assertEqual(client_conn.recv(1024), b"")
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
+    def test_request_timeout_partial_headers_behind_pending_exchange(self):
+        def server_side(server):
+            server.request_timeout = 0.2
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.settimeout(10)
+            client_conn.sendall(
+                b"GET /1 HTTP/1.1\r\nHost: %s:%i\r\n\r\nGET /2 HTTP/1.1\r\nHo"
+                % (test_host, test_port)
+            )
+            self.assertEqual(client_conn.recv(1024), b"")
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
+    def test_request_timer_ignores_stray_blank_line(self):
+        for request in [
+            b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 2\r\n\r\nab",
+        ]:
+            for tail in [[b"\r\n"], [b"\n"], [b"", b"\r\n"]]:
+                tcp_conn, server, conn, timers = self.make_timer_conn()
+                for chunk in [request + tail[0]] + tail[1:]:
+                    conn.handle_input(chunk)
+                self.assertTrue(all(t.delete.called for t in timers), (request, tail))
+
+    def test_request_timer_one_timer_for_byte_by_byte_headers(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        for i in range(len(request) - 1):
+            conn.handle_input(request[i : i + 1])
+            self.assertEqual(sum(1 for t in timers if not t.delete.called), 1)
+        conn.handle_input(request[-1:])
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_request_timer_covers_wait_for_100_continue(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n"
+            b"Expect: 100-continue\r\n\r\n"
+        )
+        self.assertEqual([t.delay for t in timers], [server.request_timeout])
+        timers[0].callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_response_timer_not_extended_by_response_start(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        exchanges[0].response_start(b"200", b"OK", [])
+        exchanges[0].response_body(b"partial")
+        self.assertEqual(len(timers), 1)
+        timers[0].delete.assert_not_called()
+        timers[0].callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_response_timer_waits_for_request_start_when_output_paused(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.res_body_pause(True)
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        self.assertEqual(timers, [])
+        conn.res_body_pause(False)
+        self.assertEqual([t.delay for t in timers], [5])
+        self.assertEqual(timers[0].callback, conn.close_conn)
+
+    def test_timeouts_disabled_by_negative_values(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.request_timeout = -1
+        server.response_timeout = -1
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HT")
+        conn.handle_input(b"TP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n01")
+        self.assertEqual(timers, [])
+
+    def test_response_timeout_cuts_streaming_response(self):
+        def server_side(server):
+            server.response_timeout = 0.2
+
+            @on(server)
+            def exchange(exchange):
+                @on(exchange)
+                def request_start(method, uri, headers):
+                    exchange.response_start(b"200", b"OK", [])
+                    exchange.response_body(b"abc")
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.settimeout(10)
+            client_conn.sendall(
+                b"GET / HTTP/1.1\r\nHost: %s:%i\r\n\r\n" % (test_host, test_port)
+            )
+            data = b""
+            while True:
+                chunk = client_conn.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+            self.assertTrue(data.startswith(b"HTTP/1.1 200 OK"))
+            self.assertNotIn(b"0\r\n\r\n", data)
             self.loop.stop()
 
         self.go([server_side], [client_side])
