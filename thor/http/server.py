@@ -100,6 +100,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         )
         self._req_timer: Optional[ScheduledEvent] = None
         self._req_in_progress = False  # request body incomplete
+        self._req_paused = False
         self._in_input = False
 
     @property
@@ -114,6 +115,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if self.tcp_conn:
             self.tcp_conn.pause(paused)
         # a paused request isn't the client's fault
+        self._req_paused = paused
         if paused:
             self._stop_req_timer()
         elif self._req_in_progress:
@@ -127,7 +129,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def _start_req_timer(self) -> None:
         "(Re)start the inactivity timer for the request being received."
         self._stop_req_timer()
-        if self.server.request_timeout:
+        if self.server.request_timeout and self.tcp_conn and not self._req_paused:
             self._req_timer = self.server.loop.schedule(
                 self.server.request_timeout, self.close_conn
             )

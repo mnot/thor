@@ -400,6 +400,43 @@ Content-Length: 5
         conn.req_body_pause(False)
         self.assertEqual(len(timers), 2)
 
+    def test_request_timer_not_rearmed_when_paused_during_input(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        tcp_conn.pause = lambda paused: None
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_body")
+            def on_body(chunk):
+                conn.req_body_pause(True)
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n012"
+        )
+        self.assertTrue(all(t.delete.called for t in timers))
+        conn.req_body_pause(False)
+        self.assertFalse(timers[-1].delete.called)
+
+    def test_request_timer_not_rearmed_after_close_during_input(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_start")
+            def on_start(method, uri, headers):
+                exchange.response_start(b"413", b"Content Too Large", [])
+                exchange.response_done([], close=True)
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n"
+        )
+        self.assertIsNone(conn.tcp_conn)
+        self.assertTrue(all(t.delete.called for t in timers))
+
     def test_request_timeout_stalled_body(self):
         def server_side(server):
             server.request_timeout = 0.2
