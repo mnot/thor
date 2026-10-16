@@ -52,6 +52,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.tcp_conn.on("data", self._handle_data)
         self.tcp_conn.once("close", self._conn_closed)
         self.tcp_conn.on("pause", self._conn_paused)
+        self.tcp_conn.on("sent", self._restart_timeout)
 
     def attach(self, exchange: HttpClientExchange) -> None:
         self.active_exchange = exchange
@@ -120,8 +121,6 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             )
 
     def _conn_paused(self, paused: bool) -> None:
-        if not paused:
-            self._restart_timeout()  # the write buffer drained
         self.emit("pause", paused)
         if self.active_exchange:
             self.active_exchange.req_body_pause(paused)
@@ -148,7 +147,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             HttpMessageHandler.handle_input(self, inbytes)
 
     def _restart_timeout(self) -> None:
-        "Inactivity timeout: restart on progress, if one is running."
+        "Inactivity timeout: restart on data received or sent, if one is running."
         if self._read_timeout_ev:
             self.set_timeout(self._read_timeout(), "read")
 
@@ -244,7 +243,6 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             exchange.input_error(err)
 
     def output(self, data: bytes) -> None:
-        self._restart_timeout()
         self.tcp_conn.write(data)
 
     def output_done(self) -> None:

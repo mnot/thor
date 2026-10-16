@@ -67,12 +67,16 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.conn_checked = False
         self.test_req_count = 0
         self.conn_num = 0
+        self.small_rcvbuf = False
 
     def create_server(self, server_side):
         class LittleRequestHandler(SocketServer.BaseRequestHandler):
             handle = server_side
 
         server = LittleServer((framework.test_host, 0), LittleRequestHandler)
+        if self.small_rcvbuf:
+            # Accepted sockets inherit this, so the window is small from the start.
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
         test_port = server.server_address[1]
 
         def serve():
@@ -993,7 +997,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         # A request body that keeps being written outlives the timeout, even
         # though no response bytes arrive until it is complete.
         def client_side(client, test_host, test_port):
-            client.connect_timeout = 1
+            client.connect_timeout = 1.5
             client.read_timeout = None
             exchange = client.exchange()
             self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
@@ -1003,20 +1007,20 @@ class TestHttpClient(framework.ClientServerTestCase):
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/slow_upload" % (test_host, test_port)
-            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"6")])
-            chunks = [b"a", b"b", b"c", b"d", b"e", b"f"]
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"8")])
+            chunks = [b"a", b"b", b"c", b"d", b"e", b"f", b"g", b"h"]
 
             def send_chunk() -> None:
                 exchange.request_body(chunks.pop(0))
                 if chunks:
-                    self.loop.schedule(0.4, send_chunk)
+                    self.loop.schedule(0.3, send_chunk)
                 else:
                     exchange.request_done([])
 
             send_chunk()
 
         def server_side(conn):
-            drain(conn, b"abcdef")
+            drain(conn, b"abcdefgh")
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
                 b"Connection: close\r\n\r\nok"
@@ -1046,6 +1050,163 @@ class TestHttpClient(framework.ClientServerTestCase):
                 conn.request.recv(1024)
             except socket.timeout:
                 pass
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def start_big_upload(self, exchange, test_host, test_port, interval, on_chunk):
+        """
+        Upload a large body in 16 KiB chunks, one per interval, calling
+        on_chunk(chunk) to write each. Socket buffers are shrunk once connected
+        so that a peer which doesn't read stalls the send quickly.
+        """
+        self.upload_stopped = False
+        chunk = b"x" * 16384
+        req_uri = b"http://%s:%i/big_upload" % (test_host, test_port)
+        exchange.request_start(
+            b"POST", req_uri, [(b"Content-Length", b"%i" % (len(chunk) * 1000))]
+        )
+
+        @on(exchange)
+        def error(err):
+            self.upload_stopped = True
+
+        def send_chunk():
+            if self.upload_stopped:
+                return
+            if exchange.conn is None:
+                self.loop.schedule(0.01, send_chunk)
+                return
+            tcp_conn = exchange.conn.tcp_conn
+            if not hasattr(tcp_conn, "shrunk"):
+                tcp_conn.shrunk = True
+                tcp_conn.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+                tcp_conn.max_write_buffer_chunks = 4
+            on_chunk(chunk)
+            self.loop.schedule(interval, send_chunk)
+
+        send_chunk()
+
+    def stalled_peer(self, release):
+        def server_side(conn):
+            release.wait(30)
+            conn.request.close()
+
+        return server_side
+
+    def test_stalled_peer_upload_times_out(self):
+        # An app that keeps writing doesn't keep the timer alive when the peer
+        # never reads; only bytes actually sent count.
+        release = threading.Event()
+        self.small_rcvbuf = True
+
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1
+            client.read_timeout = None
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange, {"error": thor.http.error.ReadTimeoutError}
+            )
+
+            @on(exchange)
+            def error(err):
+                release.set()
+
+            def write(chunk):
+                try:
+                    exchange.request_body(chunk)
+                except BufferError:
+                    pass
+
+            self.start_big_upload(exchange, test_host, test_port, 0.05, write)
+
+        self.go([self.stalled_peer(release)], [client_side])
+
+    def test_stalled_peer_upload_buffer_error_times_out(self):
+        # Retrying after BufferError doesn't keep the timer alive either.
+        release = threading.Event()
+        self.small_rcvbuf = True
+        self.buffer_errors = 0
+
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1
+            client.read_timeout = None
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange, {"error": thor.http.error.ReadTimeoutError}
+            )
+
+            @on(exchange)
+            def error(err):
+                release.set()
+                self.assertGreater(self.buffer_errors, 0)
+
+            def write(chunk):
+                try:
+                    exchange.request_body(chunk)
+                except BufferError:
+                    self.buffer_errors += 1
+
+            self.start_big_upload(exchange, test_host, test_port, 0.05, write)
+
+        self.go([self.stalled_peer(release)], [client_side])
+
+    def test_slow_reading_peer_upload_not_timed_out(self):
+        # A peer that reads slowly but steadily keeps the send making progress,
+        # so an upload that outlasts the timeout still completes.
+        total = 16384 * 16
+        self.small_rcvbuf = True
+
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 2.5
+            client.read_timeout = None
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
+            sent = [0]
+
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/slow_reader" % (test_host, test_port)
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"%i" % total)])
+            chunk = b"x" * 16384
+
+            def send_chunk():
+                if exchange.conn is None:
+                    self.loop.schedule(0.01, send_chunk)
+                    return
+                tcp_conn = exchange.conn.tcp_conn
+                if not hasattr(tcp_conn, "shrunk"):
+                    tcp_conn.shrunk = True
+                    tcp_conn.socket.setsockopt(
+                        socket.SOL_SOCKET, socket.SO_SNDBUF, 4096
+                    )
+                exchange.request_body(chunk)
+                sent[0] += len(chunk)
+                if sent[0] < total:
+                    self.loop.schedule(0.02, send_chunk)
+                else:
+                    exchange.request_done([])
+
+            send_chunk()
+
+        def server_side(conn):
+            conn.request.settimeout(30.0)
+            data = b""
+            # Header block plus body; read 16 KiB per 50 ms.
+            while b"\r\n\r\n" not in data or len(data) < total + data.index(
+                b"\r\n\r\n"
+            ) + 4:
+                time.sleep(0.05)
+                chunk = conn.request.recv(16384)
+                if not chunk:
+                    break
+                data += chunk
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                b"Connection: close\r\n\r\nok"
+            )
             conn.request.close()
 
         self.go([server_side], [client_side])
