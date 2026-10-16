@@ -173,4 +173,4 @@ class AccessError(HttpError):
 
 class HostRequiredError(HttpError):
     desc = "Host header required"
-    server_recoverable = True
+    server_status = (b"400", b"Bad Request")

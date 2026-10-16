@@ -179,7 +179,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
                 HttpVersionError(req_version_txt.decode("utf-8", "replace"))
             )
             raise ValueError
-        if b"host" not in header_names(hdr_tuples):
+        if req_version == b"1.1" and b"host" not in header_names(hdr_tuples):
             self.input_error(HostRequiredError())
             raise ValueError
         for code in transfer_codes:

@@ -306,6 +306,31 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Too many messages to parse", output)
 
+    def test_missing_host_http11_rejected(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(b"GET / HTTP/1.1\r\n\r\n")
+
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(exchanges, [])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+        self.assertIn(b"Host header required", output)
+
+    def test_missing_host_http10_allowed(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(b"GET / HTTP/1.0\r\n\r\n")
+
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        self.assertTrue(tcp_conn.tcp_connected)
+
     def test_idle_timer_waits_for_exchange_queue_to_drain(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
