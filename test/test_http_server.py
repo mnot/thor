@@ -403,6 +403,65 @@ Content-Length: 5
             b"GET /one HTTP/1.0\r\nHost: example.com\r\n\r\n", True, b"close"
         )
 
+    def test_http10_keep_alive_without_length_closes(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_start")
+            def start(method, uri, headers):
+                exchange.response_start(b"200", b"OK", [])
+                exchange.response_body(b"foo")
+                exchange.response_done([])
+
+        conn.server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"GET / HTTP/1.0\r\nHost: example.com\r\n"
+            b"Connection: keep-alive\r\n\r\n"
+        )
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"Connection: close\r\n", b"".join(tcp_conn.output))
+
+    def test_connection_token_list_close_wins(self):
+        self.check_connection_handling(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n"
+            b"Connection: Keep-Alive, Close\r\n\r\n",
+            True,
+            b"close",
+        )
+
+    def test_post_connection_close_ignores_trailing_bytes(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        seen = []
+
+        def handle_exchange(exchange):
+            seen.append(exchange.uri)
+
+            @on(exchange, "request_done")
+            def done(trailers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\n"
+            b"Connection: close\r\nContent-Length: 5\r\n\r\n12345"
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        )
+
+        self.assertEqual(seen, [b"/one"])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 200"), 1)
+        self.assertNotIn(b"400", output)
+
     def test_http10_keep_alive(self):
         self.check_connection_handling(
             b"GET /one HTTP/1.0\r\nHost: example.com\r\n"

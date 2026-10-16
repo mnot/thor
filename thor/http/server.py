@@ -198,7 +198,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self, method, uri, hdr_tuples, req_version, persistent
         )
         if not persistent:
-            # silently ignore anything pipelined after a request that closes
+            # Silently ignore anything pipelined after a request that closes.
+            # This shadows the class attribute: every later reset to
+            # default_state in common.py lands in ERROR, which drops input.
             self.default_state = States.ERROR
         self.ex_queue.append(exchange)
         self.server.emit("exchange", exchange)
