@@ -1638,10 +1638,11 @@ Content-Length: 5
             server.on("exchange", handle_exchange)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.settimeout(0.2)  # also paces the trickle
+            client_conn.settimeout(5)
             host = b"Host: %s:%i\r\n" % (test_host, test_port)
             client_conn.sendall(b"GET /1 HTTP/1.1\r\n" + host + b"\r\n")
             self.assertIn(b"200 OK", client_conn.recv(1024))
+            client_conn.settimeout(0.2)  # paces the trickle
             pieces = [b"GET /2 HTTP/1.1\r\n", host] + [b"X-A: 1\r\n"] * 24
             closed = False
             for piece in pieces:
