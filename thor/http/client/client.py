@@ -109,15 +109,19 @@ class HttpClient:
         self._conn_is_dead(conn)
 
     def _conn_is_dead(self, conn: HttpClientConnection) -> None:
+        if conn.counted_dead:  # Several paths can report the same death.
+            return
+        conn.counted_dead = True
         origin = conn.origin
         assert origin, "origin not found in _conn_is_dead"
-        self.conn_counts[origin] -= 1
-        if self.conn_counts[origin] <= 0:
-            if origin in self.conn_counts:
-                del self.conn_counts[origin]
-            if self._req_q[origin]:
-                handle_connect, handle_connect_error = self._req_q[origin].pop(0)
-                self._new_conn(origin, handle_connect, handle_connect_error)
+        count = self.conn_counts[origin] - 1
+        if count > 0:
+            self.conn_counts[origin] = count
+        else:
+            self.conn_counts.pop(origin, None)
+        if self._req_q[origin] and count < self.max_server_conn:
+            handle_connect, handle_connect_error = self._req_q[origin].pop(0)
+            self._new_conn(origin, handle_connect, handle_connect_error)
 
     def _new_conn(
         self,
