@@ -2,6 +2,7 @@ import errno
 import os
 import socket
 import unittest
+from typing import List
 from unittest.mock import MagicMock, patch
 
 import thor
@@ -194,6 +195,88 @@ class TestTcpServerOptions(unittest.TestCase):
                 mock_loop.event_add.assert_not_called()
                 self.assertNotIn("fd_readable", server.interesting_events())
 
+    def test_accept_paused_emitted_once_with_errno(self):
+        for err in [errno.EMFILE, errno.EPERM]:
+            with self.subTest(err=err):
+                server, _, _ = self.make_exhausted_server(err)
+                paused = MagicMock()
+                server.on("accept_paused", paused)
+
+                server.handle_accept()
+                server.handle_accept()  # still paused: timer pending
+
+                paused.assert_called_once_with(err)
+
+    def test_no_accept_events_on_ignored_accept_errors(self):
+        for err in sorted(TcpServer.accept_errs):
+            with self.subTest(err=err):
+                server, _, _ = self.make_exhausted_server(err)
+                listener = MagicMock()
+                server.on("accept_paused", listener)
+                server.on("accept_resumed", listener)
+
+                server.handle_accept()
+
+                listener.assert_not_called()
+
+    def test_accept_resumed_emitted_when_backoff_ends(self):
+        server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+        resumed = MagicMock()
+        server.on("accept_resumed", resumed)
+        server.handle_accept()
+        resumed.assert_not_called()
+
+        mock_loop.schedule.call_args[0][1]()
+
+        resumed.assert_called_once_with()
+
+    def test_accept_paused_again_after_resume(self):
+        server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+        paused = MagicMock()
+        server.on("accept_paused", paused)
+        server.handle_accept()
+        mock_loop.schedule.call_args[0][1]()
+
+        server.handle_accept()
+
+        self.assertEqual(paused.call_count, 2)
+
+    def test_shutdown_during_accept_backoff_emits_no_accept_resumed(self):
+        for method in ["shutdown", "graceful_shutdown"]:
+            with self.subTest(method=method):
+                server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+                resumed = MagicMock()
+                server.on("accept_resumed", resumed)
+                server.handle_accept()
+                resume = mock_loop.schedule.call_args[0][1]
+
+                getattr(server, method)()
+                resume()
+
+                resumed.assert_not_called()
+
+    def test_accept_paused_listener_error_leaves_server_paused(self):
+        server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+        server.on("accept_paused", MagicMock(side_effect=RuntimeError("boom")))
+
+        with self.assertRaises(RuntimeError):
+            server.handle_accept()
+
+        mock_loop.event_del.assert_called_once_with(17, "fd_readable")
+        self.assertIsNotNone(server._accept_timer)  # pylint: disable=protected-access
+        mock_loop.schedule.call_args[0][1]()
+        mock_loop.event_add.assert_called_once_with(17, "fd_readable")
+
+    def test_accept_resumed_listener_error_leaves_server_listening(self):
+        server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+        server.on("accept_resumed", MagicMock(side_effect=RuntimeError("boom")))
+        server.handle_accept()
+
+        with self.assertRaises(RuntimeError):
+            mock_loop.schedule.call_args[0][1]()
+
+        mock_loop.event_add.assert_called_once_with(17, "fd_readable")
+        self.assertIsNone(server._accept_timer)  # pylint: disable=protected-access
 
     def test_sets_are_disjoint(self):
         self.assertFalse(TcpServer.accept_errs & TcpServer.accept_backoff_errs)
@@ -221,15 +304,28 @@ class TestTcpServerOptions(unittest.TestCase):
                 self.accepts += 1
                 super().handle_accept()
 
+        paused_errnos: List[int] = []
+        resumed = 0
+
+        def on_resumed() -> None:
+            nonlocal resumed
+            resumed += 1
+
         window = 0.5
         loop = thor.loop.make()
         server = CountingServer(b"127.0.0.1", 0, sock=listener, loop=loop)
+        server.on("accept_paused", paused_errnos.append)
+        server.on("accept_resumed", on_resumed)
         loop.schedule(window, loop.stop)
         loop.run()
         server.shutdown()
 
         self.assertGreaterEqual(server.accepts, 1)
         self.assertLessEqual(server.accepts, window / server.accept_backoff + 2)
+        # one pause per backoff window; each is resumed except possibly the last
+        self.assertEqual(len(paused_errnos), server.accepts)
+        self.assertTrue(set(paused_errnos) <= TcpServer.accept_backoff_errs)
+        self.assertIn(resumed, (len(paused_errnos), len(paused_errnos) - 1))
 
 
 if __name__ == "__main__":
