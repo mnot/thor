@@ -736,10 +736,17 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.go([server_side], [client_side])
 
     def test_slow_body_not_timed_out(self):
-        # A response that keeps making progress outlives the read timeout.
+        self.check_slow_body(read_timeout=1.5)
+
+    def test_slow_body_not_timed_out_default(self):
+        # read_timeout unset: connect_timeout applies.
+        self.check_slow_body(read_timeout=None)
+
+    def check_slow_body(self, read_timeout):
+        # A response that keeps making progress outlives the timeout.
         def client_side(client, test_host, test_port):
-            client.connect_timeout = 1
-            client.read_timeout = 1
+            client.connect_timeout = 1.5
+            client.read_timeout = read_timeout
             exchange = client.exchange()
             self.check_exchange(
                 exchange,
@@ -768,15 +775,23 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"\r\n"
             )
             for byte in (b"a", b"b", b"c", b"d", b"e", b"f"):
-                time.sleep(0.4)
+                time.sleep(0.3)
                 conn.request.sendall(byte)
             conn.request.close()
 
         self.go([server_side], [client_side])
 
     def test_stalled_body_times_out(self):
+        self.check_stalled_body(read_timeout=1)
+
+    def test_stalled_body_times_out_default(self):
+        # read_timeout unset: connect_timeout applies.
+        self.check_stalled_body(read_timeout=None)
+
+    def check_stalled_body(self, read_timeout):
         def client_side(client, test_host, test_port):
-            client.read_timeout = 1
+            client.connect_timeout = 1
+            client.read_timeout = read_timeout
             exchange = client.exchange()
             self.check_exchange(
                 exchange, {"error": thor.http.error.ReadTimeoutError}

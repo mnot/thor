@@ -87,7 +87,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             timeout, self.input_error, error.ReadTimeoutError(kind)
         )
 
-    def _read_timeout(self) -> float:
+    def _read_timeout(self) -> int:
         if self.client.read_timeout is not None:
             return self.client.read_timeout
         return self.client.connect_timeout
