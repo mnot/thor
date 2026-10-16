@@ -46,6 +46,7 @@ class HttpServer(EventEmitter):
     tcp_server_class = TcpServer
     idle_timeout = 60  # in seconds
     request_timeout: Optional[float] = 60  # in seconds; None or 0 to disable
+    response_timeout: Optional[float] = None  # in seconds; None or 0 to disable
 
     def __init__(self, host: bytes, port: int, loop: Optional[LoopBase] = None) -> None:
         EventEmitter.__init__(self)
@@ -104,6 +105,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._req_timer: Optional[ScheduledEvent] = None
         self._req_in_progress = False  # request body incomplete
         self._req_paused = False
+        self._res_timer: Optional[ScheduledEvent] = None
+        self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
 
     @property
@@ -121,8 +124,15 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._req_paused = paused
         if paused:
             self._stop_req_timer()
-        elif self._req_in_progress:
+        elif self._receiving:
             self._start_req_timer()
+
+    @property
+    def _receiving(self) -> bool:
+        "Is part of a request body or header block waiting on more data?"
+        return self._req_in_progress or (
+            self._input_state == States.WAITING and any(self._input_buffer)
+        )
 
     def _stop_req_timer(self) -> None:
         if self._req_timer:
@@ -146,12 +156,40 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             HttpMessageHandler.handle_input(self, inbytes)
         finally:
             self._in_input = False
-        if self._req_in_progress:
+        if self._receiving:
             self._start_req_timer()
+        else:
+            self._stop_req_timer()  # e.g., the header block completed
+
+    def _stop_res_timer(self) -> None:
+        if self._res_timer:
+            self._res_timer.delete()
+            self._res_timer = None
+        self._res_timer_ex = None
+
+    def _update_res_timer(self) -> None:
+        """
+        Time the oldest unanswered exchange, once its request is complete.
+        A pipelined exchange isn't timed until those before it are answered.
+        """
+        target = None
+        timeout = self.server.response_timeout
+        if timeout and self.tcp_conn and self.tcp_conn.tcp_connected:
+            for ex in self.ex_queue:
+                if not ex.res_complete:
+                    target = ex if ex.req_complete else None
+                    break
+        if target is self._res_timer_ex:
+            return
+        self._stop_res_timer()
+        if target and timeout:
+            self._res_timer_ex = target
+            self._res_timer = self.server.loop.schedule(timeout, self.close_conn)
 
     def close_conn(self) -> None:
         "Close the connection."
         self._stop_req_timer()
+        self._stop_res_timer()
         if self.tcp_conn and self.tcp_conn.tcp_connected:
             self.tcp_conn.close()
             self.tcp_conn = None
@@ -161,6 +199,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if exchange.req_complete and exchange in self.ex_queue:
             self.ex_queue.remove(exchange)
         self._handle_pending_error()
+        self._update_res_timer()
         if exchange.req_complete and self.tcp_conn:
             if self.is_idle and self.server.shutting_down:
                 self.close_conn()
@@ -208,6 +247,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         "The server connection has closed."
         self.server.connections.discard(self)
         self._stop_req_timer()
+        self._stop_res_timer()
         self.ex_queue = []
         self._pending_error = None
         self.tcp_conn = None
@@ -308,6 +348,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             ex.emit("request_done", trailers)
         if ex.res_complete and ex in self.ex_queue:
             self.ex_queue.remove(ex)
+        self._update_res_timer()
 
     def input_error(self, err: HttpError) -> None:
         """
