@@ -628,6 +628,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 self._output_content_length is not None
                 and self._output_body_sent < self._output_content_length
             ):
+                self._output_state = States.WAITING
                 return True  # incomplete body; the connection can't be reused.
         elif self._output_delimit == Delimiters.CLOSE:
             return True

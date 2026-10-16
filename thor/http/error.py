@@ -51,7 +51,7 @@ class ExtraDataError(HttpError):
 
 
 class OutputError(HttpError):
-    desc = "Too many body bytes sent"
+    desc = "Body length does not match Content-Length"
 
 
 class OutputSyntaxError(OutputError):

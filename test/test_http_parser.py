@@ -979,6 +979,7 @@ Content-Length: %(body_len)i
         self.parser.output_body(b"abc")
         self.assertTrue(self.parser.output_end([]))
         self.assertEqual(done, [])
+        self.assertEqual(self.parser._output_state, States.WAITING)
 
     def test_output_end_complete_counted_body(self):
         done = []

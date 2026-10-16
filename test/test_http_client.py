@@ -150,6 +150,28 @@ class TestHttpClient(framework.ClientServerTestCase):
         with self.assertRaises(thor.http.error.OutputSyntaxError):
             exchange.request_done([])
 
+    def test_request_short_body_reports_error(self):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        client.dead_conn = MagicMock()
+        exchange = client.exchange()
+        errors = []
+        exchange.on("error", errors.append)
+        exchange.request_start(
+            b"POST", b"http://example.com/", [(b"Content-Length", b"10")]
+        )
+        exchange.request_body(b"abc")
+        exchange.request_done([])
+
+        client.dead_conn.assert_called_once_with(conn)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputError)
+
     def test_request_bad_method_output_syntax(self):
         self.check_invalid_request_output(b"GET\r\nX-Injected: yes", [])
 

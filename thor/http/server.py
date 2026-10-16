@@ -25,6 +25,7 @@ from thor.http.common import (
     get_header,
     header_names,
     hop_by_hop_hdrs,
+    no_body_status,
 )
 from thor.http.error import (
     HostRequiredError,
@@ -304,7 +305,14 @@ class HttpServerExchange(EventEmitter):
         except (IndexError, ValueError):
             body_len = None
         if body_len is not None:
-            delimit = Delimiters.COUNTED
+            if (
+                self.method == b"HEAD"
+                or status_code in no_body_status
+                or status_code.startswith(b"1")
+            ):
+                delimit = Delimiters.NOBODY  # Content-Length describes no body
+            else:
+                delimit = Delimiters.COUNTED
             res_hdrs.append((b"Connection", b"keep-alive"))
         elif self.req_version == b"1.1":
             delimit = Delimiters.CHUNKED
