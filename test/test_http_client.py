@@ -735,6 +735,81 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def test_slow_body_not_timed_out(self):
+        # A response that keeps making progress outlives the read timeout.
+        def client_side(client, test_host, test_port):
+            client.connect_timeout = 1
+            client.read_timeout = 1
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange,
+                {
+                    "version": b"1.1",
+                    "status": b"200",
+                    "phrase": b"OK",
+                    "body": b"abcdef",
+                },
+            )
+
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/slow_body" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 6\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            for byte in (b"a", b"b", b"c", b"d", b"e", b"f"):
+                time.sleep(0.4)
+                conn.request.sendall(byte)
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_stalled_body_times_out(self):
+        def client_side(client, test_host, test_port):
+            client.read_timeout = 1
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange, {"error": thor.http.error.ReadTimeoutError}
+            )
+
+            @on(exchange)
+            def error(err):
+                self.assertEqual(err.detail, "read")
+
+            req_uri = b"http://%s:%i/stalled_body" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 6\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"abc"
+            )
+            # Stall until the client gives up and closes the connection.
+            conn.request.settimeout(10.0)
+            try:
+                conn.request.recv(1024)
+            except socket.timeout:
+                pass
+            conn.request.close()
+
+        self.go([server_side], [client_side])
+
     def test_conn_reuse(self):
         self.conn_checked = False
 
