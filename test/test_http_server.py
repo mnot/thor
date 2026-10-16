@@ -1209,6 +1209,96 @@ Content-Length: 5
 
         self.go([server_side], [client_side])
 
+    def test_request_timer_ignores_stray_blank_line(self):
+        for request in [
+            b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 2\r\n\r\nab",
+        ]:
+            for tail in [[b"\r\n"], [b"\n"], [b"", b"\r\n"]]:
+                tcp_conn, server, conn, timers = self.make_timer_conn()
+                for chunk in [request + tail[0]] + tail[1:]:
+                    conn.handle_input(chunk)
+                self.assertTrue(all(t.delete.called for t in timers), (request, tail))
+
+    def test_request_timer_one_timer_for_byte_by_byte_headers(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        for i in range(len(request) - 1):
+            conn.handle_input(request[i : i + 1])
+            self.assertEqual(sum(1 for t in timers if not t.delete.called), 1)
+        conn.handle_input(request[-1:])
+        self.assertTrue(all(t.delete.called for t in timers))
+
+    def test_request_timer_covers_wait_for_100_continue(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n"
+            b"Expect: 100-continue\r\n\r\n"
+        )
+        self.assertEqual([t.delay for t in timers], [server.request_timeout])
+        timers[0].callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_response_timer_not_extended_by_response_start(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        exchanges[0].response_start(b"200", b"OK", [])
+        exchanges[0].response_body(b"partial")
+        self.assertEqual(len(timers), 1)
+        timers[0].delete.assert_not_called()
+        timers[0].callback()
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_response_timer_waits_for_request_start_when_output_paused(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        conn.res_body_pause(True)
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        self.assertEqual(timers, [])
+        conn.res_body_pause(False)
+        self.assertEqual([t.delay for t in timers], [5])
+        self.assertEqual(timers[0].callback, conn.close_conn)
+
+    def test_timeouts_disabled_by_negative_values(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.request_timeout = -1
+        server.response_timeout = -1
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\nGET /2 HT")
+        conn.handle_input(b"TP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n01")
+        self.assertEqual(timers, [])
+
+    def test_response_timeout_cuts_streaming_response(self):
+        def server_side(server):
+            server.response_timeout = 0.2
+
+            @on(server)
+            def exchange(exchange):
+                @on(exchange)
+                def request_start(method, uri, headers):
+                    exchange.response_start(b"200", b"OK", [])
+                    exchange.response_body(b"abc")
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.settimeout(10)
+            client_conn.sendall(
+                b"GET / HTTP/1.1\r\nHost: %s:%i\r\n\r\n" % (test_host, test_port)
+            )
+            data = b""
+            while True:
+                chunk = client_conn.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+            self.assertTrue(data.startswith(b"HTTP/1.1 200 OK"))
+            self.assertNotIn(b"0\r\n\r\n", data)
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
     def test_response_done_close_closes_tcp(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

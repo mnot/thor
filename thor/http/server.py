@@ -131,7 +131,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def _receiving(self) -> bool:
         "Is part of a request body or header block waiting on more data?"
         return self._req_in_progress or (
-            self._input_state == States.WAITING and any(self._input_buffer)
+            self._input_state == States.WAITING
+            and any(chunk.strip() for chunk in self._input_buffer)
         )
 
     def _stop_req_timer(self) -> None:
@@ -142,10 +143,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def _start_req_timer(self) -> None:
         "(Re)start the inactivity timer for the request being received."
         self._stop_req_timer()
-        if self.server.request_timeout and self.tcp_conn and not self._req_paused:
-            self._req_timer = self.server.loop.schedule(
-                self.server.request_timeout, self.close_conn
-            )
+        timeout = self.server.request_timeout
+        if timeout and timeout > 0 and self.tcp_conn and not self._req_paused:
+            self._req_timer = self.server.loop.schedule(timeout, self.close_conn)
 
     def handle_input(self, inbytes: bytes) -> None:
         if self._in_input:  # the parser calls itself for pipelined data
@@ -169,15 +169,16 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def _update_res_timer(self) -> None:
         """
-        Time the oldest unanswered exchange, once its request is complete.
+        Time the oldest unanswered exchange, once its request is complete
+        and the application has been told about it.
         A pipelined exchange isn't timed until those before it are answered.
         """
         target = None
         timeout = self.server.response_timeout
-        if timeout and self.tcp_conn and self.tcp_conn.tcp_connected:
+        if timeout and timeout > 0 and self.tcp_conn and self.tcp_conn.tcp_connected:
             for ex in self.ex_queue:
                 if not ex.res_complete:
-                    target = ex if ex.req_complete else None
+                    target = ex if ex.req_complete and ex.started else None
                     break
         if target is self._res_timer_ex:
             return
@@ -424,6 +425,7 @@ class HttpServerExchange(EventEmitter):
 
     def request_start(self) -> None:
         self.started = True
+        self.http_conn._update_res_timer()  # pylint: disable=protected-access
         self.emit("request_start", self.method, self.uri, self.req_hdrs)
 
     def response_nonfinal(
