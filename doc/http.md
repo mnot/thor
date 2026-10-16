@@ -38,8 +38,6 @@ note that `uri` is a string; if you want to use an IRI, you'll need to convert i
 
 Also, hop-by-hop headers will be stripped from `headers`; Thor manages its own connections headers (such as _Connection_, _Keep-Alive_, and so on.)
 
-Responses to _HEAD_ requests and responses with a 1xx, 204 or 304 status have no body, so Thor adds no framing headers (such as _Transfer-Encoding_) to them. _Content-Length_ is kept for _HEAD_ and 304, and removed for 204 and 1xx.
-
 After calling *request_start*, *request_body* may be called zero or more times, and then *request_done* must be called.
 
 
@@ -147,7 +145,7 @@ Send a non-final (1xx) HTTP response. This can be called zero to many times befo
 
 #### _void_ response\_body ( _bytes_ `chunk` )
 
-Send a `chunk` of response body content. For responses to _HEAD_ requests and responses with a 1xx, 204 or 304 status, `chunk` is silently discarded.
+Send a `chunk` of response body content.
 
 
 #### _void_ response\_done ( _[headers](#headers)_ `trailers` )
