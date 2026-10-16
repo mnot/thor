@@ -996,6 +996,119 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
 
+    def test_idle_timeout_closes_conn(self):
+        "Guards that the server sees EOF after expiry; says nothing about the fd."
+        server_eof = threading.Event()
+        server_done = threading.Event()
+
+        def client_side(client, test_host, test_port):
+            client.idle_timeout = 0.1
+            req_uri = b"http://%s:%i/idle_timeout" % (test_host, test_port)
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"body": b"12345"})
+
+            def wait_for_eof():
+                if server_done.is_set():
+                    self.assertEqual(len(client._idle_conns), 0)
+                    self.assertEqual(len(client.conn_counts), 0)
+                    self.loop.stop()
+                else:
+                    self.loop.schedule(0.05, wait_for_eof)
+
+            @on(exchange)
+            def response_done(trailers):
+                wait_for_eof()
+
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            conn.request.settimeout(3.0)
+            try:
+                while conn.request.recv(8192):
+                    pass
+                server_eof.set()
+            except socket.timeout:
+                pass
+            finally:
+                server_done.set()
+
+        self.go([server_side], [client_side])
+        self.assertTrue(server_eof.is_set())
+
+    def test_idle_timeout_unresponsive_peer(self):
+        """
+        Guards that an expired idle connection is fully closed (a peer that
+        ignores the FIN is reset when it writes) and releases its slot.
+        """
+        release = threading.Event()
+        self.peer_reset = False
+
+        def client_side(client, test_host, test_port):
+            client.idle_timeout = 0.1
+            client.max_server_conn = 1
+            req_uri = b"http://%s:%i/idle_timeout" % (test_host, test_port)
+            exchange1 = client.exchange()
+            self.check_exchange(exchange1, {"body": b"12345"})
+            exchange2 = client.exchange()
+            self.check_exchange(exchange2, {"body": b"12345"})
+
+            def second_request():
+                self.assertEqual(len(client._idle_conns), 0)
+                self.assertEqual(len(client.conn_counts), 0)
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
+
+            @on(exchange1)
+            def response_done(trailers):
+                self.loop.schedule(0.5, second_request)
+
+            @on(exchange2)
+            def response_done(trailers):
+                release.set()
+                self.loop.stop()
+
+            exchange1.request_start(b"GET", req_uri, [])
+            exchange1.request_done([])
+
+        def server_side(conn):
+            self.conn_num += 1
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            if self.conn_num == 1:
+                # Ignore the client closing, then probe whether it's really gone;
+                # a half-closed client would still accept this data.
+                conn.request.settimeout(0.25)
+                try:
+                    while conn.request.recv(8192):
+                        pass
+                    for _ in range(20):
+                        try:
+                            conn.request.sendall(b"x")
+                        except (ConnectionResetError, BrokenPipeError):
+                            self.peer_reset = True
+                            break
+                        time.sleep(0.05)  # give any RST time to arrive
+                except socket.timeout:
+                    pass
+                release.wait(10)
+
+        self.go([server_side], [client_side])
+        self.assertEqual(self.conn_num, 2)
+        self.assertTrue(self.peer_reset)
+
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
 
