@@ -179,6 +179,33 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], thor.http.error.OutputError)
 
+    def check_connected_output_error(self, headers, body, trailers):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        client.dead_conn = MagicMock()
+        exchange = client.exchange()
+        errors = []
+        exchange.on("error", errors.append)
+        exchange.request_start(b"POST", b"http://example.com/", headers)
+        exchange.request_body(body)
+        exchange.request_body(b"more")
+        exchange.request_done(trailers)
+
+        client.dead_conn.assert_called_once_with(conn)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputError)
+
+    def test_request_long_body_reports_error(self):
+        self.check_connected_output_error([(b"Content-Length", b"3")], b"abc", [])
+
+    def test_request_bad_trailer_reports_error(self):
+        self.check_connected_output_error([], b"abc", [(b"X", b"a\r\nb: c")])
+
     def test_request_bad_content_length_output_syntax(self) -> None:
         for value in [b"+5", b"1_0", b"abc", b"", b"\x0c5", b"5\x0b", b"5,5", b"5, 5"]:
             with self.subTest(value=value):

@@ -143,7 +143,11 @@ class HttpClientExchange(EventEmitter):
             else:
                 self._req_body_chunks.append(chunk)
         if self.conn:
-            self.conn.output_body(chunk)
+            try:
+                self.conn.output_body(chunk)
+            except OutputError as why:
+                self.client.dead_conn(self.conn)
+                self.input_error(why)
         else:
             self._output_q.append(("body", chunk))
 
@@ -157,7 +161,11 @@ class HttpClientExchange(EventEmitter):
         if self.conn and self._error_sent:
             return
         if self.conn:
-            self._output_end(trailers)
+            try:
+                self._output_end(trailers)
+            except OutputError as why:
+                self.client.dead_conn(self.conn)
+                self.input_error(why)
         else:
             self._output_q.append(("end", trailers))
 
