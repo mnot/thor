@@ -87,7 +87,7 @@ Creates a new server listening on `host`:`port`. If `loop` is supplied, it will 
 The following settings are available as class variables:
 
 * _thor.TcpServer_ `HttpServer.tcp_server_class` - what to use as a TCP server.
-* _int_ or _None_ `HttpServer.idle_timeout` - how long idle persistent connections are left open, in seconds. Default 60; None to disable.
+* _float_ or _None_ `HttpServer.idle_timeout` - how long idle persistent connections are left open, in seconds. Default 60; None or 0 to disable.
 * _float_ or _None_ `HttpServer.request_timeout` - how long a connection can go without receiving data while a request (its header block or body) is being received, in seconds. This includes a client waiting for a 100 (Continue) response. Default 60; None or 0 to disable.
 * _float_ or _None_ `HttpServer.response_timeout` - how long the application has to complete a response, in seconds, measured from when the request is complete and delivered to the application, or from when earlier responses finish, whichever is later. It is not extended while the response is being sent; when it expires the connection is closed, truncating any partial response. Default None; None or 0 to disable.
 

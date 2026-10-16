@@ -1,5 +1,6 @@
 ##!/usr/bin/env python
 
+import itertools
 import socket
 import sys
 import time
@@ -1197,9 +1198,12 @@ Content-Length: 5
         conn.handle_input(b"GET / HTTP/1.1\r\nHo")
         conn.req_body_pause(True)
         timers[0].delete.assert_called_once()
+        self.assertEqual(timers[1].delay, server.idle_timeout)  # the backstop
         conn.req_body_pause(False)
-        self.assertEqual(len(timers), 2)
-        timers[1].delete.assert_not_called()
+        self.assertEqual(len(timers), 3)
+        timers[1].delete.assert_called_once()
+        timers[2].delete.assert_not_called()
+        self.assertEqual(timers[2].delay, server.request_timeout)
 
     def test_request_timer_partial_headers_not_left_on_closed_connection(self):
         tcp_conn, server, conn, timers = self.make_timer_conn()
@@ -1476,6 +1480,116 @@ Content-Length: 5
                 self.respond(exchanges[0], b"")
                 server.loop.schedule.assert_not_called()
                 self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_idle_timer_backstops_paused_request_with_partial_next_request(self):
+        tcp_conn, server, conn, timers, _ = self.make_idle_conn(sync_paths=[])
+        tcp_conn.pause = lambda paused: None
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_body")
+            def on_body(chunk):
+                conn.req_body_pause(True)
+
+            @on(exchange, "request_done")
+            def on_done(trailers):
+                self.respond(exchange, b"")
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n"
+            b"abcdGET /2 HT"
+        )
+        self.assertEqual(self.live_delays(timers), [server.idle_timeout])
+        conn.req_body_pause(False)
+        self.assertEqual(self.live_delays(timers), [server.request_timeout])
+
+    def test_idle_timer_rearmed_on_unpause_without_request_timeout(self):
+        tcp_conn, server, conn, timers, _ = self.make_idle_conn()
+        tcp_conn.pause = lambda paused: None
+        server.request_timeout = None
+        conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        conn.handle_input(b"GET /2 HTTP/1.1\r\nHo")
+        conn.req_body_pause(True)
+        self.assertEqual(self.live_delays(timers), [server.idle_timeout])
+        conn.req_body_pause(False)
+        self.assertEqual(self.live_delays(timers), [server.idle_timeout])
+
+    def check_timer_invariants(self, server, conn, timers, history):
+        "What an open connection's timers must look like at rest."
+        live = [t for t in timers if not t.delete.called]
+        idle = [t for t in live if t.delay == server.idle_timeout]
+        msg = repr(history)
+        self.assertLessEqual(len(idle), 1, msg)
+        self.assertIs(conn._idler, idle[0] if idle else None, msg)
+        if conn.ex_queue:
+            self.assertEqual(idle, [], msg)
+            return
+        self.assertTrue(live, msg)  # never none while idle
+        if not conn._receiving:  # pylint: disable=protected-access
+            self.assertEqual(live, idle, msg)
+        else:  # idle is only a fallback for the request timer
+            self.assertEqual(len(live), 1, msg)
+
+    def run_timer_sequence(self, request_timeout, requests, history):
+        tcp_conn = FakeTcpConnection()
+        tcp_conn.pause = lambda paused: None
+        server = FakeServer()
+        server.idle_timeout = 7
+        server.request_timeout = request_timeout
+        timers = []
+
+        def schedule(delay, callback, *args):
+            timer = MagicMock()
+            timer.delay = delay
+            timer.callback = callback
+            timers.append(timer)
+            return timer
+
+        server.loop.schedule.side_effect = schedule
+        conn = HttpServerConnection(tcp_conn, server)
+        pending = []
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_start")
+            def on_start(method, uri, headers):
+                if uri == b"/sync":
+                    self.respond(exchange, b"")
+                else:
+                    pending.append(exchange)
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        self.check_timer_invariants(server, conn, timers, ())
+        for i, op in enumerate(history):
+            if op == "answer":
+                if not pending:
+                    continue
+                self.respond(pending.pop(0), b"")
+            elif op in ("pause", "unpause"):
+                conn.req_body_pause(op == "pause")
+            else:
+                conn.handle_input(requests[op])
+            if not tcp_conn.tcp_connected:
+                return
+            self.check_timer_invariants(server, conn, timers, history[: i + 1])
+
+    def test_timers_stay_consistent_over_event_sequences(self):
+        requests = {
+            "sync": b"GET /sync HTTP/1.1\r\nHost: x\r\n\r\n",
+            "async": b"GET /async HTTP/1.1\r\nHost: x\r\n\r\n",
+            "partial": b"GET /sync HTTP/1.1\r\nHo",
+            "rest": b"st: x\r\n\r\n",
+            "post": b"POST /sync HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n01",
+            "body": b"23",
+        }
+        ops = list(requests) + ["answer", "pause", "unpause"]
+        for request_timeout in [30, None]:
+            for length in range(1, 4):
+                for history in itertools.product(ops, repeat=length):
+                    self.run_timer_sequence(request_timeout, requests, history)
 
     def test_idle_timeout_not_applied_to_trickled_request(self):
         def server_side(server):

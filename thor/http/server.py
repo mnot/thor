@@ -125,6 +125,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._stop_req_timer()
         elif self._receiving:
             self._start_req_timer()
+        self._update_idle_timer(restart=False)
 
     @property
     def _receiving(self) -> bool:
@@ -203,11 +204,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         else make sure the idle timer is running (restarting it if asked).
         Either an exchange completing or the request ending can come last, so
         both call this. It waits until the parser has finished with a read,
-        and leaves a partly received request to the request timer.
+        and leaves a partly received request to the request timer, if that's
+        running.
         """
         if not self.tcp_conn or not self.is_idle or self._in_input:
             return
-        if self._receiving and (self._req_timer or self._req_paused):
+        if self._receiving and self._req_timer:
             self._stop_idle_timer()
         elif self.server.shutting_down:
             self.close_conn()
@@ -371,7 +373,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if ex.res_complete and ex in self.ex_queue:
             self.ex_queue.remove(ex)
         self._update_res_timer()
-        self._update_idle_timer()
 
     def input_error(self, err: HttpError) -> None:
         """
