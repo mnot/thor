@@ -997,7 +997,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         # A request body that keeps being written outlives the timeout, even
         # though no response bytes arrive until it is complete.
         def client_side(client, test_host, test_port):
-            client.connect_timeout = 1
+            client.connect_timeout = 1.5
             client.read_timeout = None
             exchange = client.exchange()
             self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
@@ -1006,12 +1006,12 @@ class TestHttpClient(framework.ClientServerTestCase):
             @on(exchange)
             def response_done(trailers):
                 # The upload must have outlasted the timeout to mean anything.
-                self.assertGreater(time.monotonic() - started, 1)
+                self.assertGreater(time.monotonic() - started, 1.5)
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/slow_upload" % (test_host, test_port)
-            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"8")])
-            chunks = [b"a", b"b", b"c", b"d", b"e", b"f", b"g", b"h"]
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"12")])
+            chunks = [b"a"] * 12
 
             def send_chunk() -> None:
                 exchange.request_body(chunks.pop(0))
@@ -1023,7 +1023,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             send_chunk()
 
         def server_side(conn):
-            drain(conn, b"abcdefgh")
+            drain(conn, b"a" * 12)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
                 b"Connection: close\r\n\r\nok"
@@ -1160,12 +1160,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         # A peer that reads slowly but steadily keeps the send making progress,
         # so an upload that outlasts the timeout still completes.
         # The reader takes at most 4 KiB per 25 ms (160 KB/s), so this takes
-        # over three seconds whatever the socket buffer sizes are.
-        total = 16384 * 32
+        # over four seconds whatever the socket buffer sizes are.
+        total = 16384 * 40
         self.small_rcvbuf = True
 
         def client_side(client, test_host, test_port):
-            client.connect_timeout = 2
+            client.connect_timeout = 2.5
             client.read_timeout = None
             exchange = client.exchange()
             self.check_exchange(exchange, {"status": b"200", "body": b"ok"})
@@ -1175,7 +1175,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             @on(exchange)
             def response_done(trailers):
                 # The upload must have outlasted the timeout to mean anything.
-                self.assertGreater(time.monotonic() - started, 2)
+                self.assertGreater(time.monotonic() - started, 2.5)
                 self.loop.stop()
 
             req_uri = b"http://%s:%i/slow_reader" % (test_host, test_port)
