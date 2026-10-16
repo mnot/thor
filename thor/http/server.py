@@ -25,6 +25,7 @@ from thor.http.common import (
     get_header,
     header_names,
     hop_by_hop_hdrs,
+    no_body_status,
 )
 from thor.http.error import (
     HostRequiredError,
@@ -303,7 +304,17 @@ class HttpServerExchange(EventEmitter):
             body_len = int(get_header(res_hdrs, b"content-length").pop(0))
         except (IndexError, ValueError):
             body_len = None
-        if body_len is not None:
+        bodiless = (
+            self.method == b"HEAD"
+            or status_code in no_body_status
+            or status_code.startswith(b"1")
+        )
+        if bodiless:
+            # No body framing; any Content-Length describes the unsent body.
+            delimit = Delimiters.NOBODY
+            if body_len is not None:
+                res_hdrs.append((b"Connection", b"keep-alive"))
+        elif body_len is not None:
             delimit = Delimiters.COUNTED
             res_hdrs.append((b"Connection", b"keep-alive"))
         elif self.req_version == b"1.1":
