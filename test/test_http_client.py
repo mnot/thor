@@ -1010,6 +1010,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.second_request = None
 
         def client_side(client, test_host, test_port):
+            client.retry_delay = 0.01
             if body_limit is not None:
                 client.retry_body_limit = body_limit
             exchange = client.exchange()
@@ -1076,6 +1077,20 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"\r\n\r\na\r\nIMPORTANT \r\n4\r\nDATA\r\n0\r\n\r\n"
             )
         )
+
+    def test_retry_body_not_kept_for_non_idempotent(self):
+        client = HttpClient(loop=MagicMock())
+        client.attach_conn = MagicMock()
+        exchange = client.exchange()
+        exchange.request_start(b"POST", b"http://example.com/", [])
+        exchange.request_body(b"IMPORTANT DATA")
+        self.assertEqual(exchange._req_body_chunks, [])
+
+        # A connect-failure retry leaves the queued body intact.
+        exchange.request_done([])
+        exchange._retry()
+        queued_events = [item[0] for item in exchange._output_q]
+        self.assertEqual(queued_events, ["start", "body", "end"])
 
     def test_req_retry_body_over_limit(self):
         self._retry_body_test(

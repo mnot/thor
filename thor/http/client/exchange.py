@@ -128,7 +128,7 @@ class HttpClientExchange(EventEmitter):
         "Send part of the request body. May be called zero to many times."
         self._req_body = True
         self._req_start()
-        if not self._req_body_overflow:
+        if self.method in idempotent_methods and not self._req_body_overflow:
             self._req_body_len += len(chunk)
             if self._req_body_len > self.client.retry_body_limit:
                 self._req_body_overflow = True
@@ -256,7 +256,9 @@ class HttpClientExchange(EventEmitter):
                 False,
             )
             return
-        if self._req_done_trailers is not None:
+        # Non-idempotent requests are only retried before anything is sent,
+        # when the queue is still intact.
+        if self._req_done_trailers is not None and self.method in idempotent_methods:
             self.conn = None
             self._req_started = False
             self._output_q = []
