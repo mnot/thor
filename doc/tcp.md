@@ -73,6 +73,16 @@ Emitted when the server starts.
 Emitted when a new connection is accepted by the server. 
 
 
+### event 'accept\_paused' ( _int_ `errno` )
+
+Emitted when the server stops accepting connections for `TcpServer.accept_backoff` seconds, as described above. _errno_ is the error number that caused it.
+
+
+### event 'accept\_resumed' ()
+
+Emitted when that period ends and the server resumes accepting connections. It is not emitted if the server has been shut down in the meantime.
+
+
 ### event 'stop' ()
 
 Emitted when the server stops.

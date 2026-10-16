@@ -328,6 +328,8 @@ class TcpServer(EventSource):
 
     Emits:
       - connect (tcp_conn): upon connection
+      - accept_paused (errno): accepting has paused for a backoff period
+      - accept_resumed (): the backoff period has ended
 
     To start listening:
 
@@ -394,7 +396,7 @@ class TcpServer(EventSource):
             if why.errno in self.accept_errs:
                 return
             if why.errno in self.accept_backoff_errs:
-                self._pause_accept()
+                self._pause_accept(why.errno)
                 return
             raise
         conn.setblocking(False)
@@ -408,17 +410,19 @@ class TcpServer(EventSource):
         tcp_conn.on("disconnect", lambda: self._conn_closed(tcp_conn))
         self.emit("connect", tcp_conn)
 
-    def _pause_accept(self) -> None:
+    def _pause_accept(self, err: int) -> None:
         self.event_del("fd_readable")
         if not self._accept_timer:
             self._accept_timer = self.loop.schedule(
                 self.accept_backoff, self._resume_accept
             )
+            self.emit("accept_paused", err)
 
     def _resume_accept(self) -> None:
         self._accept_timer = None
         if self.sock:
             self.event_add("fd_readable")
+            self.emit("accept_resumed")
 
     def _stop_listening(self) -> None:
         self.remove_listeners("fd_readable")
