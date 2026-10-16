@@ -670,6 +670,58 @@ Transfer-Encoding: chunked
             body,
         )
 
+    CHUNKED_MSGS = [
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        b"5\r\nhello\r\n3;ext=1\r\nabc\r\n1\r\n!\r\n0\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        b"4\r\nwxyz\r\n2\r\n\r\n\r\n0\r\nFoo: bar\r\n\r\n",
+    ]
+
+    def parse_split(self, msg, offsets):
+        parser = DummyHttpParser()
+        last = 0
+        for offset in list(offsets) + [len(msg)]:
+            parser.handle_input(msg[last:offset])
+            last = offset
+        return parser
+
+    def check_same_as_unsplit(self, msg, offsets):
+        expected = self.parse_split(msg, [])
+        got = self.parse_split(msg, offsets)
+        self.assertEqual(expected.test_err, None)
+        self.assertEqual(got.test_err, None, offsets)
+        self.assertEqual(expected.test_body, got.test_body, offsets)
+        self.assertEqual(expected.test_trailers, got.test_trailers, offsets)
+        self.assertEqual(
+            expected.input_transfer_length, got.input_transfer_length, offsets
+        )
+        self.assertEqual(expected._input_state, got._input_state, offsets)
+        self.assertEqual(got.test_states.count("END"), 1, offsets)
+        self.assertEqual(got.test_states[-1], "END", offsets)
+
+    def test_chunked_split_every_offset(self):
+        for msg in self.CHUNKED_MSGS:
+            for i in range(1, len(msg)):
+                self.check_same_as_unsplit(msg, [i])
+
+    def test_chunked_split_every_pair_of_offsets(self):
+        for msg in self.CHUNKED_MSGS:
+            for i in range(1, len(msg)):
+                for j in range(i + 1, len(msg)):
+                    self.check_same_as_unsplit(msg, [i, j])
+
+    def test_chunked_split_byte_by_byte(self):
+        for msg in self.CHUNKED_MSGS:
+            self.check_same_as_unsplit(msg, range(1, len(msg)))
+
+    def test_chunk_terminator_cr_split(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r"
+        )
+        self.parser.handle_input(b"\n0\r\n\r\n")
+        self.assertEqual(self.parser.test_body, b"hello")
+        self.assertEqual(self.parser.test_states[-1], "END")
+
     def test_chunk_bad_syntax(self):
         body = b"abc123def456ghi789"
         self.checkSingleMsg(
