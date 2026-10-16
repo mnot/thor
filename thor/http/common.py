@@ -636,7 +636,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             return
         if self._output_state != States.HEADERS_DONE:
             raise error.OutputStateError("HTTP output body before final headers")
-        if self._output_delimit is Delimiters.NONE:
+        if self._output_delimit in (Delimiters.NONE, Delimiters.NOBODY):
             return
         self._output_body_sent += len(chunk)
         if self._output_delimit == Delimiters.COUNTED:
