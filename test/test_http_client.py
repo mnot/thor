@@ -823,6 +823,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             def wait_for_eof():
                 if server_done.is_set():
                     self.assertEqual(len(client._idle_conns), 0)
+                    self.assertEqual(len(client.conn_counts), 0)
                     self.loop.stop()
                 else:
                     self.loop.schedule(0.05, wait_for_eof)
@@ -854,6 +855,52 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
         self.assertTrue(server_eof.is_set())
+
+    def test_idle_timeout_unresponsive_peer(self):
+        "A peer that ignores the close can't hold on to the connection slot."
+        release = threading.Event()
+
+        def client_side(client, test_host, test_port):
+            client.idle_timeout = 0.1
+            client.max_server_conn = 1
+            req_uri = b"http://%s:%i/idle_timeout" % (test_host, test_port)
+            exchange1 = client.exchange()
+            self.check_exchange(exchange1, {"body": b"12345"})
+            exchange2 = client.exchange()
+            self.check_exchange(exchange2, {"body": b"12345"})
+
+            def second_request():
+                self.assertEqual(len(client._idle_conns), 0)
+                self.assertEqual(len(client.conn_counts), 0)
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
+
+            @on(exchange1)
+            def response_done(trailers):
+                self.loop.schedule(0.5, second_request)
+
+            @on(exchange2)
+            def response_done(trailers):
+                release.set()
+                self.loop.stop()
+
+            exchange1.request_start(b"GET", req_uri, [])
+            exchange1.request_done([])
+
+        def server_side(conn):
+            self.conn_num += 1
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            if self.conn_num == 1:
+                release.wait(10)  # ignore the client closing
+
+        self.go([server_side], [client_side])
+        self.assertEqual(self.conn_num, 2)
 
     def test_conn_succeed_then_err(self):
         self.conn_checked = False

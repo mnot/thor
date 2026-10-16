@@ -95,7 +95,10 @@ class HttpClient:
         def idle_expire() -> None:
             "Close the connection once it has been idle too long."
             unpool()
-            conn.close()  # the close event does the rest of the cleanup
+            # abort() emits no 'close', so nothing else will count this connection
+            # as dead, and an unresponsive peer can't hold its slot.
+            conn.tcp_conn.abort()
+            self._conn_is_dead(conn)
 
         if self._req_q[origin]:
             handle_connect = self._req_q[origin].pop(0)[0]
