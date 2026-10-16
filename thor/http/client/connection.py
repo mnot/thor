@@ -68,7 +68,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.tcp_conn.pause(False)
         if self._input_buffer:
             self.handle_input(b"")
-        self.set_timeout(self.client.connect_timeout, "connect")
+        self.set_timeout(self._read_timeout(), "read")
 
     def detach(self) -> None:
         self.last_active_exchange = self.active_exchange
@@ -87,6 +87,11 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._read_timeout_ev = self.client.loop.schedule(
             timeout, self.input_error, error.ReadTimeoutError(kind)
         )
+
+    def _read_timeout(self) -> int:
+        if self.client.read_timeout is not None:
+            return self.client.read_timeout
+        return self.client.connect_timeout
 
     def clear_timeout(self) -> None:
         if self._read_timeout_ev:
@@ -119,6 +124,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     def handle_input(self, inbytes: bytes) -> None:
         if self.active_exchange or not self.reusable:
+            if inbytes and self._read_timeout_ev:
+                # Inactivity timeout: restart whenever data arrives.
+                self.set_timeout(self._read_timeout(), "read")
             HttpMessageHandler.handle_input(self, inbytes)
         else:
             if (
