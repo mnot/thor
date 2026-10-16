@@ -284,6 +284,47 @@ Content-Length: 5
 
         self.go([server_side], [client_side])
 
+    def check_bad_chunked_request(self, body):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n" + body
+        )
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", b"".join(tcp_conn.output))
+
+    def test_bad_chunk_size(self):
+        self.check_bad_chunked_request(b"ZZZ\r\n")
+
+    def test_bad_chunk_terminator(self):
+        self.check_bad_chunked_request(b"3\r\nabcXY0\r\n\r\n")
+
+    def test_bad_chunk_size_real_connection(self):
+        def server_side(server):
+            pass
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                b"POST / HTTP/1.1\r\nHost: %s:%i\r\n"
+                b"Transfer-Encoding: chunked\r\n\r\nZZZ\r\n" % (test_host, test_port)
+            )
+            res = client_conn.recv(1024)
+            self.assertIn(b"HTTP/1.1 400 Bad Request", res)
+            self.loop.stop()
+
+        self.go([server_side], [client_side])
+
+    def test_all_errors_have_server_status(self):
+        for name, cls in vars(thor.http.error).items():
+            if isinstance(cls, type) and issubclass(cls, thor.http.error.HttpError):
+                with self.subTest(name):
+                    status_code, _ = cls().server_status
+                    self.assertTrue(status_code.isdigit())
+
     def test_pipeline_queue_limit(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
