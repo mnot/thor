@@ -60,6 +60,9 @@ For example:
     s.on('connect', handle_conn)
 
 
+If accepting a connection fails because the process is out of file descriptors or memory (`EMFILE`, `ENFILE`, `ENOBUFS` or `ENOMEM`; the set is `TcpServer.accept_backoff_errs`), the server does not fail. It stops accepting for `TcpServer.accept_backoff` seconds (1.0 by default), then resumes. Both can be overridden on the class or an instance.
+
+
 ### event 'start' ()
 
 Emitted when the server starts.

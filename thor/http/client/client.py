@@ -23,6 +23,7 @@ class HttpClient:
         self.read_timeout: Optional[int] = None  # seconds
         self.retry_limit: int = 2
         self.retry_delay: float = 0.5  # seconds
+        self.retry_body_limit: int = 1024 * 1024  # bytes
         self.max_server_conn: int = 6
         self.check_ip: Optional[Callable[[str], bool]] = None
         self.careful: bool = True
@@ -109,15 +110,20 @@ class HttpClient:
         self._conn_is_dead(conn)
 
     def _conn_is_dead(self, conn: HttpClientConnection) -> None:
+        # Several paths can report the same death.
+        if getattr(conn, "_counted_dead", False):
+            return
+        setattr(conn, "_counted_dead", True)
         origin = conn.origin
         assert origin, "origin not found in _conn_is_dead"
-        self.conn_counts[origin] -= 1
-        if self.conn_counts[origin] <= 0:
-            if origin in self.conn_counts:
-                del self.conn_counts[origin]
-            if self._req_q[origin]:
-                handle_connect, handle_connect_error = self._req_q[origin].pop(0)
-                self._new_conn(origin, handle_connect, handle_connect_error)
+        count = self.conn_counts[origin] - 1
+        if count > 0:
+            self.conn_counts[origin] = count
+        else:
+            self.conn_counts.pop(origin, None)
+        if self._req_q[origin] and count < self.max_server_conn:
+            handle_connect, handle_connect_error = self._req_q[origin].pop(0)
+            self._new_conn(origin, handle_connect, handle_connect_error)
 
     def _new_conn(
         self,
