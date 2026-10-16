@@ -52,6 +52,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.tcp_conn.on("data", self._handle_data)
         self.tcp_conn.once("close", self._conn_closed)
         self.tcp_conn.on("pause", self._conn_paused)
+        self.tcp_conn.on("sent", self._restart_timeout)
 
     def attach(self, exchange: HttpClientExchange) -> None:
         self.active_exchange = exchange
@@ -84,13 +85,15 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             self.close()
         self.client.dead_conn(self)
 
-    def set_timeout(self, timeout: float, kind: str) -> None:
+    def set_timeout(self, timeout: Optional[float], kind: str) -> None:
         self.clear_timeout()
+        if timeout is None:
+            return
         self._read_timeout_ev = self.client.loop.schedule(
             timeout, self.input_error, error.ReadTimeoutError(kind)
         )
 
-    def _read_timeout(self) -> int:
+    def _read_timeout(self) -> Optional[float]:
         if self.client.read_timeout is not None:
             return self.client.read_timeout
         return self.client.connect_timeout
@@ -139,10 +142,14 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             if inbytes.strip():
                 self._extra_data(inbytes)
         else:
-            if inbytes and self._read_timeout_ev:
-                # Inactivity timeout: restart whenever data arrives.
-                self.set_timeout(self._read_timeout(), "read")
+            if inbytes:
+                self._restart_timeout()
             HttpMessageHandler.handle_input(self, inbytes)
+
+    def _restart_timeout(self) -> None:
+        "Inactivity timeout: restart on data received or sent, if one is running."
+        if self._read_timeout_ev:
+            self.set_timeout(self._read_timeout(), "read")
 
     def _extra_data(self, inbytes: bytes) -> None:
         "Data arrived when no response is due; the connection can't be trusted."

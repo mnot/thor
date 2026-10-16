@@ -198,6 +198,8 @@ class TcpConnection(EventSource):
                 self._write_buffer = [data[sent:]]
             else:
                 self._write_buffer = []
+            if sent:
+                self.emit("sent")
         if (
             self._output_paused
             and len(self._write_buffer) < self.write_bufsize

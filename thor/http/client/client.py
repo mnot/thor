@@ -19,7 +19,7 @@ class HttpClient:
         self.loop = loop or _loop
         self.idle_timeout: int = 60  # seconds
         self.connect_attempts: int = 3
-        self.connect_timeout: int = 3  # seconds
+        self.connect_timeout: Optional[int] = 3  # seconds
         self.read_timeout: Optional[int] = None  # seconds
         self.retry_limit: int = 2
         self.retry_delay: float = 0.5  # seconds
