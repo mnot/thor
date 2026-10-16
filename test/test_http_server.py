@@ -465,6 +465,52 @@ Content-Length: 5
         self.assertEqual(len(exchanges), 1)
         self.assertTrue(tcp_conn.tcp_connected)
 
+    def check_missing_host_rejected(self, request):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(request)
+
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(exchanges, [])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+        self.assertIn(b"Host header required", output)
+
+    def test_missing_host_http11_rejected(self):
+        self.check_missing_host_rejected(b"GET / HTTP/1.1\r\n\r\n")
+
+    def test_missing_host_http10_rejected(self):
+        self.check_missing_host_rejected(b"GET / HTTP/1.0\r\n\r\n")
+
+    def test_missing_host_after_valid_request_pipelined(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_start")
+            def on_start(method, uri, headers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+
+        conn.handle_input(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\nGET /two HTTP/1.1\r\n\r\n"
+        )
+
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 200 OK", output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+        self.assertLess(output.index(b"200 OK"), output.index(b"400 Bad Request"))
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+
     def test_idle_timer_waits_for_exchange_queue_to_drain(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
