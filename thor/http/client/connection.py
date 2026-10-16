@@ -122,7 +122,12 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.handle_input(inbytes)
 
     def handle_input(self, inbytes: bytes) -> None:
-        if self.reusable and (self._response_ended or not self.active_exchange):
+        if self._response_ended:
+            # Whatever follows a complete response is not a response, even if
+            # the next exchange has already been attached.
+            if inbytes.strip():
+                self._extra_data(inbytes)
+        elif self.reusable and not self.active_exchange:
             # No response is outstanding, so nothing should arrive.
             if inbytes.strip():
                 self._extra_data(inbytes)
@@ -132,11 +137,11 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
     def _extra_data(self, inbytes: bytes) -> None:
         "Data arrived when no response is due; the connection can't be trusted."
         self.reusable = False
+        self._response_ended = False
         self._input_state = States.ERROR
         self._input_buffer = []
-        err = error.ExtraDataError(inbytes.decode("utf-8", "replace"))
         if self.active_exchange:
-            self.input_error(err)
+            self.input_extra_data(inbytes)
         else:
             self.clear_timeout()
             self.client.dead_conn(self)
@@ -204,11 +209,12 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
     def input_end(self, trailers: RawHeaderListType) -> None:
         self.clear_timeout()
         exchange = self.active_exchange
-        if self.reusable:
+        keep = self.reusable
+        if keep:
             self.client.release_conn(self)
         else:
             self.client.dead_conn(self)
-        self._response_ended = True
+        self._response_ended = keep
         if exchange:
             exchange.input_end_notify(trailers)
 

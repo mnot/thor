@@ -781,6 +781,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1.request_done([])
 
         def server_side(conn):
+            drain(conn)
             conn.request.sendall(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
@@ -1098,67 +1099,110 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
-    def test_coalesced_extra(self):
+    def check_injected_response(self, injected, queued):
         """
-        If the server sends a second response in the same read as the first, and
-        the next request is already attached when it is parsed, it must not be
-        treated as the response to that request.
+        The server sends a second, unsolicited response in the same write as the
+        first. It must not be delivered to the next request, and the connection
+        must be dropped. The next request is attached from the first one's
+        response_done handler, or (if queued) by a handoff from the pool.
         """
 
+        test_done = threading.Event()
+
         def client_side(client, test_host, test_port):
+            self.loop.on("stop", test_done.set)
+            client.max_server_conn = 1
             req_uri = b"http://%s:%i/" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {"body": b"12345"})
+            exchange2 = client.exchange()
+            self.check_exchange(exchange2, {"error": thor.http.error.ExtraDataError})
 
-            @on(exchange1)
-            def response_done(trailers):
-                exchange2 = client.exchange()
-                self.check_exchange(
-                    exchange2, {"error": thor.http.error.ExtraDataError}
+            @on(exchange2)
+            def response_start(*args):
+                self.fail(f"Injected response delivered: {args!r}")
+
+            @on(exchange2)
+            def response_body(chunk):
+                self.fail(f"Injected response delivered: {chunk!r}")
+
+            @on(exchange2)
+            def error(err):
+                conn = exchange2.conn
+                self.assertFalse(client._idle_conns)
+                tcp = conn.tcp_conn
+                self.assertTrue(
+                    tcp._closing or tcp._closed_output or not tcp.tcp_connected
                 )
 
-                @on(exchange2)
-                def response_body(chunk):
-                    self.fail(f"Injected response delivered: {chunk!r}")
-
+            def start2():
                 exchange2.request_start(b"GET", req_uri, [])
                 exchange2.request_done([])
 
             exchange1.request_start(b"GET", req_uri, [])
             exchange1.request_done([])
+            # Once the connection exists the second request has to queue for it.
+            event = "response_start" if queued else "response_done"
+            exchange1.on(event, lambda *args: start2())
 
         def server_side(conn):
-            # Send the first response and a complete second one
-            conn.request.sendall(
-                b"HTTP/1.1 200 OK\r\n"
-                b"Content-Type: text/plain\r\n"
-                b"Content-Length: 5\r\n"
-                b"\r\n"
-                b"12345"
-                b"HTTP/1.1 200 OK\r\n"
-                b"Content-Type: text/plain\r\n"
-                b"Content-Length: 6\r\n"
-                b"\r\n"
-                b"POISON"
-            )
             drain(conn)
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n12345" + injected
+            )
+            test_done.wait(30)
             conn.request.close()
 
         self.go([server_side], [client_side])
 
+    def test_coalesced_extra(self):
+        self.check_injected_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nPOISON", False
+        )
+
+    def test_coalesced_extra_nobody(self):
+        self.check_injected_response(b"HTTP/1.1 204 No Content\r\n\r\n", False)
+
+    def test_coalesced_extra_queued(self):
+        self.check_injected_response(
+            b"HTTP/1.1 200 OK\r\nX-Evil: 1\r\nContent-Length: 0\r\n\r\n", True
+        )
+
+    def test_coalesced_extra_queued_nobody(self):
+        self.check_injected_response(b"HTTP/1.1 204 No Content\r\n\r\n", True)
+
     def test_idle_extra_data(self):
         """
-        Data that follows a complete response on a pooled connection must not
-        be buffered and parsed as the response to a later request; the
+        Data that arrives on a pooled connection after a complete response must
+        not be buffered and parsed as the response to a later request; the
         connection is discarded instead.
         """
         self.conn_num = 0
         self.conn_checked = False
+        first_done = threading.Event()
+        test_done = threading.Event()
 
         def client_side(client, test_host, test_port):
+            self.loop.on("stop", test_done.set)
             req_uri = b"http://%s:%i/" % (test_host, test_port)
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {"body": b"A"})
+
+            def start2():
+                exchange2 = client.exchange()
+                self.check_exchange(exchange2, {"body": b"GOOD"})
+
+                @on(exchange2)
+                def response_start(*args):
+                    self.assertNotEqual(self.conn_id, id(exchange2.conn.tcp_conn))
+                    self.conn_checked = True
+
+                @on(exchange2)
+                def response_done(trailers):
+                    self.loop.stop()
+
+                exchange2.request_start(b"GET", req_uri, [])
+                exchange2.request_done([])
 
             @on(exchange1)
             def response_start(*args):
@@ -1166,49 +1210,31 @@ class TestHttpClient(framework.ClientServerTestCase):
 
             @on(exchange1)
             def response_done(trailers):
-                def start2():
-                    exchange2 = client.exchange()
-                    self.check_exchange(exchange2, {"body": b"GOOD"})
-
-                    @on(exchange2)
-                    def response_start(*args):
-                        self.assertNotEqual(self.conn_id, id(exchange2.conn.tcp_conn))
-                        self.conn_checked = True
-
-                    @on(exchange2)
-                    def response_done(trailers):
-                        self.loop.stop()
-
-                    exchange2.request_start(b"GET", req_uri, [])
-                    exchange2.request_done([])
-
-                self.loop.schedule(0.2, start2)
+                # Run after the connection has seen the unsolicited data.
+                exchange1.conn.tcp_conn.once(
+                    "data", lambda _: self.loop.schedule(0, start2)
+                )
+                first_done.set()
 
             exchange1.request_start(b"GET", req_uri, [])
             exchange1.request_done([])
 
         def server_side(conn):
             self.conn_num += 1
+            drain(conn)
             if self.conn_num == 1:
-                drain(conn)
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nA"
                 )
-                time.sleep(0.05)
+                first_done.wait(30)
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nPOISON"
                 )
-                conn.request.settimeout(5.0)
-                try:
-                    conn.request.recv(8192)
-                except socket.timeout:
-                    pass
             else:
-                drain(conn)
                 conn.request.sendall(
                     b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nGOOD"
                 )
-                drain(conn)
+            test_done.wait(30)
             conn.request.close()
 
         self.go([server_side], [client_side])
