@@ -59,6 +59,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._input_state = self.default_state
         self._input_delimit = Delimiters.NONE
         self._input_body_left = 0
+        self._input_chunk_term = None
         self._output_state = States.WAITING
         self._output_delimit = Delimiters.NONE
         # Reset per-message metrics

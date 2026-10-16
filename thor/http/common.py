@@ -123,6 +123,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
         self._input_state = self.default_state
         self._input_delimit: Delimiters = Delimiters.NONE
         self._input_body_left = 0
+        self._input_chunk_term: Optional[bytes] = None  # CRLF bytes seen so far
         self._output_state = States.WAITING
         self._output_delimit: Delimiters = Delimiters.NONE
         self._output_body_sent = 0
@@ -237,7 +238,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
     def _handle_chunked(self, inbytes: bytes) -> None:
         "Handle input where the body is delimited by chunked encoding."
         while inbytes:
-            if self._input_body_left < 0:  # new chunk
+            if self._input_chunk_term is not None:
+                inbytes = self._handle_chunk_term(inbytes)
+            elif self._input_body_left < 0:  # new chunk
                 inbytes = self._handle_chunk_new(inbytes)
             elif self._input_body_left > 0:
                 # we're in the middle of reading a chunk
@@ -274,29 +277,29 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
     def _handle_chunk_body(self, inbytes: bytes) -> bytes:
         "Handle a continuing body chunk."
-        got = len(inbytes)
-        if self._input_body_left + 2 < got:  # got more than the chunk
-            this_chunk = self._input_body_left
-            if not self._check_chunk_terminator(inbytes[this_chunk : this_chunk + 2]):
-                return b""
-            self.input_body(inbytes[:this_chunk])
-            self.input_transfer_length += this_chunk + 2
-            self._input_body_left = -1
-            return inbytes[this_chunk + 2 :]  # +2 consumes the trailing CRLF
-        if self._input_body_left + 2 == got:
-            # got the whole chunk exactly (including CRLF)
-            if not self._check_chunk_terminator(inbytes[-2:]):
-                return b""
-            self.input_body(inbytes[:-2])
-            self.input_transfer_length += self._input_body_left + 2
-            self._input_body_left = -1
-        elif self._input_body_left == got:  # corner case
-            self._input_buffer.append(inbytes)
-        else:  # got partial chunk
-            self.input_body(inbytes)
-            self.input_transfer_length += got
-            self._input_body_left -= got
-        return b""
+        this_chunk = min(len(inbytes), self._input_body_left)
+        # data is delivered before its terminator is checked
+        self.input_body(inbytes[:this_chunk])
+        self.input_transfer_length += this_chunk
+        self._input_body_left -= this_chunk
+        if self._input_body_left == 0:
+            self._input_chunk_term = b""  # now expecting the chunk's CRLF
+        return inbytes[this_chunk:]
+
+    def _handle_chunk_term(self, inbytes: bytes) -> bytes:
+        "Handle the CRLF after chunk data, which may be split across inputs."
+        seen = self._input_chunk_term or b""
+        needed = len(LINESEP) - len(seen)
+        terminator = seen + inbytes[:needed]
+        self.input_transfer_length += min(len(inbytes), needed)
+        if len(terminator) < len(LINESEP):
+            self._input_chunk_term = terminator
+            return b""
+        self._input_chunk_term = None
+        if not self._check_chunk_terminator(terminator):
+            return b""
+        self._input_body_left = -1
+        return inbytes[needed:]
 
     def _check_chunk_terminator(self, terminator: bytes) -> bool:
         "Flag a malformed chunk terminator, optionally continuing in permissive mode."
