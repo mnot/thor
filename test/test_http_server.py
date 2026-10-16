@@ -133,11 +133,16 @@ class TestHttpServer(framework.ClientServerTestCase):
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 GET / HTTP/1.1
 Host: %s:%i
 
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -151,12 +156,17 @@ Host: %s:%i
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 
 GET / HTTP/1.1
 Host: %s:%i\r
 \r
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -170,13 +180,18 @@ Host: %s:%i\r
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
-12345""" % (test_host, test_port)))
+12345"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -190,14 +205,19 @@ Content-Length: 5
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Type: text/plain
 Content-Length: 5
 
 12345
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 
@@ -247,11 +267,21 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 200 OK", self.res)
         self.assertIn(b"hello", self.res)
 
-    def check_bodiless_response(self, method, status, phrase, hdrs, body):
+    def check_bodiless_response(
+        self,
+        method,
+        status,
+        phrase,
+        hdrs,
+        body,
+        req_hdrs=(),
+        req_version=b"1.1",
+        expect_open=True,
+    ):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
         conn = HttpServerConnection(tcp_conn, server)
-        exchange = HttpServerExchange(conn, method, b"/", [], b"1.1")
+        exchange = HttpServerExchange(conn, method, b"/", list(req_hdrs), req_version)
         exchange.req_complete = True
         conn.ex_queue = [exchange]
 
@@ -259,7 +289,7 @@ Content-Length: 5
         exchange.response_body(body)
         exchange.response_done([])
 
-        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertEqual(tcp_conn.tcp_connected, expect_open)
         return b"".join(tcp_conn.output)
 
     def test_204_response_has_no_framing(self):
@@ -292,6 +322,55 @@ Content-Length: 5
         self.assertIn(b"Content-Length: 5\r\n", output)
         self.assertNotIn(b"hello", output)
         self.assertTrue(output.endswith(b"\r\n\r\n"))
+
+    def test_204_response_drops_content_length(self):
+        output = self.check_bodiless_response(
+            b"GET", b"204", b"No Content", [(b"Content-Length", b"5")], b""
+        )
+        self.assertNotIn(b"Content-Length", output)
+
+    def test_1xx_final_response_drops_content_length(self):
+        output = self.check_bodiless_response(
+            b"GET", b"101", b"Switching", [(b"Content-Length", b"5")], b""
+        )
+        self.assertNotIn(b"Content-Length", output)
+        self.assertNotIn(b"Transfer-Encoding", output)
+
+    def test_304_response_keeps_content_length(self):
+        output = self.check_bodiless_response(
+            b"GET", b"304", b"Not Modified", [(b"Content-Length", b"5")], b""
+        )
+        self.assertIn(b"Content-Length: 5\r\n", output)
+
+    def test_http10_bodiless_response_closes(self):
+        for status, phrase, method in [
+            (b"200", b"OK", b"HEAD"),
+            (b"204", b"No Content", b"GET"),
+        ]:
+            output = self.check_bodiless_response(
+                method,
+                status,
+                phrase,
+                [],
+                b"",
+                req_hdrs=[(b"Host", b"example.com")],
+                req_version=b"1.0",
+                expect_open=False,
+            )
+            self.assertIn(b"Connection: close\r\n", output)
+            self.assertNotIn(b"Transfer-Encoding", output)
+
+    def test_http10_bodiless_response_keep_alive(self):
+        output = self.check_bodiless_response(
+            b"HEAD",
+            b"200",
+            b"OK",
+            [(b"Content-Length", b"5")],
+            b"",
+            req_hdrs=[(b"Host", b"example.com"), (b"Connection", b"Keep-Alive")],
+            req_version=b"1.0",
+        )
+        self.assertIn(b"Connection: keep-alive\r\n", output)
 
     def test_bodiless_responses_do_not_corrupt_next_response(self):
         def server_side(server):
@@ -485,12 +564,17 @@ Content-Length: 5
             server.on("exchange", check)
 
         def client_side(client_conn, test_host, test_port):
-            client_conn.sendall(wire(b"""\
+            client_conn.sendall(
+                wire(
+                    b"""\
 POST / HTTP/1.1
 Host: %s:%i
 Content-Length: 0
 
-""" % (test_host, test_port)))
+"""
+                    % (test_host, test_port)
+                )
+            )
             time.sleep(0.1)
             client_conn.close()
 

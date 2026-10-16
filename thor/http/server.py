@@ -272,6 +272,7 @@ class HttpServerExchange(EventEmitter):
         self.started = False
         self.req_complete = False
         self.res_complete = False
+        self.close_after_response = False
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -304,15 +305,27 @@ class HttpServerExchange(EventEmitter):
             body_len = int(get_header(res_hdrs, b"content-length").pop(0))
         except (IndexError, ValueError):
             body_len = None
+        # A final response with a 1xx status is not an interim response; use
+        # response_nonfinal for those.
         bodiless = (
             self.method == b"HEAD"
             or status_code in no_body_status
             or status_code.startswith(b"1")
         )
         if bodiless:
-            # No body framing; any Content-Length describes the unsent body.
+            # No body framing. Content-Length is kept for HEAD and 304 (it
+            # describes the unsent representation) but must not be sent
+            # with 204 or 1xx (RFC 9110 section 8.6).
             delimit = Delimiters.NOBODY
-            if body_len is not None:
+            if status_code == b"204" or status_code.startswith(b"1"):
+                res_hdrs = [i for i in res_hdrs if i[0].lower() != b"content-length"]
+                body_len = None
+            if self.req_version == b"1.0" and b"keep-alive" not in [
+                t.lower() for t in get_header(self.req_hdrs, b"connection")
+            ]:
+                res_hdrs.append((b"Connection", b"close"))
+                self.close_after_response = True
+            elif body_len is not None:
                 res_hdrs.append((b"Connection", b"keep-alive"))
         elif body_len is not None:
             delimit = Delimiters.COUNTED
@@ -344,7 +357,8 @@ class HttpServerExchange(EventEmitter):
         """
         should_close = self.http_conn.output_end(trailers)
         self.http_conn.exchange_done(self)
-        if (should_close or close) and self.http_conn.tcp_conn:
+        close = close or should_close or self.close_after_response
+        if close and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
 
 
