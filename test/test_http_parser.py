@@ -856,6 +856,115 @@ Content-Length: 2abc
             error.MalformedCLError,
         )
 
+    def test_bare_cr_in_field(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"X-Foo: a\rTransfer-Encoding: chunked\r\n"
+            b"Content-Length: 0\r\n"
+            b"\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.BareCRError)
+        self.assertEqual(self.parser.test_states, ["ERROR"])
+
+    def test_bare_cr_in_field_permissive(self):
+        self.parser.careful = False
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"X-Foo: a\rTransfer-Encoding: chunked\r\n"
+            b"Content-Length: 0\r\n"
+            b"\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.BareCRError)
+        self.assertEqual(
+            self.parser.test_hdrs,
+            [
+                (b"X-Foo", b" a Transfer-Encoding: chunked"),
+                (b"Content-Length", b" 0"),
+            ],
+        )
+
+    def test_bare_cr_in_trailers(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"0\r\n"
+            b"X-Foo: a\rX-Bar: b\r\n"
+            b"\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.BareCRError)
+        self.assertNotIn("END", self.parser.test_states)
+
+    def test_cl_lenient_integers(self):
+        for value in [b"1_0", b"+5", b"-0", b"0x5", b"5_", b"\x0c5", b"1.0"]:
+            with self.subTest(value=value):
+                parser = DummyHttpParser()
+                parser.handle_input(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: %s\r\n\r\n0123456789" % value
+                )
+                self.assertIsInstance(parser.test_err, error.MalformedCLError)
+                self.assertEqual(parser.test_states, ["ERROR"])
+
+    def test_cl_digits_ok(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\nContent-Length:  \t010 \r\n\r\n0123456789"
+        )
+        self.assertEqual(self.parser.test_states, ["START", "BODY", "END"])
+        self.assertEqual(self.parser.test_body, b"0123456789")
+
+    def test_chunk_size_lenient_integers(self):
+        for size in [b"0x5", b"+5", b"-5", b" 5", b"\t5", b"5 ", b"5_0", b"", b"5\x0c"]:
+            with self.subTest(size=size):
+                parser = DummyHttpParser()
+                parser.handle_input(
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    + size
+                    + b"\r\nhello\r\n0\r\n\r\n"
+                )
+                self.assertIsInstance(parser.test_err, error.ChunkError)
+                self.assertEqual(parser._input_state, States.ERROR)
+                self.assertEqual(parser.test_body, b"")
+
+    def test_chunk_size_hex_ok(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"0000A\r\n0123456789\r\n0\r\n\r\n"
+        )
+        self.assertEqual(self.parser.test_body, b"0123456789")
+        self.assertEqual(self.parser.test_states[-1], "END")
+
+    def test_chunk_ext_bws(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"5 ;a=b\r\nhello\r\n0\r\n\r\n"
+        )
+        self.assertEqual(self.parser.test_body, b"hello")
+        self.assertEqual(self.parser.test_states[-1], "END")
+
+    def test_te_and_cl(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Length: 5\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.TransferEncodingCLError)
+        self.assertEqual(self.parser.test_states, ["ERROR"])
+
+    def test_te_and_cl_permissive(self):
+        self.parser.careful = False
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Length: 5\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+        )
+        self.assertIsNone(self.parser.test_err)
+        self.assertEqual(self.parser.test_body, b"hello")
+        self.assertEqual(self.parser.test_states[-1], "END")
+
     def test_chunk_ext(self):
         body = b"abc123def456ghi789"
         self.checkSingleMsg(

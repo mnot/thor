@@ -391,6 +391,80 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Too many messages to parse", output)
 
+    def check_bad_request(self, request, exchanges=0):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(request)
+        seen = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(seen), exchanges)
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+
+    def test_request_te_identity(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: identity\r\n"
+            b"\r\n"
+            b"GET /two HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"\r\n"
+        )
+
+    def test_request_te_chunked_not_final(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: chunked, identity\r\n"
+            b"\r\n"
+        )
+
+    def test_request_te_and_cl(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Length: 4\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"0\r\n\r\n"
+        )
+
+    def test_request_bare_cr(self):
+        self.check_bad_request(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"X-Foo: a\rTransfer-Encoding: chunked\r\n"
+            b"\r\n"
+        )
+
+    def test_request_bad_chunk_size(self):
+        for size in [b"0x5", b"+5", b" 5", b"5_0"]:
+            with self.subTest(size=size):
+                self.check_bad_request(
+                    b"POST /one HTTP/1.1\r\n"
+                    b"Host: example.com\r\n"
+                    b"Transfer-Encoding: chunked\r\n"
+                    b"\r\n" + size + b"\r\nhello\r\n0\r\n\r\n",
+                    exchanges=1,
+                )
+
+    def test_request_te_chunked(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: identity, chunked\r\n"
+            b"\r\n"
+            b"0\r\n\r\n"
+        )
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        self.assertTrue(tcp_conn.tcp_connected)
+
     def test_idle_timer_waits_for_exchange_queue_to_drain(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
