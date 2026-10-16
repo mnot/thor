@@ -97,6 +97,13 @@ class TestDns(unittest.TestCase):
         self.loop.run()
         self.assert_ran_in_loop_thread()
 
+    def test_bad_idna(self):
+        # Passes URL parsing, but is not decodable as IDNA; no query is made.
+        self.expect(1)
+        lookup(self.loop, b"xn--a.example", 80, socket.SOCK_STREAM, self.check_gai_error)
+        self.loop.run()
+        self.assert_ran_in_loop_thread()
+
 
 if __name__ == "__main__":
     unittest.main()

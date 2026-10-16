@@ -438,6 +438,30 @@ class TestHttpClient(framework.ClientServerTestCase):
         exchange.request_start(b"GET", req_uri, [])
         exchange.request_done([])
 
+    def test_conn_bad_idna_err(self):
+        client = HttpClient(loop=self.loop)
+        exchange = client.exchange()
+
+        errors = []
+
+        @on(exchange)
+        def error(err_msg):
+            errors.append(err_msg)
+            self.loop.stop()
+
+        def do_timeout():
+            self.timeout_hit = True
+            self.loop.stop()
+
+        # Passes URL parsing, but the lookup cannot decode it; no query is made.
+        req_uri = b"http://xn--a.example/bad_idna"
+        exchange.request_start(b"GET", req_uri, [])
+        exchange.request_done([])
+        self.loop.schedule(5, do_timeout)
+        self.loop.run()
+        self.assertFalse(self.timeout_hit)
+        self.assertEqual([e.__class__ for e in errors], [thor.http.error.DnsError])
+
     def test_url_unsupported_scheme(self):
         client = HttpClient(loop=self.loop)
         exchange = client.exchange()
