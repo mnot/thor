@@ -278,6 +278,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
     def _handle_chunk_body(self, inbytes: bytes) -> bytes:
         "Handle a continuing body chunk."
         this_chunk = min(len(inbytes), self._input_body_left)
+        # data is delivered before its terminator is checked
         self.input_body(inbytes[:this_chunk])
         self.input_transfer_length += this_chunk
         self._input_body_left -= this_chunk
@@ -287,13 +288,14 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
     def _handle_chunk_term(self, inbytes: bytes) -> bytes:
         "Handle the CRLF after chunk data, which may be split across inputs."
-        assert self._input_chunk_term is not None
-        needed = len(LINESEP) - len(self._input_chunk_term)
-        self._input_chunk_term += inbytes[:needed]
+        seen = self._input_chunk_term or b""
+        needed = len(LINESEP) - len(seen)
+        terminator = seen + inbytes[:needed]
         self.input_transfer_length += min(len(inbytes), needed)
-        if len(self._input_chunk_term) < len(LINESEP):
+        if len(terminator) < len(LINESEP):
+            self._input_chunk_term = terminator
             return b""
-        terminator, self._input_chunk_term = self._input_chunk_term, None
+        self._input_chunk_term = None
         if not self._check_chunk_terminator(terminator):
             return b""
         self._input_body_left = -1

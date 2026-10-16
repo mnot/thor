@@ -770,6 +770,10 @@ Transfer-Encoding: chunked
             body,
             error.ChunkTerminatorError,
         )
+        # chunk data is delivered before its terminator is checked
+        self.assertEqual(self.parser.test_body, body)
+        self.assertEqual(self.parser.test_states, ["START", "BODY", "ERROR"])
+        self.assertEqual(self.parser._input_state, States.ERROR)
 
     def test_chunk_bad_terminator_permissive(self):
         body = b"abc123def456ghi789"
