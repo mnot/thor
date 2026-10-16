@@ -236,6 +236,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.emit("error", err)
         else:
             self._input_state = States.ERROR
+            if self._output_state != States.WAITING or any(
+                ex.res_complete for ex in self.ex_queue
+            ):
+                # a response is under way or already sent; can't send another
+                self.close_conn()
+                return
             status_code, status_phrase = err.server_status
             hdrs = [(b"Content-Type", b"text/plain")]
             body = err.desc.encode("utf-8")

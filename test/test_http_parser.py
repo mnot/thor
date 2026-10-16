@@ -3,6 +3,7 @@
 
 import sys
 import unittest
+from typing import List, Tuple
 
 from framework import DummyHttpParser
 from thor.http.common import Delimiters, States
@@ -670,6 +671,58 @@ Transfer-Encoding: chunked
             body,
         )
 
+    CHUNKED_MSGS = [
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        b"5\r\nhello\r\n3;ext=1\r\nabc\r\n1\r\n!\r\n0\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        b"4\r\nwxyz\r\n2\r\n\r\n\r\n0\r\nFoo: bar\r\n\r\n",
+    ]
+
+    def parse_split(self, msg, offsets):
+        parser = DummyHttpParser()
+        last = 0
+        for offset in list(offsets) + [len(msg)]:
+            parser.handle_input(msg[last:offset])
+            last = offset
+        return parser
+
+    def check_same_as_unsplit(self, msg, offsets):
+        expected = self.parse_split(msg, [])
+        got = self.parse_split(msg, offsets)
+        self.assertEqual(expected.test_err, None)
+        self.assertEqual(got.test_err, None, offsets)
+        self.assertEqual(expected.test_body, got.test_body, offsets)
+        self.assertEqual(expected.test_trailers, got.test_trailers, offsets)
+        self.assertEqual(
+            expected.input_transfer_length, got.input_transfer_length, offsets
+        )
+        self.assertEqual(expected._input_state, got._input_state, offsets)
+        self.assertEqual(got.test_states.count("END"), 1, offsets)
+        self.assertEqual(got.test_states[-1], "END", offsets)
+
+    def test_chunked_split_every_offset(self):
+        for msg in self.CHUNKED_MSGS:
+            for i in range(1, len(msg)):
+                self.check_same_as_unsplit(msg, [i])
+
+    def test_chunked_split_every_pair_of_offsets(self):
+        for msg in self.CHUNKED_MSGS:
+            for i in range(1, len(msg)):
+                for j in range(i + 1, len(msg)):
+                    self.check_same_as_unsplit(msg, [i, j])
+
+    def test_chunked_split_byte_by_byte(self):
+        for msg in self.CHUNKED_MSGS:
+            self.check_same_as_unsplit(msg, range(1, len(msg)))
+
+    def test_chunk_terminator_cr_split(self):
+        self.parser.handle_input(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r"
+        )
+        self.parser.handle_input(b"\n0\r\n\r\n")
+        self.assertEqual(self.parser.test_body, b"hello")
+        self.assertEqual(self.parser.test_states[-1], "END")
+
     def test_chunk_bad_syntax(self):
         body = b"abc123def456ghi789"
         self.checkSingleMsg(
@@ -718,6 +771,10 @@ Transfer-Encoding: chunked
             body,
             error.ChunkTerminatorError,
         )
+        # chunk data is delivered before its terminator is checked
+        self.assertEqual(self.parser.test_body, body)
+        self.assertEqual(self.parser.test_states, ["START", "BODY", "ERROR"])
+        self.assertEqual(self.parser._input_state, States.ERROR)
 
     def test_chunk_bad_terminator_permissive(self):
         body = b"abc123def456ghi789"
@@ -1031,6 +1088,37 @@ Content-Length: %(body_len)i
         )
         with self.assertRaises(error.OutputSyntaxError):
             self.parser.output_end([(b"X-Test", b"ok\r\nX-Injected: yes")])
+
+    def check_chunked_roundtrip(
+        self, trailers: List[Tuple[bytes, bytes]], expected_tail: bytes
+    ) -> None:
+        written: List[bytes] = []
+        writer = DummyHttpParser()
+        writer.output = written.append  # type: ignore[method-assign]
+        writer.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Transfer-Encoding", b"chunked")],
+            Delimiters.CHUNKED,
+        )
+        writer.output_body(b"hi")
+        writer.output_end(trailers)
+        wire_bytes = b"".join(written)
+        self.assertTrue(wire_bytes.endswith(expected_tail), wire_bytes)
+
+        self.parser.handle_input(wire_bytes)
+        self.assertEqual(self.parser.test_states, ["START", "BODY", "END"])
+        self.assertEqual(self.parser.test_body, b"hi")
+        self.assertEqual(
+            self.parser.test_trailers, [(k, b" " + v) for k, v in trailers]
+        )
+
+    def test_output_end_trailers(self) -> None:
+        self.check_chunked_roundtrip(
+            [(b"X-T", b"1"), (b"X-U", b"2")], b"0\r\nX-T: 1\r\nX-U: 2\r\n\r\n"
+        )
+
+    def test_output_end_no_trailers(self) -> None:
+        self.check_chunked_roundtrip([], b"2\r\nhi\r\n0\r\n\r\n")
 
     def test_output_body_before_start(self):
         with self.assertRaises(error.OutputStateError):
