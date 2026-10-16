@@ -3,6 +3,7 @@
 
 import sys
 import unittest
+from typing import List, Tuple
 
 from framework import DummyHttpParser
 from thor.http.common import Delimiters, States
@@ -922,6 +923,37 @@ Content-Length: %(body_len)i
         )
         with self.assertRaises(error.OutputSyntaxError):
             self.parser.output_end([(b"X-Test", b"ok\r\nX-Injected: yes")])
+
+    def check_chunked_roundtrip(
+        self, trailers: List[Tuple[bytes, bytes]], expected_tail: bytes
+    ) -> None:
+        written: List[bytes] = []
+        writer = DummyHttpParser()
+        writer.output = written.append  # type: ignore[method-assign]
+        writer.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Transfer-Encoding", b"chunked")],
+            Delimiters.CHUNKED,
+        )
+        writer.output_body(b"hi")
+        writer.output_end(trailers)
+        wire_bytes = b"".join(written)
+        self.assertTrue(wire_bytes.endswith(expected_tail), wire_bytes)
+
+        self.parser.handle_input(wire_bytes)
+        self.assertEqual(self.parser.test_states, ["START", "BODY", "END"])
+        self.assertEqual(self.parser.test_body, b"hi")
+        self.assertEqual(
+            self.parser.test_trailers, [(k, b" " + v) for k, v in trailers]
+        )
+
+    def test_output_end_trailers(self) -> None:
+        self.check_chunked_roundtrip(
+            [(b"X-T", b"1"), (b"X-U", b"2")], b"0\r\nX-T: 1\r\nX-U: 2\r\n\r\n"
+        )
+
+    def test_output_end_no_trailers(self) -> None:
+        self.check_chunked_roundtrip([], b"2\r\nhi\r\n0\r\n\r\n")
 
     def test_output_body_before_start(self):
         with self.assertRaises(error.OutputStateError):
