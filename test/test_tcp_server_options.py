@@ -195,7 +195,6 @@ class TestTcpServerOptions(unittest.TestCase):
                 mock_loop.event_add.assert_not_called()
                 self.assertNotIn("fd_readable", server.interesting_events())
 
-
     def test_accept_paused_emitted_once_with_errno(self):
         for err in [errno.EMFILE, errno.EPERM]:
             with self.subTest(err=err):
