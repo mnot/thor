@@ -103,6 +103,54 @@ class TestTcpServerOptions(unittest.TestCase):
         with self.assertRaises(OSError):
             server.handle_accept()
 
+    def make_exhausted_server(self, err):
+        mock_sock = MagicMock()
+        mock_sock.fileno.return_value = 17
+        mock_sock.accept.side_effect = OSError(err, os.strerror(err))
+        mock_loop = MagicMock()
+        server = TcpServer(b"localhost", 1234, sock=mock_sock, loop=mock_loop)
+        mock_loop.reset_mock()
+        return server, mock_sock, mock_loop
+
+    def test_handle_accept_survives_resource_exhaustion(self):
+        for err in [errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM]:
+            with self.subTest(err=err):
+                server, _, mock_loop = self.make_exhausted_server(err)
+
+                server.handle_accept()
+
+                # stops watching the listener, and schedules a retry
+                mock_loop.event_del.assert_called_once_with(17, "fd_readable")
+                self.assertEqual(mock_loop.schedule.call_count, 1)
+                self.assertGreater(mock_loop.schedule.call_args[0][0], 0)
+                self.assertNotIn("fd_readable", server.interesting_events())
+                self.assertIsNotNone(server.sock)
+
+    def test_accept_resumes_after_backoff(self):
+        server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+        server.handle_accept()
+        resume = mock_loop.schedule.call_args[0][1]
+
+        resume()
+
+        mock_loop.event_add.assert_called_once_with(17, "fd_readable")
+        self.assertIn("fd_readable", server.interesting_events())
+
+    def test_shutdown_during_accept_backoff_does_not_resume(self):
+        for method in ["shutdown", "graceful_shutdown"]:
+            with self.subTest(method=method):
+                server, _, mock_loop = self.make_exhausted_server(errno.EMFILE)
+                server.handle_accept()
+                timer = mock_loop.schedule.return_value
+                resume = mock_loop.schedule.call_args[0][1]
+
+                getattr(server, method)()
+                timer.delete.assert_called_once_with()
+                resume()  # even if the timer had already fired
+
+                mock_loop.event_add.assert_not_called()
+                self.assertNotIn("fd_readable", server.interesting_events())
+
 
 if __name__ == "__main__":
     unittest.main()
