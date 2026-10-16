@@ -78,24 +78,31 @@ class HttpClient:
         origin = conn.origin
         assert origin, "origin not found in release_conn"
 
+        def unpool() -> None:
+            idle = self._idle_conns.get(origin)  # avoid defaultdict's auto-create
+            if idle and conn in idle:
+                idle.remove(conn)
+                if not idle:
+                    del self._idle_conns[origin]
+
         def idle_close() -> None:
             "Remove the connection from the pool when it closes."
             if conn.idler:
                 conn.idler.delete()
             self._conn_is_dead(conn)
-            try:
-                self._idle_conns[origin].remove(conn)
-                if not self._idle_conns[origin]:
-                    del self._idle_conns[origin]
-            except (KeyError, ValueError):
-                pass
+            unpool()
+
+        def idle_expire() -> None:
+            "Close the connection once it has been idle too long."
+            unpool()
+            conn.close()  # the close event does the rest of the cleanup
 
         if self._req_q[origin]:
             handle_connect = self._req_q[origin].pop(0)[0]
             handle_connect(conn)
         elif self.idle_timeout > 0:
             conn.once("close", idle_close)
-            conn.idler = self.loop.schedule(self.idle_timeout, idle_close)
+            conn.idler = self.loop.schedule(self.idle_timeout, idle_expire)
             self._idle_conns[origin].append(conn)
         else:
             conn.close()

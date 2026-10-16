@@ -810,6 +810,51 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.go([server_side], [client_side])
         self.assertTrue(self.conn_checked)
 
+    def test_idle_timeout_closes_conn(self):
+        server_eof = threading.Event()
+        server_done = threading.Event()
+
+        def client_side(client, test_host, test_port):
+            client.idle_timeout = 0.1
+            req_uri = b"http://%s:%i/idle_timeout" % (test_host, test_port)
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"body": b"12345"})
+
+            def wait_for_eof():
+                if server_done.is_set():
+                    self.assertEqual(len(client._idle_conns), 0)
+                    self.loop.stop()
+                else:
+                    self.loop.schedule(0.05, wait_for_eof)
+
+            @on(exchange)
+            def response_done(trailers):
+                wait_for_eof()
+
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Content-Length: 5\r\n"
+                b"\r\n"
+                b"12345"
+            )
+            conn.request.settimeout(3.0)
+            try:
+                while conn.request.recv(8192):
+                    pass
+                server_eof.set()
+            except socket.timeout:
+                pass
+            finally:
+                server_done.set()
+
+        self.go([server_side], [client_side])
+        self.assertTrue(server_eof.is_set())
+
     def test_conn_succeed_then_err(self):
         self.conn_checked = False
 
