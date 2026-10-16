@@ -957,6 +957,72 @@ Content-Length: 5
             b"keep-alive",
         )
 
+    def test_short_counted_response_closes_connection(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+        exchange.req_complete = True
+        conn.ex_queue = [exchange]
+
+        exchange.response_start(b"200", b"OK", [(b"Content-Length", b"5")])
+        exchange.response_body(b"abc")
+        exchange.response_done([])
+
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def check_bodiless_pipeline(self, method, status, phrase):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        def handle_exchange(exchange):
+            @on(exchange, "request_done")
+            def on_done(trailers):
+                if exchange.uri == b"/one":
+                    exchange.response_start(
+                        status, phrase, [(b"Content-Length", b"10")]
+                    )
+                else:
+                    exchange.response_start(b"200", b"OK", [(b"Content-Length", b"2")])
+                    exchange.response_body(b"ok")
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+
+        conn.handle_input(
+            b"%s /one HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n" % method
+        )
+
+        self.assertTrue(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 %s %s" % (status, phrase), output)
+        self.assertTrue(output.endswith(b"ok"), output)
+
+    def test_head_response_with_content_length_keeps_connection(self):
+        self.check_bodiless_pipeline(b"HEAD", b"200", b"OK")
+
+    def test_head_response_body_is_not_sent(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"HEAD", b"/", [], b"1.1")
+        exchange.req_complete = True
+        conn.ex_queue = [exchange]
+
+        exchange.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
+        exchange.response_body(b"abcdefgh")
+        exchange.response_done([])
+
+        self.assertNotIn(b"abcdefgh", b"".join(tcp_conn.output))
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_304_response_with_content_length_keeps_connection(self):
+        self.check_bodiless_pipeline(b"GET", b"304", b"Not Modified")
+
     def test_early_response_drops_remaining_body(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

@@ -150,6 +150,28 @@ class TestHttpClient(framework.ClientServerTestCase):
         with self.assertRaises(thor.http.error.OutputSyntaxError):
             exchange.request_done([])
 
+    def test_request_short_body_reports_error(self):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        client.dead_conn = MagicMock()
+        exchange = client.exchange()
+        errors = []
+        exchange.on("error", errors.append)
+        exchange.request_start(
+            b"POST", b"http://example.com/", [(b"Content-Length", b"10")]
+        )
+        exchange.request_body(b"abc")
+        exchange.request_done([])
+
+        client.dead_conn.assert_called_once_with(conn)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputError)
+
     def test_request_bad_method_output_syntax(self):
         self.check_invalid_request_output(b"GET\r\nX-Injected: yes", [])
 
@@ -401,6 +423,51 @@ class TestHttpClient(framework.ClientServerTestCase):
                 b"12345"
             )
             conn.request.close()
+
+        self.go([server_side], [client_side])
+
+    def test_queued_long_body_reports_error(self):
+        server_state = {"conns": 0, "data": b"", "eof": threading.Event()}
+
+        def server_side(conn):
+            server_state["conns"] += 1
+            conn.request.settimeout(10.0)
+            try:
+                while True:
+                    chunk = conn.request.recv(1024)
+                    if not chunk:
+                        break
+                    server_state["data"] += chunk
+            except socket.timeout:
+                pass
+            server_state["eof"].set()
+
+        def client_side(client, test_host, test_port):
+            errors = []
+            exchange = client.exchange()
+
+            @on(exchange)
+            def error(err_msg):
+                errors.append(err_msg)
+
+            @on(exchange)
+            def response_start(*args):
+                errors.append("unexpected response")
+
+            def check():
+                self.assertTrue(server_state["eof"].wait(5))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIsInstance(errors[0], thor.http.error.OutputError)
+                self.assertEqual(client.conn_counts, {})
+                self.assertEqual(server_state["conns"], 1)
+                self.assertTrue(server_state["data"].endswith(b"\r\n\r\n"))
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/queued" % (test_host, test_port)
+            exchange.request_start(b"POST", req_uri, [(b"Content-Length", b"10")])
+            exchange.request_body(b"x" * 20)
+            exchange.request_done([])
+            self.loop.schedule(0.5, check)
 
         self.go([server_side], [client_side])
 

@@ -640,12 +640,13 @@ class HttpMessageHandler(metaclass=ABCMeta):
             raise error.OutputStateError("HTTP output body before final headers")
         if self._output_delimit in (Delimiters.NONE, Delimiters.NOBODY):
             return
+        if (
+            self._output_delimit == Delimiters.COUNTED
+            and self._output_content_length is not None
+            and self._output_body_sent + len(chunk) > self._output_content_length
+        ):
+            raise error.OutputError("Too many body bytes sent")
         self._output_body_sent += len(chunk)
-        if self._output_delimit == Delimiters.COUNTED:
-            assert (
-                self._output_content_length is None
-                or self._output_body_sent <= self._output_content_length
-            ), "Too many body bytes sent"
         if self._output_delimit == Delimiters.CHUNKED:
             chunk = b"%s\r\n%s\r\n" % (hex(len(chunk))[2:].encode("ascii"), chunk)
         self.output(chunk)
@@ -666,7 +667,12 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 % b"".join([b"%s: %s\r\n" % (k.strip(), v) for k, v in trailers])
             )
         elif self._output_delimit == Delimiters.COUNTED:
-            pass
+            if (
+                self._output_content_length is not None
+                and self._output_body_sent < self._output_content_length
+            ):
+                self._output_state = States.WAITING
+                return True  # incomplete body; the connection can't be reused.
         elif self._output_delimit == Delimiters.CLOSE:
             return True
         elif self._output_delimit is Delimiters.NONE:

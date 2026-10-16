@@ -14,6 +14,7 @@ from thor.http.error import (
     ConnectError,
     DnsError,
     HttpError,
+    OutputError,
     UrlError,
 )
 from thor.http.uri import parse_uri
@@ -148,11 +149,16 @@ class HttpClientExchange(EventEmitter):
         self._req_done_trailers = trailers
         self._req_start()
         if self.conn:
-            close = self.conn.output_end(trailers)
-            if close:
-                self.client.dead_conn(self.conn)
+            self._output_end(trailers)
         else:
             self._output_q.append(("end", trailers))
+
+    def _output_end(self, trailers: RawHeaderListType) -> None:
+        "Finish the request; a close here means the body was shorter than declared."
+        assert self.conn, "conn not found in _output_end"
+        if self.conn.output_end(trailers):
+            self.client.dead_conn(self.conn)
+            self.input_error(OutputError("Request body shorter than Content-Length"))
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
@@ -177,16 +183,18 @@ class HttpClientExchange(EventEmitter):
         "The connection has succeeded."
         self.conn = conn
         self.conn.attach(self)
-        for item in self._output_q:
-            if item[0] == "start":
-                self.conn.output_start(*item[1:])
-            elif item[0] == "body":
-                self.conn.output_body(*item[1:])
-            elif item[0] == "end":
-                close = self.conn.output_end(*item[1:])
-                if close:
-                    self.client.dead_conn(self.conn)
-        self._output_q = []
+        queued, self._output_q = self._output_q, []
+        try:
+            for item in queued:
+                if item[0] == "start":
+                    self.conn.output_start(*item[1:])
+                elif item[0] == "body":
+                    self.conn.output_body(*item[1:])
+                elif item[0] == "end":
+                    self._output_end(*item[1:])
+        except OutputError as why:
+            self.client.dead_conn(self.conn)
+            self.input_error(why)
 
     def handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."
