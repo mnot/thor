@@ -120,16 +120,16 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
-        if exchange.req_complete:
-            if exchange in self.ex_queue:
-                self.ex_queue.remove(exchange)
+        if exchange.req_complete and exchange in self.ex_queue:
+            self.ex_queue.remove(exchange)
+        self._handle_pending_error()
+        if exchange.req_complete and self.tcp_conn:
             if self.is_idle and self.server.shutting_down:
                 self.close_conn()
             elif self.is_idle:
                 self._idler = self.server.loop.schedule(
                     self.server.idle_timeout, self.close_conn
                 )
-        self._handle_pending_error()
 
     def _handle_pending_error(self) -> None:
         """
@@ -277,9 +277,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if err.detail:
             body += b" (%s)" % err.detail.encode("utf-8")
         ex = HttpServerExchange(self, b"", b"", [], b"1.1")
-        ex.response_start(status_code, status_phrase, hdrs)
-        ex.response_body(body)
-        ex.response_done([])
+        try:
+            ex.response_start(status_code, status_phrase, hdrs)
+            ex.response_body(body)
+            ex.response_done([])
+        except (BufferError, OSError):
+            pass  # can't deliver it; just make sure the connection goes away
         self.ex_queue.append(ex)
         self.close_conn()
 

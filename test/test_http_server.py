@@ -450,6 +450,8 @@ Content-Length: 5
         )
         exchanges = [args[0] for event, args in server.events if event == "exchange"]
         self.assertEqual(len(exchanges), 2)
+        server.loop.schedule.reset_mock()
+        self.fake_server = server
         return tcp_conn, conn, exchanges
 
     def test_pipelined_error_follows_all_earlier_responses(self):
@@ -469,6 +471,23 @@ Content-Length: 5
         self.assertLess(output.index(b"two"), output.index(b"HTTP/1.1 505"))
         self.assertEqual(output.count(b"HTTP/1.1 "), 3)
         self.assertFalse(tcp_conn.tcp_connected)
+        self.fake_server.loop.schedule.assert_not_called()  # no stale idle timer
+
+    def test_pipelined_error_write_failure_closes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        conn.handle_input(b"GET /three HTTP/1.2\r\nHost: example.com\r\n\r\n")
+        self.respond(first, b"one")
+
+        def fail(data):
+            raise BufferError("full")
+
+        second.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
+        second.response_body(b"two")
+        tcp_conn.write = fail
+        second.response_done([])  # the error write fails; nothing escapes
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIsNone(conn.tcp_conn)
 
     def test_pipelined_error_waits_for_second_response_in_progress(self):
         tcp_conn, conn, (first, second) = self.pipelined_two_conn()
@@ -514,6 +533,7 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
 
     def test_body_error_in_flight_response_started_closes(self):
+        # pins behaviour preserved from main, not the fix
         tcp_conn, conn, (first, second) = self.start_pipelined_post()
         self.respond(first, b"one")
         second.response_start(b"200", b"OK", [])
@@ -554,6 +574,7 @@ Content-Length: 5
         self.assertNotIn(b"505", b"".join(tcp_conn.output))
 
     def test_pipelined_error_discarded_if_connection_closes(self):
+        # pins behaviour preserved from main, not the fix
         tcp_conn, conn, first = self.pipelined_conn()
         first.response_start(b"200", b"OK", [])
 
@@ -566,6 +587,7 @@ Content-Length: 5
         self.assertNotIn(b"505", b"".join(tcp_conn.output))
 
     def test_pipelined_error_not_sent_after_closing_response(self):
+        # pins behaviour preserved from main, not the fix
         tcp_conn, conn, first = self.pipelined_conn()
         first.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
 
@@ -576,6 +598,7 @@ Content-Length: 5
         self.assertNotIn(b"505", b"".join(tcp_conn.output))
 
     def test_trailer_error_in_flight_exchange_responds_and_closes(self):
+        # pins behaviour preserved from main, not the fix
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
         conn = HttpServerConnection(tcp_conn, server)
