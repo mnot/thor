@@ -1618,7 +1618,6 @@ Content-Length: 0
         self.go([server_side], [client_side])
         self.assertTrue(self.exchange_handled)
 
-
     def make_pipeline_conn(self, on_start):
         """
         A connection with output paused and three pipelined requests queued.
