@@ -129,15 +129,33 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
                 self._idler = self.server.loop.schedule(
                     self.server.idle_timeout, self.close_conn
                 )
+        self._handle_pending_error()
 
-    def _send_pending_error(self) -> None:
-        "Send the deferred error response, once the response in progress is done."
-        if self._pending_error and self._output_state == States.WAITING:
-            err, self._pending_error = self._pending_error, None
-            if any(ex.res_complete for ex in self.ex_queue):
-                self.close_conn()  # the request in error was already answered
-            else:
-                self._send_error(err)
+    def _handle_pending_error(self) -> None:
+        """
+        Act on a deferred input error once every earlier exchange has been
+        answered, so responses stay in request order.
+        """
+        err = self._pending_error
+        if err is None:
+            return
+        if not self.tcp_conn:
+            self._pending_error = None
+            return
+        in_flight = self.ex_queue[-1] if self.ex_queue else None
+        if in_flight and in_flight.req_complete:
+            in_flight = None  # the bad request hasn't been queued as an exchange
+        earlier = self.ex_queue[:-1] if in_flight else self.ex_queue
+        if not all(ex.res_complete for ex in earlier):
+            return
+        self._pending_error = None
+        if in_flight and (
+            in_flight.res_complete or self._output_state != States.WAITING
+        ):
+            # its response is under way or sent; a second can't follow it
+            self.close_conn()
+        else:
+            self._send_error(err)
 
     # Methods called by tcp
 
@@ -247,19 +265,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.emit("error", err)
         else:
             self._input_state = States.ERROR
-            if self._pending_error:
-                return
-            if any(ex.res_complete for ex in self.ex_queue):
-                # the request in error has already been answered; a second
-                # response can't follow it
-                self.close_conn()
-                return
-            if self._output_state == States.WAITING:
-                self._send_error(err)
-            else:
-                # a response is part-way out (an earlier exchange's, or this
-                # one's); wait for its response_done rather than interleave.
+            if self._pending_error is None:
                 self._pending_error = err
+                self._handle_pending_error()
 
     def _send_error(self, err: HttpError) -> None:
         "Send an error response for an unrecoverable error, then close."
@@ -368,11 +376,9 @@ class HttpServerExchange(EventEmitter):
         regardless of response framing.
         """
         should_close = self.http_conn.output_end(trailers)
-        self.http_conn.exchange_done(self)
         if (should_close or close) and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
-        else:
-            self.http_conn._send_pending_error()  # pylint: disable=protected-access
+        self.http_conn.exchange_done(self)
 
 
 def test_handler(ex: HttpServerExchange) -> None:  # pragma: no cover
