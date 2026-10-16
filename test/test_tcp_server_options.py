@@ -93,6 +93,36 @@ class TestTcpServerOptions(unittest.TestCase):
 
                 self.assertEqual(connects, [])
 
+    def test_handle_accept_ignores_network_accept_errors(self):
+        names = [
+            "EPROTO",
+            "ENETDOWN",
+            "ENOPROTOOPT",
+            "EHOSTDOWN",
+            "ENONET",
+            "EHOSTUNREACH",
+            "EOPNOTSUPP",
+            "ENETUNREACH",
+            "ETIMEDOUT",
+            "EPERM",
+        ]
+        for name in names:
+            err = getattr(errno, name, None)
+            if err is None:
+                continue
+            with self.subTest(err=name):
+                mock_sock = MagicMock()
+                mock_sock.fileno.return_value = 17
+                mock_sock.accept.side_effect = OSError(err, os.strerror(err))
+                mock_loop = MagicMock()
+                server = TcpServer(b"localhost", 1234, sock=mock_sock, loop=mock_loop)
+                connects = []
+                server.on("connect", connects.append)
+
+                server.handle_accept()
+
+                self.assertEqual(connects, [])
+
     def test_handle_accept_reraises_unexpected_accept_errors(self):
         mock_sock = MagicMock()
         mock_sock.fileno.return_value = 17

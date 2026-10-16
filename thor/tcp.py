@@ -332,7 +332,33 @@ class TcpServer(EventSource):
     conn_handler is called every time a new client connects.
     """
 
-    accept_errs = {errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR, errno.ECONNABORTED}
+    # Failures of the pending connection itself (see accept(2)); not all errnos
+    # exist on every platform.
+    accept_errs = {
+        err
+        for err in (
+            errno.EAGAIN,
+            errno.EWOULDBLOCK,
+            errno.EINTR,
+            errno.ECONNABORTED,
+            *(
+                getattr(errno, name, None)
+                for name in (
+                    "EPROTO",
+                    "ENETDOWN",
+                    "ENOPROTOOPT",
+                    "EHOSTDOWN",
+                    "ENONET",
+                    "EHOSTUNREACH",
+                    "EOPNOTSUPP",
+                    "ENETUNREACH",
+                    "ETIMEDOUT",
+                    "EPERM",
+                )
+            ),
+        )
+        if err is not None
+    }
     # Resource exhaustion; the pending connection stays queued, so the listener
     # stays readable. Stop watching it for accept_backoff seconds, then retry.
     accept_backoff_errs = {errno.EMFILE, errno.ENFILE, errno.ENOBUFS, errno.ENOMEM}
