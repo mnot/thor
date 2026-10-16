@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import logging
 import socket
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
 
 POOL_SIZE = 10
 
+_log = logging.getLogger(__name__)
+
 
 def lookup(
     loop: "LoopBase", host: bytes, port: int, proto: int, cb: Callable[..., None]
@@ -30,7 +33,8 @@ def lookup(
         try:
             result: Union[DnsResultList, Exception] = ff.result()
         except Exception as why:  # pylint: disable=broad-exception-caught
-            result = socket.gaierror(1, str(why))
+            _log.exception("Unexpected exception in DNS lookup")
+            result = socket.gaierror(1, f"{type(why).__name__}: {why}")
         loop.run_in_loop(cb, result)
 
     job.add_done_callback(done)
