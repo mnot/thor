@@ -25,6 +25,7 @@ _BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
 _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
+_MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
 
 class Delimiters(Enum):
@@ -66,6 +67,36 @@ def parse_uint(value: bytes, base: int = 10) -> int:
     if not (_HEX_DIGITS if base == 16 else _DIGITS).fullmatch(value):
         raise ValueError(value)
     return int(value, base)
+
+
+def parse_content_length(value: bytes) -> int:
+    "Strictly parse a Content-Length value, ignoring surrounding SP / HTAB."
+    return parse_uint(value.strip(b" \t"))
+
+
+def output_content_length(hdr_tuples: RawHeaderListType) -> Optional[int]:
+    """
+    Return the Content-Length of an outgoing message, or None if it has none.
+    Raises OutputSyntaxError if a value isn't strictly valid (as on input), or
+    if multiple Content-Length lines disagree.
+    """
+    lengths = set()
+    for name, value in hdr_tuples:
+        if name.strip().lower() != b"content-length":
+            continue
+        if len(value.strip(b" \t")) > _MAX_OUTPUT_CL_DIGITS:
+            raise error.OutputSyntaxError(
+                f"Content-Length longer than {_MAX_OUTPUT_CL_DIGITS} digits"
+            )
+        try:
+            lengths.add(parse_content_length(value))
+        except ValueError:
+            raise error.OutputSyntaxError(
+                f"Invalid Content-Length {value[:32]!r}"
+            ) from None
+    if len(lengths) > 1:
+        raise error.OutputSyntaxError("Conflicting Content-Length values")
+    return lengths.pop() if lengths else None
 
 
 def header_names(hdr_tuples: RawHeaderListType) -> Set[bytes]:
@@ -438,10 +469,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
             elif f_name == b"transfer-encoding":
                 transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
             elif f_name == b"content-length":
-                cl_val = fv.strip(b" \t")
                 if content_length is not None:
                     try:
-                        if parse_uint(cl_val) == content_length:
+                        if parse_content_length(fv) == content_length:
                             # we have a duplicate, non-conflicting c-l.
                             continue
                     except ValueError:
@@ -450,7 +480,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
                     if self.careful:
                         raise ValueError
                 try:
-                    content_length = parse_uint(cl_val)
+                    content_length = parse_content_length(fv)
                 except ValueError:
                     self.input_error(
                         error.MalformedCLError(f_val.decode("utf-8", "replace"))
@@ -611,16 +641,12 @@ class HttpMessageHandler(metaclass=ABCMeta):
             raise error.OutputStateError("HTTP output already started")
         self._check_output_line(top_line, "start line")
         self._check_output_headers(hdr_tuples)
+        content_length = output_content_length(hdr_tuples)
         self._output_delimit = delimit
         self._output_body_sent = 0
         self._output_content_length = None
         if delimit == Delimiters.COUNTED:
-            try:
-                self._output_content_length = int(
-                    get_header(hdr_tuples, b"content-length").pop(0)
-                )
-            except (IndexError, ValueError):
-                pass
+            self._output_content_length = content_length
         out = [top_line]
         out.extend([b"%s: %s" % (k.strip(), v) for k, v in hdr_tuples])
         out.extend([b"", b""])
