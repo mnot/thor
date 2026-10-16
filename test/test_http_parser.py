@@ -955,6 +955,44 @@ Content-Length: %(body_len)i
             self.parser.output_body(b"body")
 
 
+    def test_output_body_too_long(self):
+        sent = []
+        self.parser.output = sent.append
+        self.parser.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Content-Length", b"3")],
+            Delimiters.COUNTED,
+        )
+        sent.clear()
+        with self.assertRaises(error.OutputError):
+            self.parser.output_body(b"abcd")
+        self.assertEqual(sent, [])
+
+    def test_output_end_short_counted_body(self):
+        done = []
+        self.parser.output_done = lambda: done.append(True)
+        self.parser.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Content-Length", b"5")],
+            Delimiters.COUNTED,
+        )
+        self.parser.output_body(b"abc")
+        self.assertTrue(self.parser.output_end([]))
+        self.assertEqual(done, [])
+
+    def test_output_end_complete_counted_body(self):
+        done = []
+        self.parser.output_done = lambda: done.append(True)
+        self.parser.output_start(
+            b"HTTP/1.1 200 OK",
+            [(b"Content-Length", b"3")],
+            Delimiters.COUNTED,
+        )
+        self.parser.output_body(b"abc")
+        self.assertFalse(self.parser.output_end([]))
+        self.assertEqual(done, [True])
+
+
 #    def test_nobody_delimit(self):
 #    def test_pipeline_nobody(self):
 #    def test_chunked_then_length(self):
