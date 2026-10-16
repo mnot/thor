@@ -46,6 +46,7 @@ class FakeServer:
         self.loop = MagicMock()
         self.loop.schedule.return_value = MagicMock()
         self.events = []
+        self.connections = set()
 
     def emit(self, event, *args):
         self.events.append((event, args))
@@ -545,12 +546,234 @@ Content-Length: 5
             b"\r\n"
         )
 
-        self.assertFalse(tcp_conn.tcp_connected)
-        exchanges = [event for event, args in server.events if event == "exchange"]
+        exchanges = [args[0] for event, args in server.events if event == "exchange"]
         self.assertEqual(len(exchanges), 1)
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.respond(exchanges[0], b"one")
+        self.assertFalse(tcp_conn.tcp_connected)
         output = b"".join(tcp_conn.output)
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertIn(b"Too many messages to parse", output)
+
+    def pipelined_conn(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        exchanges = [args[0] for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        return tcp_conn, conn, exchanges[0]
+
+    def test_pipelined_error_waits_for_response_in_progress(self):
+        tcp_conn, conn, first = self.pipelined_conn()
+        first.response_start(b"200", b"OK", [])
+        first.response_body(b"one")
+
+        conn.handle_input(b"GET /two HTTP/1.2\r\nHost: example.com\r\n\r\n")
+
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+        first.response_done([])
+
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"HTTP/1.1 200 OK"), output.index(b"HTTP/1.1 505"))
+        self.assertIn(b"one", output.split(b"HTTP/1.1 505")[0])
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def respond(self, exchange, body, **kwargs):
+        exchange.response_start(
+            b"200", b"OK", [(b"Content-Length", b"%i" % len(body))]
+        )
+        exchange.response_body(body)
+        exchange.response_done([], **kwargs)
+
+    def test_pipelined_error_waits_for_unanswered_exchange(self):
+        tcp_conn, conn, first = self.pipelined_conn()
+
+        conn.handle_input(b"GET /two HTTP/1.2\r\nHost: example.com\r\n\r\n")
+
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(first, b"one")
+
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"one"), output.index(b"HTTP/1.1 505"))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def pipelined_two_conn(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        )
+        exchanges = [args[0] for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 2)
+        server.loop.schedule.reset_mock()
+        self.fake_server = server
+        return tcp_conn, conn, exchanges
+
+    def test_pipelined_error_follows_all_earlier_responses(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        conn.handle_input(b"GET /three HTTP/1.2\r\nHost: example.com\r\n\r\n")
+        self.assertEqual(tcp_conn.output, [])
+
+        self.respond(first, b"one")
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+        self.respond(second, b"two")
+
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"one"), output.index(b"two"))
+        self.assertLess(output.index(b"two"), output.index(b"HTTP/1.1 505"))
+        self.assertEqual(output.count(b"HTTP/1.1 "), 3)
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.fake_server.loop.schedule.assert_not_called()  # no stale idle timer
+
+    def test_pipelined_error_write_failure_closes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        conn.handle_input(b"GET /three HTTP/1.2\r\nHost: example.com\r\n\r\n")
+        self.respond(first, b"one")
+
+        def fail(data):
+            raise BufferError("full")
+
+        second.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
+        second.response_body(b"two")
+        tcp_conn.write = fail
+        second.response_done([])  # the error write fails; nothing escapes
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIsNone(conn.tcp_conn)
+
+    def test_pipelined_error_waits_for_second_response_in_progress(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        first.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
+        first.response_body(b"one")
+
+        conn.handle_input(b"GET /three HTTP/1.2\r\nHost: example.com\r\n\r\n")
+        first.response_done([])
+
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+        self.respond(second, b"two")
+
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"two"), output.index(b"HTTP/1.1 505"))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def start_pipelined_post(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            b"POST /two HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n"
+        )
+        exchanges = [args[0] for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 2)
+        return tcp_conn, conn, exchanges
+
+    def test_body_error_waits_for_earlier_exchange(self):
+        tcp_conn, conn, (first, second) = self.start_pipelined_post()
+
+        conn.handle_input(b"ZZZ\r\n")
+
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(first, b"one")
+
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"one"), output.index(b"HTTP/1.1 400"))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_body_error_in_flight_response_started_closes(self):
+        # pins behaviour preserved from main, not the fix
+        tcp_conn, conn, (first, second) = self.start_pipelined_post()
+        self.respond(first, b"one")
+        second.response_start(b"200", b"OK", [])
+        second.response_body(b"two")
+
+        conn.handle_input(b"ZZZ\r\n")
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertNotIn(b"400", b"".join(tcp_conn.output))
+
+    def test_request_done_only_app_gets_error_on_body_error(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        done = []
+
+        def handle(event, *args):
+            if event == "exchange":
+                args[0].on("request_done", lambda trailers: done.append(1))
+
+        server.emit = handle
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n3\r\nabc\r\nZZZ\r\n"
+        )
+
+        self.assertEqual(done, [])
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", b"".join(tcp_conn.output))
+
+    def test_pipelined_error_drops_when_response_closes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        conn.handle_input(b"GET /three HTTP/1.2\r\nHost: example.com\r\n\r\n")
+
+        self.respond(first, b"one", close=True)
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+    def test_pipelined_error_discarded_if_connection_closes(self):
+        # pins behaviour preserved from main, not the fix
+        tcp_conn, conn, first = self.pipelined_conn()
+        first.response_start(b"200", b"OK", [])
+
+        conn.handle_input(b"GET /two HTTP/1.2\r\nHost: example.com\r\n\r\n")
+        conn.conn_closed()
+        output_len = len(tcp_conn.output)
+        first.response_done([])
+
+        self.assertEqual(len(tcp_conn.output), output_len)
+        self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+    def test_pipelined_error_not_sent_after_closing_response(self):
+        # pins behaviour preserved from main, not the fix
+        tcp_conn, conn, first = self.pipelined_conn()
+        first.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+
+        conn.handle_input(b"GET /two HTTP/1.2\r\nHost: example.com\r\n\r\n")
+        first.response_done([], close=True)
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertNotIn(b"505", b"".join(tcp_conn.output))
+
+    def test_trailer_error_in_flight_exchange_responds_and_closes(self):
+        # pins behaviour preserved from main, not the fix
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+            b"3\r\nabc\r\n0\r\nbad trailer\r\n\r\n"
+        )
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", b"".join(tcp_conn.output))
 
     def check_bad_request(self, request, exchanges=0):
         tcp_conn = FakeTcpConnection()

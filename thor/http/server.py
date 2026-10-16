@@ -97,6 +97,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.server = server
         self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
         self.output_paused = False
+        self._pending_error: Optional[HttpError] = None  # deferred error
         self._idler: Optional[ScheduledEvent] = self.server.loop.schedule(
             self.server.idle_timeout, self.close_conn
         )
@@ -157,15 +158,42 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
-        if exchange.req_complete:
-            if exchange in self.ex_queue:
-                self.ex_queue.remove(exchange)
+        if exchange.req_complete and exchange in self.ex_queue:
+            self.ex_queue.remove(exchange)
+        self._handle_pending_error()
+        if exchange.req_complete and self.tcp_conn:
             if self.is_idle and self.server.shutting_down:
                 self.close_conn()
             elif self.is_idle:
                 self._idler = self.server.loop.schedule(
                     self.server.idle_timeout, self.close_conn
                 )
+
+    def _handle_pending_error(self) -> None:
+        """
+        Act on a deferred input error once every earlier exchange has been
+        answered, so responses stay in request order.
+        """
+        err = self._pending_error
+        if err is None:
+            return
+        if not self.tcp_conn:
+            self._pending_error = None
+            return
+        in_flight = self.ex_queue[-1] if self.ex_queue else None
+        if in_flight and in_flight.req_complete:
+            in_flight = None  # the bad request hasn't been queued as an exchange
+        earlier = self.ex_queue[:-1] if in_flight else self.ex_queue
+        if not all(ex.res_complete for ex in earlier):
+            return
+        self._pending_error = None
+        if in_flight and (
+            in_flight.res_complete or self._output_state != States.WAITING
+        ):
+            # its response is under way or sent; a second can't follow it
+            self.close_conn()
+        else:
+            self._send_error(err)
 
     # Methods called by tcp
 
@@ -181,6 +209,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.server.connections.discard(self)
         self._stop_req_timer()
         self.ex_queue = []
+        self._pending_error = None
         self.tcp_conn = None
 
     # Methods called by common.HttpRequestHandler
@@ -289,23 +318,26 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.emit("error", err)
         else:
             self._input_state = States.ERROR
-            if self._output_state != States.WAITING or any(
-                ex.res_complete for ex in self.ex_queue
-            ):
-                # a response is under way or already sent; can't send another
-                self.close_conn()
-                return
-            status_code, status_phrase = err.server_status
-            hdrs = [(b"Content-Type", b"text/plain")]
-            body = err.desc.encode("utf-8")
-            if err.detail:
-                body += b" (%s)" % err.detail.encode("utf-8")
-            ex = HttpServerExchange(self, b"", b"", [], b"1.1")
+            if self._pending_error is None:
+                self._pending_error = err
+                self._handle_pending_error()
+
+    def _send_error(self, err: HttpError) -> None:
+        "Send an error response for an unrecoverable error, then close."
+        status_code, status_phrase = err.server_status
+        hdrs = [(b"Content-Type", b"text/plain")]
+        body = err.desc.encode("utf-8")
+        if err.detail:
+            body += b" (%s)" % err.detail.encode("utf-8")
+        ex = HttpServerExchange(self, b"", b"", [], b"1.1")
+        try:
             ex.response_start(status_code, status_phrase, hdrs)
             ex.response_body(body)
             ex.response_done([])
-            self.ex_queue.append(ex)
-            self.close_conn()
+        except (BufferError, OSError):
+            pass  # can't deliver it; just make sure the connection goes away
+        self.ex_queue.append(ex)
+        self.close_conn()
 
     def drain_exchange_queue(self) -> None:
         """
@@ -418,9 +450,9 @@ class HttpServerExchange(EventEmitter):
         regardless of response framing.
         """
         should_close = self.http_conn.output_end(trailers)
-        self.http_conn.exchange_done(self)
         if (should_close or close or not self.persistent) and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
+        self.http_conn.exchange_done(self)
 
 
 def test_handler(ex: HttpServerExchange) -> None:  # pragma: no cover
