@@ -24,6 +24,18 @@ class CapturingHttpParser(DummyHttpParser):
         self.written.append(data)
 
 
+class NonFinalParser(DummyHttpParser):
+    "Treats every message as an interim (1xx-style) message."
+
+    def input_start(
+        self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length
+    ):
+        DummyHttpParser.input_start(
+            self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length
+        )
+        return True, False
+
+
 class TestHttpParser(unittest.TestCase):
     def setUp(self):
         self.parser = DummyHttpParser()
@@ -1279,6 +1291,12 @@ Content-Length: %(body_len)i
         self.parser.output_body(b"abc")
         self.assertFalse(self.parser.output_end([]))
         self.assertEqual(done, [True])
+
+    def test_too_many_messages_in_one_read(self):
+        parser = NonFinalParser()
+        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * (sys.getrecursionlimit() * 5))
+        self.assertIsInstance(parser.test_err, error.TooManyMsgsError)
+        self.assertEqual(parser.test_states.count("ERROR"), 1)
 
 
 #    def test_nobody_delimit(self):

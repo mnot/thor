@@ -822,6 +822,42 @@ Content-Length: 5
         output = b"".join(tcp_conn.output)
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
 
+    def check_listener_runtime_error(self, event):
+        """
+        A RuntimeError raised by a request listener must propagate to the caller
+        of handle_input, not be turned into a 400 response. The body arrives in
+        the same read as the headers.
+        """
+
+        class ListeningServer(FakeServer):
+            def emit(self, event_name, *args):
+                super().emit(event_name, *args)
+                if event_name == "exchange":
+
+                    def boom(*boom_args):
+                        raise RuntimeError("listener bug")
+
+                    args[0].on(event, boom)
+
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, ListeningServer())
+        with self.assertRaisesRegex(RuntimeError, "listener bug"):
+            conn.handle_input(
+                b"POST /one HTTP/1.1\r\n"
+                b"Host: example.com\r\n"
+                b"Content-Length: 2\r\n"
+                b"\r\n"
+                b"hi"
+            )
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertEqual(tcp_conn.output, [])
+
+    def test_request_body_listener_runtime_error(self):
+        self.check_listener_runtime_error("request_body")
+
+    def test_request_done_listener_runtime_error(self):
+        self.check_listener_runtime_error("request_done")
+
     def test_request_te_identity(self):
         self.check_bad_request(
             b"POST /one HTTP/1.1\r\n"

@@ -1439,6 +1439,45 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def _listener_runtime_error(self, event):
+        """
+        A RuntimeError raised by a response listener must reach the caller of
+        loop.run(), not be turned into an error on the exchange. The body
+        arrives in the same read as the headers.
+        """
+        errors = []
+
+        def client_side(client, test_host, test_port):
+            exchange = client.exchange()
+
+            def boom(*args):
+                raise RuntimeError("listener bug")
+
+            exchange.on(event, boom)
+            exchange.on("error", lambda err: (errors.append(err), self.loop.stop()))
+            exchange.on("response_done", lambda trailers: self.loop.stop())
+            req_uri = b"http://%s:%i/listener" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                b"Connection: close\r\n\r\nhi"
+            )
+            conn.request.close()
+
+        with self.assertRaisesRegex(RuntimeError, "listener bug"):
+            self.go([server_side], [client_side])
+        self.assertEqual(errors, [])
+
+    def test_response_body_listener_runtime_error(self):
+        self._listener_runtime_error("response_body")
+
+    def test_response_done_listener_runtime_error(self):
+        self._listener_runtime_error("response_done")
+
     def test_no_timeouts_schedules_nothing(self):
         client = HttpClient(loop=MagicMock())
         client.connect_timeout = None

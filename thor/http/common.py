@@ -245,9 +245,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 if self._parse_headers(headers):
                     try:
                         self.handle_input(rest)
-                    except RuntimeError:
-                        self.input_error(error.TooManyMsgsError())
+                    except RecursionError:
+                        # too many messages in one read to handle recursively;
                         # we can't recover from this, so we bail.
+                        self.input_error(error.TooManyMsgsError())
             else:  # partial headers; store it and wait for more
                 if len(inbytes) > self.max_input_field_section_length:
                     self._input_state = States.ERROR
