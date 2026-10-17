@@ -942,6 +942,79 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def _close_delimited(self, version, status, phrase, chunks, body):
+        "A response with no Content-Length or chunking; the body ends at close."
+
+        def client_side(client, test_host, test_port):
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange,
+                {
+                    "version": version,
+                    "status": status,
+                    "phrase": phrase,
+                    "body": body,
+                },
+            )
+
+            @on(exchange)
+            def response_done(trailers):
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/close_delimited" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            for chunk in chunks:
+                conn.request.sendall(chunk)
+                time.sleep(0.05)
+            conn.request.close()
+
+        # Fail fast: without the fix, nothing ever stops the loop.
+        self.go([server_side], [client_side], timeout=5)
+
+    def test_close_delimited_body(self):
+        self._close_delimited(
+            b"1.1",
+            b"200",
+            b"OK",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
+            b"hello",
+        )
+
+    def test_close_delimited_body_http10(self):
+        self._close_delimited(
+            b"1.0",
+            b"200",
+            b"OK",
+            [b"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nhello"],
+            b"hello",
+        )
+
+    def test_close_delimited_body_multiple_chunks(self):
+        self._close_delimited(
+            b"1.1",
+            b"200",
+            b"OK",
+            [
+                b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhel",
+                b"lo, ",
+                b"world",
+            ],
+            b"hello, world",
+        )
+
+    def test_close_delimited_empty_body(self):
+        self._close_delimited(
+            b"1.1",
+            b"200",
+            b"OK",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"],
+            b"",
+        )
+
     def test_slow_body_not_timed_out(self):
         self.check_slow_body(read_timeout=1.5)
 

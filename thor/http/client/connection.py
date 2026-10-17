@@ -225,7 +225,8 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         self.clear_timeout()
-        exchange = self.active_exchange
+        # A close-delimited body ends in _conn_closed, after dead_conn has detached.
+        exchange = self.active_exchange or self.last_active_exchange
         keep = self.reusable
         if keep:
             self.client.release_conn(self)
