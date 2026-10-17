@@ -942,44 +942,63 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
-    def _close_delimited(self, version, status, phrase, chunks, body):
-        "A response with no Content-Length or chunking; the body ends at close."
+    def _close_delimited(self, version, chunks, body, requests=1):
+        """
+        A 200 response with no Content-Length or chunking; the body ends at close.
+
+        Sends `requests` sequential requests with max_server_conn = 1, so each
+        needs the slot freed by the previous close-delimited connection.
+        """
+        done = []
 
         def client_side(client, test_host, test_port):
-            exchange = client.exchange()
-            self.check_exchange(
-                exchange,
-                {
-                    "version": version,
-                    "status": status,
-                    "phrase": phrase,
-                    "body": body,
-                },
-            )
-
-            @on(exchange)
-            def response_done(trailers):
-                self.loop.stop()
-
+            client.max_server_conn = 1
             req_uri = b"http://%s:%i/close_delimited" % (test_host, test_port)
-            exchange.request_start(b"GET", req_uri, [])
-            exchange.request_done([])
+
+            def send():
+                exchange = client.exchange()
+                self.check_exchange(
+                    exchange,
+                    {
+                        "version": version,
+                        "status": b"200",
+                        "phrase": b"OK",
+                        "body": body,
+                    },
+                )
+
+                @on(exchange)
+                def response_done(trailers):
+                    done.append(exchange)
+                    self.assertEqual(client.conn_counts, {})
+                    # The fallback for later callbacks must survive dead_conn.
+                    self.assertIs(exchange.conn.last_active_exchange, exchange)
+                    if len(done) == requests:
+                        self.loop.stop()
+                    else:
+                        send()
+
+                exchange.request_start(b"GET", req_uri, [])
+                exchange.request_done([])
+
+            send()
 
         def server_side(conn):
             drain(conn)
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
+                if i:
+                    time.sleep(0.05)
                 conn.request.sendall(chunk)
-                time.sleep(0.05)
             conn.request.close()
 
         # Fail fast: without the fix, nothing ever stops the loop.
         self.go([server_side], [client_side], timeout=5)
+        self.assertEqual(len(done), requests)
+        self.assertEqual(len(set(done)), requests)  # each completed once
 
     def test_close_delimited_body(self):
         self._close_delimited(
             b"1.1",
-            b"200",
-            b"OK",
             [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
             b"hello",
         )
@@ -987,8 +1006,6 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_close_delimited_body_http10(self):
         self._close_delimited(
             b"1.0",
-            b"200",
-            b"OK",
             [b"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nhello"],
             b"hello",
         )
@@ -996,8 +1013,6 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_close_delimited_body_multiple_chunks(self):
         self._close_delimited(
             b"1.1",
-            b"200",
-            b"OK",
             [
                 b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhel",
                 b"lo, ",
@@ -1009,11 +1024,52 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_close_delimited_empty_body(self):
         self._close_delimited(
             b"1.1",
-            b"200",
-            b"OK",
             [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"],
             b"",
         )
+
+    def test_close_delimited_body_sequential(self):
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
+            b"hello",
+            requests=3,
+        )
+
+    def test_close_delimited_stalled_body_times_out(self):
+        def client_side(client, test_host, test_port):
+            client.read_timeout = 1
+            exchange = client.exchange()
+            self.check_exchange(
+                exchange, {"error": thor.http.error.ReadTimeoutError}
+            )
+            done = []
+
+            @on(exchange)
+            def response_done(trailers):
+                done.append(True)
+
+            @on(exchange)
+            def error(err):
+                self.assertEqual(err.detail, "read")
+                self.assertEqual(done, [])
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/close_delimited_stalled" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhel")
+            # Stall until the client gives up and closes the connection.
+            conn.request.settimeout(10.0)
+            try:
+                conn.request.recv(1)
+            except socket.timeout:
+                pass
+
+        self.go([server_side], [client_side])
 
     def test_slow_body_not_timed_out(self):
         self.check_slow_body(read_timeout=1.5)

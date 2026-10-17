@@ -74,7 +74,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.set_timeout(self._read_timeout(), "read")
 
     def detach(self) -> None:
-        self.last_active_exchange = self.active_exchange
+        # dead_conn can run more than once; keep the exchange from the first.
+        if self.active_exchange:
+            self.last_active_exchange = self.active_exchange
         self.active_exchange = None
 
     def close(self) -> None:
