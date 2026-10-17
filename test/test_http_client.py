@@ -942,16 +942,19 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
-    def _close_delimited(self, version, chunks, body, requests=1):
+    def _close_delimited(self, version, chunks, body, requests=1, concurrent=False):
         """
         A 200 response with no Content-Length or chunking; the body ends at close.
 
-        Sends `requests` sequential requests with max_server_conn = 1, so each
-        needs the slot freed by the previous close-delimited connection.
+        Sends `requests` requests with max_server_conn = 1, so each needs the slot
+        freed by the previous close-delimited connection; one after another by
+        default, or all at once (queued behind the first) if `concurrent`.
         """
         done = []
+        clients = []
 
         def client_side(client, test_host, test_port):
+            clients.append(client)
             client.max_server_conn = 1
             req_uri = b"http://%s:%i/close_delimited" % (test_host, test_port)
 
@@ -970,18 +973,21 @@ class TestHttpClient(framework.ClientServerTestCase):
                 @on(exchange)
                 def response_done(trailers):
                     done.append(exchange)
-                    self.assertEqual(client.conn_counts, {})
-                    # The fallback for later callbacks must survive dead_conn.
+                    if not concurrent:  # a burst opens connections before queueing
+                        self.assertEqual(client.conn_counts, {})
+                    # input_end calls dead_conn a second time; that mustn't discard
+                    # the exchange that input_error falls back on.
                     self.assertIs(exchange.conn.last_active_exchange, exchange)
                     if len(done) == requests:
                         self.loop.stop()
-                    else:
+                    elif not concurrent:
                         send()
 
                 exchange.request_start(b"GET", req_uri, [])
                 exchange.request_done([])
 
-            send()
+            for _ in range(requests if concurrent else 1):
+                send()
 
         def server_side(conn):
             drain(conn)
@@ -995,6 +1001,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.go([server_side], [client_side], timeout=5)
         self.assertEqual(len(done), requests)
         self.assertEqual(len(set(done)), requests)  # each completed once
+        self.assertEqual(clients[0].conn_counts, {})
 
     def test_close_delimited_body(self):
         self._close_delimited(
@@ -1028,6 +1035,25 @@ class TestHttpClient(framework.ClientServerTestCase):
             b"",
         )
 
+    def test_close_delimited_body_keepalive_default(self):
+        # HTTP/1.1 is persistent by default, so with no Connection header the
+        # connection is still "reusable" when the close ends the body.
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nhello"],
+            b"hello",
+        )
+
+    def test_close_delimited_body_queued(self):
+        # Each death must start the next queued exchange, before response_done.
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
+            b"hello",
+            requests=3,
+            concurrent=True,
+        )
+
     def test_close_delimited_body_sequential(self):
         self._close_delimited(
             b"1.1",
@@ -1040,9 +1066,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         def client_side(client, test_host, test_port):
             client.read_timeout = 1
             exchange = client.exchange()
-            self.check_exchange(
-                exchange, {"error": thor.http.error.ReadTimeoutError}
-            )
+            self.check_exchange(exchange, {"error": thor.http.error.ReadTimeoutError})
             done = []
 
             @on(exchange)
