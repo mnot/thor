@@ -1294,7 +1294,7 @@ Content-Length: %(body_len)i
 
     def test_too_many_messages_in_one_read(self):
         parser = NonFinalParser()
-        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * 5000)
+        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * (sys.getrecursionlimit() * 5))
         self.assertIsInstance(parser.test_err, error.TooManyMsgsError)
         self.assertEqual(parser.test_states.count("ERROR"), 1)
 
