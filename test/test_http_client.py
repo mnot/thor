@@ -942,6 +942,159 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def _close_delimited(self, version, chunks, body, requests=1, concurrent=False):
+        """
+        A 200 response with no Content-Length or chunking; the body ends at close.
+
+        Sends `requests` requests with max_server_conn = 1, so each needs the slot
+        freed by the previous close-delimited connection; one after another by
+        default, or all at once (queued behind the first) if `concurrent`.
+        """
+        done = []
+        clients = []
+
+        def client_side(client, test_host, test_port):
+            clients.append(client)
+            client.max_server_conn = 1
+            req_uri = b"http://%s:%i/close_delimited" % (test_host, test_port)
+
+            def send():
+                exchange = client.exchange()
+                self.check_exchange(
+                    exchange,
+                    {
+                        "version": version,
+                        "status": b"200",
+                        "phrase": b"OK",
+                        "body": body,
+                    },
+                )
+
+                @on(exchange)
+                def response_done(trailers):
+                    done.append(exchange)
+                    if not concurrent:  # a burst opens connections before queueing
+                        self.assertEqual(client.conn_counts, {})
+                    # input_end calls dead_conn a second time; that mustn't discard
+                    # the exchange that input_error falls back on.
+                    self.assertIs(exchange.conn.last_active_exchange, exchange)
+                    if len(done) == requests:
+                        self.loop.stop()
+                    elif not concurrent:
+                        send()
+
+                exchange.request_start(b"GET", req_uri, [])
+                exchange.request_done([])
+
+            for _ in range(requests if concurrent else 1):
+                send()
+
+        def server_side(conn):
+            drain(conn)
+            for i, chunk in enumerate(chunks):
+                if i:
+                    time.sleep(0.05)
+                conn.request.sendall(chunk)
+            conn.request.close()
+
+        # Fail fast: without the fix, nothing ever stops the loop.
+        self.go([server_side], [client_side], timeout=5)
+        self.assertEqual(len(done), requests)
+        self.assertEqual(len(set(done)), requests)  # each completed once
+        self.assertEqual(clients[0].conn_counts, {})
+
+    def test_close_delimited_body(self):
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
+            b"hello",
+        )
+
+    def test_close_delimited_body_http10(self):
+        self._close_delimited(
+            b"1.0",
+            [b"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nhello"],
+            b"hello",
+        )
+
+    def test_close_delimited_body_multiple_chunks(self):
+        self._close_delimited(
+            b"1.1",
+            [
+                b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhel",
+                b"lo, ",
+                b"world",
+            ],
+            b"hello, world",
+        )
+
+    def test_close_delimited_empty_body(self):
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"],
+            b"",
+        )
+
+    def test_close_delimited_body_keepalive_default(self):
+        # HTTP/1.1 is persistent by default, so with no Connection header the
+        # connection is still "reusable" when the close ends the body.
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nhello"],
+            b"hello",
+        )
+
+    def test_close_delimited_body_queued(self):
+        # Each death must start the next queued exchange, before response_done.
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
+            b"hello",
+            requests=3,
+            concurrent=True,
+        )
+
+    def test_close_delimited_body_sequential(self):
+        self._close_delimited(
+            b"1.1",
+            [b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello"],
+            b"hello",
+            requests=3,
+        )
+
+    def test_close_delimited_stalled_body_times_out(self):
+        def client_side(client, test_host, test_port):
+            client.read_timeout = 1
+            exchange = client.exchange()
+            self.check_exchange(exchange, {"error": thor.http.error.ReadTimeoutError})
+            done = []
+
+            @on(exchange)
+            def response_done(trailers):
+                done.append(True)
+
+            @on(exchange)
+            def error(err):
+                self.assertEqual(err.detail, "read")
+                self.assertEqual(done, [])
+                self.loop.stop()
+
+            req_uri = b"http://%s:%i/close_delimited_stalled" % (test_host, test_port)
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhel")
+            # Stall until the client gives up and closes the connection.
+            conn.request.settimeout(10.0)
+            try:
+                conn.request.recv(1)
+            except socket.timeout:
+                pass
+
+        self.go([server_side], [client_side])
+
     def test_slow_body_not_timed_out(self):
         self.check_slow_body(read_timeout=1.5)
 
