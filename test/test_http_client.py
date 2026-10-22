@@ -162,6 +162,37 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
 
+    def test_request_strips_nominated_and_proxy_hop_by_hop_fields(self):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+        sent = []
+        conn.output = sent.append
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        exchange = client.exchange()
+        exchange.request_start(
+            b"GET",
+            b"http://example.com/",
+            [
+                (b"Connection", b"X-Hop"),
+                (b"X-Hop", b"1"),
+                (b"Proxy-Connection", b"keep-alive"),
+                (b"Host", b"evil.example"),
+                (b"X-Keep", b"yes"),
+            ],
+        )
+        exchange.request_done([])
+
+        output = b"".join(sent)
+        self.assertNotIn(b"X-Hop", output)
+        self.assertNotIn(b"Proxy-Connection", output)
+        self.assertNotIn(b"evil.example", output)
+        self.assertIn(b"Host: example.com\r\n", output)
+        self.assertIn(b"X-Keep: yes\r\n", output)
+
     def test_request_short_body_reports_error(self):
         client = HttpClient(loop=self.loop)
         conn = DummyClientConnection()

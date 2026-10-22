@@ -3,7 +3,7 @@
 import sys
 import unittest
 
-from thor.http.common import header_names, header_dict, get_header
+from thor.http.common import strip_hop_by_hop, header_names, header_dict, get_header
 
 
 class TestHttpUtilsBytes(unittest.TestCase):
@@ -38,6 +38,28 @@ class TestHttpUtilsBytes(unittest.TestCase):
         self.assertEqual(get_header(self.hdrs, b"a"), [b"a1", b"a2", b"a3", b"a4"])
         self.assertEqual(get_header(self.hdrs, b"b"), [b"b1", b"b2"])
         self.assertEqual(get_header(self.hdrs, b"c"), [b"c1"])
+
+
+class TestStripHopByHop(unittest.TestCase):
+    def test_standard_nominated_and_extra_fields_removed(self):
+        hdrs = [
+            (b"Content-Type", b"text/plain"),
+            (b"Connection", b"X-Hop, keep-alive"),
+            (b"X-Hop", b"1"),
+            (b"x-hop", b"2"),
+            (b"Proxy-Connection", b"keep-alive"),
+            (b"Transfer-Encoding", b"chunked"),
+            (b"Host", b"example.com"),
+            (b"X-Keep", b"yes"),
+        ]
+        self.assertEqual(
+            strip_hop_by_hop(hdrs, also=[b"host"]),
+            [(b"Content-Type", b"text/plain"), (b"X-Keep", b"yes")],
+        )
+
+    def test_nothing_to_strip(self):
+        hdrs = [(b"Content-Length", b"0")]
+        self.assertEqual(strip_hop_by_hop(hdrs), hdrs)
 
 
 if __name__ == "__main__":

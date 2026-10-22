@@ -8,6 +8,7 @@ from thor.http.common import (
     States,
     header_names,
     idempotent_methods,
+    strip_hop_by_hop,
 )
 from thor.http.error import (
     AccessError,
@@ -26,18 +27,6 @@ if TYPE_CHECKING:
 
     from .client import HttpClient
     from .connection import HttpClientConnection
-
-req_rm_hdrs = [
-    b"connection",
-    b"keep-alive",
-    b"proxy-authenticate",
-    b"proxy-authorization",
-    b"te",
-    b"trailers",
-    b"transfer-encoding",
-    b"upgrade",
-    b"host",
-]
 
 
 class HttpClientExchange(EventEmitter):
@@ -106,7 +95,7 @@ class HttpClientExchange(EventEmitter):
         if self._req_started or self._error_sent:
             return
         self._req_started = True
-        req_hdrs = [i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs]
+        req_hdrs = strip_hop_by_hop(self.req_hdrs, also=[b"host"])  # Host is ours
         assert self.authority, "authority not found in _req_start"
         req_hdrs.append((b"Host", self.authority))
         if self.client.idle_timeout == 0:

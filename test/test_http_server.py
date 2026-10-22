@@ -1856,6 +1856,25 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertIsNone(conn.tcp_conn)
 
+    def test_response_strips_fields_nominated_by_connection(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+        exchange.req_complete = True
+        conn.ex_queue = [exchange]
+
+        exchange.response_start(
+            b"200",
+            b"OK",
+            [(b"Connection", b"X-Hop"), (b"X-Hop", b"1"), (b"Content-Length", b"0")],
+        )
+        exchange.response_done([])
+
+        output = b"".join(tcp_conn.output)
+        self.assertNotIn(b"X-Hop", output)
+        self.assertIn(b"Content-Length: 0\r\n", output)
+
     def test_response_done_default_keeps_connection(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

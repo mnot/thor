@@ -23,7 +23,7 @@ from thor.http.common import (
     HttpMessageHandler,
     States,
     header_names,
-    hop_by_hop_hdrs,
+    strip_hop_by_hop,
     no_body_status,
     output_content_length,
 )
@@ -459,7 +459,7 @@ class HttpServerExchange(EventEmitter):
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
     ) -> None:
         "Start a response. Must only be called once per response."
-        res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
+        res_hdrs = strip_hop_by_hop(res_hdrs)
         body_len = output_content_length(res_hdrs)
         # A final response with a 1xx status is not an interim response; use
         # response_nonfinal for those.

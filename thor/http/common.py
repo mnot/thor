@@ -13,7 +13,7 @@ import re
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from thor.http import error
 from thor.types import RawHeaderListType
@@ -57,6 +57,25 @@ hop_by_hop_hdrs = [
     b"upgrade",
     b"proxy-connection",
 ]
+
+
+def strip_hop_by_hop(
+    hdr_tuples: RawHeaderListType, also: Iterable[bytes] = ()
+) -> RawHeaderListType:
+    """
+    Return the header list without its hop-by-hop fields: the standard ones,
+    any the list's own Connection field names (RFC 9110 section 7.6.1), and
+    those in `also` (lower-cased names).
+    """
+    remove = set(hop_by_hop_hdrs)
+    remove.update(name.lower() for name in also)
+    for name, value in hdr_tuples:
+        if name.lower() == b"connection":
+            for token in value.split(b","):
+                token = token.strip(b" \t").lower()
+                if token:
+                    remove.add(token)
+    return [(name, value) for name, value in hdr_tuples if name.lower() not in remove]
 
 
 def parse_uint(value: bytes, base: int = 10) -> int:
