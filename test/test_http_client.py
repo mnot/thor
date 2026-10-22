@@ -11,7 +11,7 @@ import time
 import socket
 import threading
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import framework
 
@@ -53,10 +53,21 @@ class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 class DummyClientConnection(framework.DummyHttpParser):
+    "A parser standing in for a connection; sends like the real one does."
+
     tcp_connected = True
+    _check_owner = HttpClientConnection._check_owner
+    send_start = HttpClientConnection.send_start
+    send_body = HttpClientConnection.send_body
+    send_end = HttpClientConnection.send_end
+
+    def __init__(self, client=None):
+        framework.DummyHttpParser.__init__(self)
+        self.client = client
+        self.active_exchange = None
 
     def attach(self, exchange):
-        pass
+        self.active_exchange = exchange
 
 
 class TestHttpClient(framework.ClientServerTestCase):
@@ -144,7 +155,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def check_invalid_request_output(self, method, headers):
         client = HttpClient(loop=self.loop)
-        conn = DummyClientConnection()
+        conn = DummyClientConnection(client)
 
         def attach_conn(origin, handle_connect, handle_error):
             handle_connect(conn)
@@ -164,7 +175,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def test_request_short_body_reports_error(self):
         client = HttpClient(loop=self.loop)
-        conn = DummyClientConnection()
+        conn = DummyClientConnection(client)
 
         def attach_conn(origin, handle_connect, handle_error):
             handle_connect(conn)
@@ -186,7 +197,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def check_connected_output_error(self, headers, body, trailers):
         client = HttpClient(loop=self.loop)
-        conn = DummyClientConnection()
+        conn = DummyClientConnection(client)
 
         def attach_conn(origin, handle_connect, handle_error):
             handle_connect(conn)
@@ -1478,6 +1489,48 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_response_done_listener_runtime_error(self):
         self._listener_runtime_error("response_done")
 
+    def test_idle_timeout_none_closes_instead_of_pooling(self):
+        client = HttpClient(loop=MagicMock())
+        client.idle_timeout = None
+        tcp_conn = MagicMock()
+        tcp_conn.tcp_connected = True
+        conn = client.new_conn((b"http", b"localhost", 80), tcp_conn)
+        conn.attach(MagicMock())
+
+        client.release_conn(conn)
+
+        tcp_conn.close.assert_called_once()
+        self.assertEqual(client._idle_conns, {})
+        self.assertEqual(client.conn_counts, {})
+
+    def test_failed_connect_leaves_no_pool_entry(self):
+        client = HttpClient(loop=MagicMock())
+        origin = (b"http", b"localhost", 80)
+        with patch("thor.http.client.client.initiate_connection") as initiate:
+            initiate.side_effect = lambda c, o, ok, err: err("gai", 1, "no")
+            client.attach_conn(origin, MagicMock(), MagicMock())
+        self.assertEqual(client._conns, {})
+        self.assertEqual(client.conn_counts, {})
+
+    def test_connection_with_incomplete_request_is_not_pooled(self):
+        "A server that answers early leaves the request half-written; don't reuse."
+        client = HttpClient(loop=MagicMock())
+        tcp_conn = MagicMock()
+        tcp_conn.tcp_connected = True
+        conn = client.new_conn((b"http", b"localhost", 80), tcp_conn)
+        exchange = client.exchange()
+        exchange.request_start(b"POST", b"http://localhost/", [(b"Content-Length", b"10")])
+        exchange.request_body(b"12345")
+        conn.attach(exchange)
+        exchange.conn = conn
+        exchange.handle_connect(conn)
+
+        conn._handle_data(b"HTTP/1.1 413 Too Large\r\nContent-Length: 0\r\n\r\n")
+
+        self.assertEqual(client._idle_conns, {})
+        tcp_conn.close.assert_called_once()
+        self.assertEqual(client.conn_counts, {})
+
     def test_no_timeouts_schedules_nothing(self):
         client = HttpClient(loop=MagicMock())
         client.connect_timeout = None
@@ -1787,6 +1840,31 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         self.go([server_side], [client_side])
 
+    def test_stray_request_done_leaves_new_owner_alone(self):
+        "A finished exchange's late request_done errors only that exchange."
+        client = HttpClient(loop=MagicMock())
+        client.dead_conn = MagicMock()
+        conn = DummyClientConnection(client)
+        first = client.exchange()
+        second = client.exchange()
+        errors = {first: [], second: []}
+        for exchange in (first, second):
+            exchange.method = b"GET"
+            exchange.req_target = b"/"
+            exchange.authority = b"example.com"
+            exchange.origin = ("http", "example.com", 80)
+            exchange.on("error", errors[exchange].append)
+        first.handle_connect(conn)
+        first.request_done([])
+        second.handle_connect(conn)  # the pool has moved the connection on
+
+        first.request_done([])  # stray
+
+        self.assertEqual(len(errors[first]), 1)
+        self.assertIsInstance(errors[first][0], thor.http.error.OutputStateError)
+        self.assertEqual(errors[second], [])
+        client.dead_conn.assert_not_called()
+
     def test_retry_clears_dead_connection(self):
         client = HttpClient(loop=MagicMock())
         client.retry_delay = 1
@@ -1804,23 +1882,39 @@ class TestHttpClient(framework.ClientServerTestCase):
         client = HttpClient(loop=MagicMock())
         client.attach_conn = MagicMock()
         exchange = client.exchange()
-        exchange.method = b"OPTIONS"
-        exchange.req_hdrs = []
-        exchange.req_target = b"/"
-        exchange.authority = b"example.com"
-        exchange.origin = ("http", "example.com", 80)
-        exchange.conn = DummyClientConnection()
-        exchange._req_started = True
-        exchange._req_done_trailers = []
+        exchange.request_start(b"OPTIONS", b"http://example.com/", [])
+        exchange.request_done([])
+        exchange.handle_connect(DummyClientConnection(client))  # sends it all
+        self.assertEqual(exchange._request.pending, [])
 
         exchange._retry()
 
-        queued_events = [item[0] for item in exchange._output_q]
+        queued_events = [item[0] for item in exchange._request.pending]
         self.assertEqual(queued_events, ["start", "end"])
         self.assertIsNone(exchange.conn)
-        client.attach_conn.assert_called_once_with(
+        client.attach_conn.assert_called_with(
             exchange.origin, exchange.handle_connect, exchange.handle_connect_error
         )
+
+    def test_retry_before_request_done_replays_what_was_sent(self):
+        "An idempotent request dropped mid-body starts over on the new connection."
+        client = HttpClient(loop=MagicMock())
+        client.attach_conn = MagicMock()
+        exchange = client.exchange()
+        exchange.request_start(b"PUT", b"http://example.com/", [])
+        exchange.request_body(b"IMPORTANT ")
+        exchange.handle_connect(DummyClientConnection(client))
+        self.assertEqual(exchange._request.pending, [])
+
+        exchange.conn_closed(States.WAITING, Delimiters.NONE)
+        exchange._retry()
+
+        queued_events = [item[0] for item in exchange._request.pending]
+        self.assertEqual(queued_events, ["start", "body"])
+        exchange.request_body(b"DATA")
+        exchange.request_done([])
+        queued_events = [item[0] for item in exchange._request.pending]
+        self.assertEqual(queued_events, ["start", "body", "body", "end"])
 
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):
@@ -1952,12 +2046,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         exchange = client.exchange()
         exchange.request_start(b"POST", b"http://example.com/", [])
         exchange.request_body(b"IMPORTANT DATA")
-        self.assertEqual(exchange._req_body_chunks, [])
+        self.assertEqual(exchange._request.body, [])
 
         # A connect-failure retry leaves the queued body intact.
         exchange.request_done([])
         exchange._retry()
-        queued_events = [item[0] for item in exchange._output_q]
+        queued_events = [item[0] for item in exchange._request.pending]
         self.assertEqual(queued_events, ["start", "body", "end"])
 
     def test_req_retry_body_over_limit(self):
@@ -2068,8 +2162,9 @@ class TestHttpClient(framework.ClientServerTestCase):
         """
         The server sends a second, unsolicited response in the same write as the
         first. It must not be delivered to the next request, and the connection
-        must be dropped. The next request is attached from the first one's
-        response_done handler, or (if queued) by a handoff from the pool.
+        must be dropped rather than handed on, so the next request goes out on
+        a fresh one. The next request is started from the first one's
+        response_done handler, or (if queued) is waiting for a connection.
         """
 
         test_done = threading.Event()
@@ -2081,24 +2176,26 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {"body": b"12345"})
             exchange2 = client.exchange()
-            self.check_exchange(exchange2, {"error": thor.http.error.ExtraDataError})
+            self.check_exchange(exchange2, {"body": b"12345"})
+            first_tcp = []
+
+            @on(exchange1)
+            def response_start(*args):
+                first_tcp.append(exchange1.conn.tcp_conn)
 
             @on(exchange2)
             def response_start(*args):
-                self.fail(f"Injected response delivered: {args!r}")
-
-            @on(exchange2)
-            def response_body(chunk):
-                self.fail(f"Injected response delivered: {chunk!r}")
-
-            @on(exchange2)
-            def error(err):
-                conn = exchange2.conn
+                # The poisoned connection was dropped, never handed on.
+                self.assertIsNot(exchange2.conn.tcp_conn, first_tcp[0])
                 self.assertFalse(client._idle_conns)
-                tcp = conn.tcp_conn
+
+            @on(exchange2)
+            def response_done(trailers):
+                tcp = first_tcp[0]
                 self.assertTrue(
                     tcp._closing or tcp._closed_output or not tcp.tcp_connected
                 )
+                self.loop.stop()
 
             def start2():
                 exchange2.request_start(b"GET", req_uri, [])

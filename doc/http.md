@@ -76,6 +76,8 @@ of HTTP trailers; see [working with HTTP headers](#headers).
 
 Emitted when there is an error with the request or response. `err` is an instance of one of the *thor.http.error* classes that describes what happened.
 
+It can follow *response_done*: a *request_body* or *request_done* call made after the exchange has finished is refused with an *OutputStateError* on this exchange, and leaves the connection (which may be serving another exchange by then) alone.
+
 If _err.client_recoverable_ is `False`, no other events will be emitted by this exchange.
 
 
