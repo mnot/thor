@@ -166,6 +166,17 @@ Content-Length: %i
         )
         self.assertIsInstance(self.parser.test_err, error.TooManyFieldsError)
 
+    def test_incomplete_too_many_fields(self):
+        self.parser.max_input_fields = 2
+        self.parser.handle_input(
+            b"http/1.1 200 OK\r\n"
+            b"One: 1\r\n"
+            b"Two: 2\r\n"
+            b"Three: 3\r\n"
+        )
+        self.assertIsInstance(self.parser.test_err, error.TooManyFieldsError)
+        self.assertEqual(self.parser.test_states, ["ERROR"])
+
     def test_field_section_size_limit_is_not_permissive(self):
         self.parser.careful = False
         self.parser.max_input_field_section_length = 16
@@ -267,6 +278,16 @@ abc123"""
         )
         self.assertIsInstance(self.parser.test_err, error.HeaderLineEndingError)
         self.assertEqual(self.parser.test_body, body)
+        self.assertEqual(self.parser.test_states[-1], "END")
+
+    def test_bare_lf_reported_once_per_line_when_split(self):
+        "A partial field section isn't rescanned from the start on each read."
+        self.parser.careful = False
+        msg = b"HTTP/1.1 200 OK\nContent-Length: 3\n\nabc"
+        for i in range(len(msg)):
+            self.parser.handle_input(msg[i : i + 1])
+        self.assertEqual(self.parser.test_states.count("ERROR"), 2)
+        self.assertEqual(self.parser.test_body, b"abc")
         self.assertEqual(self.parser.test_states[-1], "END")
 
     def test_hdrs_noname(self):
@@ -720,6 +741,22 @@ Transfer-Encoding: chunked
         self.assertEqual(expected._input_state, got._input_state, offsets)
         self.assertEqual(got.test_states.count("END"), 1, offsets)
         self.assertEqual(got.test_states[-1], "END", offsets)
+
+    HEADER_MSGS = [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nFoo: bar\r\n\r\nhello",
+        b"\r\nHTTP/1.1 200 OK\r\nFoo: bar\r\nContent-Length: 5\r\n\r\nhello",
+    ]
+
+    def test_headers_split_every_offset(self):
+        for msg in self.HEADER_MSGS:
+            for i in range(1, len(msg)):
+                self.check_same_as_unsplit(msg, [i])
+
+    def test_headers_split_every_pair_of_offsets(self):
+        for msg in self.HEADER_MSGS:
+            for i in range(1, len(msg)):
+                for j in range(i + 1, len(msg)):
+                    self.check_same_as_unsplit(msg, [i, j])
 
     def test_chunked_split_every_offset(self):
         for msg in self.CHUNKED_MSGS:
@@ -1292,11 +1329,12 @@ Content-Length: %(body_len)i
         self.assertFalse(self.parser.output_end([]))
         self.assertEqual(done, [True])
 
-    def test_too_many_messages_in_one_read(self):
+    def test_many_messages_in_one_read(self):
         parser = NonFinalParser()
-        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * (sys.getrecursionlimit() * 5))
-        self.assertIsInstance(parser.test_err, error.TooManyMsgsError)
-        self.assertEqual(parser.test_states.count("ERROR"), 1)
+        count = sys.getrecursionlimit() * 5
+        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * count)
+        self.assertIsNone(parser.test_err)
+        self.assertEqual(parser.test_states.count("START"), count)
 
 
 #    def test_nobody_delimit(self):

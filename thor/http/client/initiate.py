@@ -8,10 +8,9 @@ from thor.tcp import TcpClient, TcpConnection
 from thor.tls import TlsClient
 from thor.types import DnsResultList, OriginType
 
-from .connection import HttpClientConnection
-
 if TYPE_CHECKING:
     from .client import HttpClient
+    from .connection import HttpClientConnection
 
 
 def initiate_connection(
@@ -53,9 +52,7 @@ def initiate_connection(
         tcp_client.connect_dns(host.encode("idna"), dns_result, client.connect_timeout)
 
     def handle_connect_cb(tcp_conn: TcpConnection) -> None:
-        client.conn_counts[origin] += 1
-        conn = HttpClientConnection(client, origin, tcp_conn)
-        handle_connect(conn)
+        handle_connect(client.new_conn(origin, tcp_conn))
 
     def handle_connect_error_cb(err_type: str, err_id: int, err_str: str) -> None:
         if err_type in ["access"]:
