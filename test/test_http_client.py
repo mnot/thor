@@ -17,6 +17,7 @@ import framework
 
 import thor
 import thor.http.error
+import thor.tcp
 from thor.events import on
 from thor.http import HttpClient
 from thor.http.client.connection import HttpClientConnection
@@ -2192,9 +2193,7 @@ class TestHttpClient(framework.ClientServerTestCase):
             @on(exchange2)
             def response_done(trailers):
                 tcp = first_tcp[0]
-                self.assertTrue(
-                    tcp._closing or tcp._closed_output or not tcp.tcp_connected
-                )
+                self.assertIsNot(tcp._state, thor.tcp.TcpState.OPEN)
                 self.loop.stop()
 
             def start2():

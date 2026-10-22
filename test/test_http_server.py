@@ -2116,6 +2116,43 @@ Content-Length: 5
         output = b"".join(tcp_conn.output)
         self.assertIn(b"HTTP/1.1 413 Content Too Large", output)
 
+    def test_half_closed_client_still_gets_its_response(self):
+        "A client that shuts down its write side after the request is answered."
+        received = []
+
+        def server_side(server):
+            def check(exchange):
+                @on(exchange, "request_done")
+                def on_request_done(trailers):
+                    exchange.response_start(
+                        b"200", b"OK", [(b"Content-Length", b"4")]
+                    )
+                    exchange.response_body(b"done")
+                    exchange.response_done([])
+
+            server.on("exchange", check)
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                wire(b"GET / HTTP/1.1\nHost: %s:%i\n\n" % (test_host, test_port))
+            )
+            client_conn.shutdown(socket.SHUT_WR)
+            client_conn.settimeout(10)
+            while True:
+                try:
+                    chunk = client_conn.recv(1024)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    break
+                received.append(chunk)
+            self.loop.run_in_loop(self.loop.stop)
+
+        self.go([server_side], [client_side])
+        response = b"".join(received)
+        self.assertIn(b"HTTP/1.1 200 OK", response)
+        self.assertTrue(response.endswith(b"done"), response)
+
     def test_reentrancy(self):
         def server_side(server):
             def check(exchange):

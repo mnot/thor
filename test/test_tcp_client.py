@@ -7,13 +7,14 @@ except ImportError:
 
 import errno
 import socket
+import ssl
 import unittest
 from unittest.mock import MagicMock, patch
 
 import framework
 
 from thor import loop
-from thor.tcp import TcpClient, TcpConnection
+from thor.tcp import TcpClient, TcpConnection, TcpState, WriteBuffer
 
 
 class FakeSocket:
@@ -43,7 +44,7 @@ class FakeSocket:
     def send(self, data):
         if self.send_error:
             raise OSError(self.send_error, errno.errorcode[self.send_error])
-        self.sent.append(data)
+        self.sent.append(bytes(data))
         return self.sends.pop(0)
 
     def recv(self, bufsize):
@@ -221,6 +222,10 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         self.assertEqual(data, [b"pending"])
         self.assertEqual(closes, [True])
+        # The peer is done sending; we may not be.
+        self.assertTrue(conn.tcp_connected)
+        self.assertFalse(sock.closed)
+        conn.close()
         self.assertFalse(conn.tcp_connected)
         self.assertTrue(sock.closed)
 
@@ -257,6 +262,8 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         self.assertEqual(data, [b"late"])
         self.assertEqual(closes, [True])
+        self.assertTrue(conn.tcp_connected)  # until we close our side
+        conn.close()
         self.assertFalse(conn.tcp_connected)
         self.assertTrue(sock.closed)
 
@@ -280,14 +287,14 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         conn = TcpConnection(rsock, ("127.0.0.1", 80), self.loop)
         # Simulate buffered data
-        conn._write_buffer.append(b"pending")
+        conn.write(b"pending")
 
         # Call close
         conn.close()
 
         # Expectation: conn.tcp_connected should still be True because it's waiting to flush
         self.assertTrue(conn.tcp_connected)
-        self.assertTrue(conn._closing)
+        self.assertIs(conn._state, TcpState.FLUSHING)
 
         # Use abort to force close
         conn.abort()
@@ -307,13 +314,13 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         conn.close()
         conn.handle_writable()
         self.assertTrue(conn.tcp_connected)
-        self.assertEqual(conn._write_buffer, [b"cdefg"])
+        self.assertEqual(list(conn._write_buffer), [b"cdefg"])
         self.assertEqual(disconnects, [])
         self.assertFalse(sock.closed)
 
         conn.handle_writable()
         self.assertTrue(conn.tcp_connected)
-        self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(list(conn._write_buffer), [])
         self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
         self.assertEqual(disconnects, [])
         self.assertFalse(sock.closed)
@@ -336,7 +343,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         conn.close()
 
         self.assertTrue(conn.tcp_connected)
-        self.assertTrue(conn._closing)
+        self.assertIs(conn._state, TcpState.OUTPUT_CLOSED)
         self.assertFalse(conn._input_paused)
         self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
         loop_mock.schedule.assert_called_once_with(conn.close_timeout, conn._close)
@@ -386,6 +393,133 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(closes, [True])
         self.assertTrue(sock.closed)
 
+    def test_write_buffer_coalesces_small_chunks_and_keeps_offsets(self):
+        buf = WriteBuffer()
+        for chunk in (b"ab", b"cd", b"efgh", b"i" * 10):
+            buf.add(chunk)
+        self.assertEqual(buf.size, 18)
+        self.assertEqual(len(buf), 4)
+
+        piece = buf.peek(8)  # ab + cd + efgh fit; the next one doesn't
+        self.assertEqual(bytes(piece), b"abcdefgh")
+        buf.consume(3)  # part way into "cd"
+        self.assertEqual(list(buf), [b"d", b"efgh", b"i" * 10])
+        self.assertEqual(buf.size, 15)
+
+        buf.consume(5)  # the rest of "cd" and all of "efgh"
+        self.assertEqual(list(buf), [b"i" * 10])
+        large = buf.peek(4)  # a single chunk comes back whole, uncopied
+        self.assertIsInstance(large, memoryview)
+        self.assertEqual(bytes(large), b"i" * 10)
+        buf.consume(10)
+        self.assertEqual(list(buf), [])
+        self.assertEqual(buf.size, 0)
+
+    def test_write_buffer_sends_without_rejoining(self):
+        "Each writable event offers at most write_coalesce bytes, from where the last send stopped."
+        loop_mock = MagicMock()
+        sock = FakeSocket(sends=[1] * 6)  # the kernel takes one byte at a time
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.write_coalesce = 3
+        conn.write(b"ab")
+        conn.write(b"cd")
+        conn.write(b"ef")
+
+        for _ in range(6):
+            conn.handle_writable()
+
+        self.assertTrue(all(len(piece) <= 3 for piece in sock.sent), sock.sent)
+        self.assertEqual(b"".join(piece[:1] for piece in sock.sent), b"abcdef")
+        self.assertEqual(list(conn._write_buffer), [])
+
+    def test_peer_eof_leaves_output_open_until_close(self):
+        "After the peer's FIN we can still answer; the socket goes when we close."
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b"request", b""], sends=[8])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        data = []
+        closes = []
+        disconnects = []
+        conn.on("data", data.append)
+        conn.on("close", lambda: closes.append(True))
+        conn.on("disconnect", lambda: disconnects.append(True))
+
+        conn.handle_readable()
+        conn.handle_readable()  # EOF
+        self.assertEqual(data, [b"request"])
+        self.assertEqual(closes, [True])
+        self.assertTrue(conn.tcp_connected)
+        self.assertNotIn("fd_readable", conn.interesting_events())
+
+        conn.write(b"response")
+        conn.close()
+        self.assertEqual(disconnects, [])
+        conn.handle_writable()
+        self.assertEqual(sock.sent, [b"response"])
+        self.assertEqual(sock.shutdowns, [])  # both sides done; no half-close needed
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(disconnects, [True])
+        self.assertTrue(sock.closed)
+
+    def test_unpause_after_peer_eof_does_not_watch_readable(self):
+        "At EOF there's nothing to read; watching would spin on every poll."
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b""])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.pause(False)
+        conn.handle_readable()  # EOF
+        conn.pause(True)
+        conn.pause(False)
+        self.assertNotIn("fd_readable", conn.interesting_events())
+
+    def test_empty_write_is_ignored(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.write(b"")
+        self.assertEqual(list(conn._write_buffer), [])
+        self.assertNotIn("fd_writable", conn.interesting_events())
+        conn.close()
+        self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
+
+    def test_close_emitted_once_on_fin_then_reset(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b""], send_error=errno.ECONNRESET)
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        events = []
+        conn.on("close", lambda: events.append("close"))
+        conn.on("disconnect", lambda: events.append("disconnect"))
+        conn.write(b"x")
+        conn.handle_readable()  # FIN
+        conn.handle_writable()  # reset
+        self.assertEqual(events, ["close", "disconnect"])
+
+    def test_same_bytes_offered_again_after_want_write(self):
+        "TLS needs a retried send to carry the bytes it was first given."
+
+        class WantWriteOnce(FakeSocket):
+            def __init__(self):
+                FakeSocket.__init__(self, sends=[4, 2])
+                self.refused = False
+
+            def send(self, data):
+                if not self.refused:
+                    self.refused = True
+                    raise ssl.SSLWantWriteError()
+                return FakeSocket.send(self, data)
+
+        loop_mock = MagicMock()
+        sock = WantWriteOnce()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.write(b"ab")
+        conn.write(b"cd")
+        conn.handle_writable()  # want-write
+        conn.write(b"ef")  # more arrives meanwhile
+        conn.handle_writable()
+        self.assertEqual(sock.sent[0], b"abcd")  # not re-peeked to abcdef
+        conn.handle_writable()
+        self.assertEqual(sock.sent, [b"abcd", b"ef"])
+
     def test_write_buffer_byte_limit(self):
         loop_mock = MagicMock()
         sock = FakeSocket()
@@ -398,7 +532,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         with self.assertRaisesRegex(BufferError, "write buffer limit"):
             conn.write(b"6789")
 
-        self.assertEqual(conn._write_buffer, [b"12345"])
+        self.assertEqual(list(conn._write_buffer), [b"12345"])
         self.assertEqual(pauses, [True])
 
     def test_write_buffer_chunk_limit(self):
@@ -414,7 +548,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         with self.assertRaisesRegex(BufferError, "chunk limit"):
             conn.write(b"3")
 
-        self.assertEqual(conn._write_buffer, [b"1", b"2"])
+        self.assertEqual(list(conn._write_buffer), [b"1", b"2"])
         self.assertEqual(pauses, [True])
 
     def test_write_buffer_unpauses_after_dropping_below_byte_limit(self):
@@ -429,7 +563,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         conn.handle_writable()
 
-        self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(list(conn._write_buffer), [])
         self.assertEqual(pauses, [False])
 
     def test_immediate_connect_success(self):
