@@ -3,7 +3,14 @@
 import sys
 import unittest
 
-from thor.http.common import check_method, check_request_target, strip_hop_by_hop, header_names, header_dict, get_header
+from thor.http.common import (
+    check_method,
+    check_request_target,
+    get_header,
+    header_dict,
+    header_names,
+    strip_hop_by_hop,
+)
 
 
 class TestHttpUtilsBytes(unittest.TestCase):
@@ -71,6 +78,10 @@ class TestStripHopByHop(unittest.TestCase):
             strip_hop_by_hop(hdrs, also=[b"host"]),
             [(b"Content-Type", b"text/plain"), (b"X-Keep", b"yes")],
         )
+
+    def test_nominated_content_length_is_kept(self):
+        hdrs = [(b"Connection", b"Content-Length, X-Hop"), (b"Content-Length", b"3"), (b"X-Hop", b"1")]
+        self.assertEqual(strip_hop_by_hop(hdrs), [(b"Content-Length", b"3")])
 
     def test_nothing_to_strip(self):
         hdrs = [(b"Content-Length", b"0")]

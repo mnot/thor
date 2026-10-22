@@ -57,6 +57,7 @@ class FakeServer:
     def __init__(self):
         self.loop = MagicMock()
         self.loop.schedule.return_value = MagicMock()
+        self.loop.schedule.return_value.fired = False
         self.events = []
         self.connections = set()
 
@@ -1019,6 +1020,7 @@ Content-Length: 5
             timer = MagicMock()
             timer.delay = delay
             timer.callback = callback
+            timer.fired = False
             timers.append(timer)
             return timer
 
@@ -1634,6 +1636,7 @@ Content-Length: 5
             timer = MagicMock()
             timer.delay = delay
             timer.callback = callback
+            timer.fired = False
             timers.append(timer)
             return timer
 

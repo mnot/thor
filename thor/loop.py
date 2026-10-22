@@ -311,16 +311,19 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
             raise ValueError("schedule delta must be non-negative")
 
         ctx = contextvars.copy_context()
+        scheduled = ScheduledEvent(self)
 
         def ctx_callback(*args: Any, **kwargs: Any) -> Any:
+            scheduled.fired = True
             return ctx.run(callback, *args, **kwargs)
 
         cb = partial(ctx_callback, *args)
         new_event = (systime.monotonic() + delta, cb)
+        scheduled.bind(new_event)
         bisect.insort(
             self.__sched_events, new_event, key=lambda ev: ev[0]  # type: ignore[misc]
         )
-        return ScheduledEvent(self, new_event)
+        return scheduled
 
     def run_in_loop(self, callback: EventListener, *args: Any) -> None:
         """
@@ -366,16 +369,20 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
 
 class ScheduledEvent:
     """
-    Holds a scheduled event.
+    Holds a scheduled event. `fired` says whether it has run.
     """
 
-    def __init__(self, loop: LoopBase, event: ScheduledEventTuple) -> None:
+    def __init__(self, loop: LoopBase) -> None:
         self._loop = loop
-        self._event = event
+        self._event: Optional[ScheduledEventTuple] = None
         self._deleted = False
+        self.fired = False
+
+    def bind(self, event: ScheduledEventTuple) -> None:
+        self._event = event
 
     def delete(self) -> None:
-        if not self._deleted:
+        if not self._deleted and self._event is not None:
             self._loop.schedule_del(self._event)
             self._deleted = True
 
@@ -385,8 +392,8 @@ class Timer:
     A callback its owner arms, re-arms and disarms by name, instead of
     keeping the ScheduledEvent and the if-set-then-delete around it.
     Arming it again replaces the pending one; a delay of None or 0 arms
-    nothing. It stays armed after firing until stopped or restarted, so
-    'armed' means "has been started and not stopped since".
+    nothing (0 is "no timeout", as it is for connect timeouts). `armed` is
+    false once it has fired.
     """
 
     def __init__(self, loop: LoopBase, callback: EventListener) -> None:
@@ -407,7 +414,7 @@ class Timer:
 
     @property
     def armed(self) -> bool:
-        return self._event is not None
+        return self._event is not None and not self._event.fired
 
     @property
     def event(self) -> Optional[ScheduledEvent]:

@@ -100,9 +100,9 @@ class _RequestRecord:
 
 
 class HttpClientExchange(EventEmitter):
-    # Refuse a method that isn't a token or a request-target with whitespace
-    # or control characters, which would change the request-line's shape.
-    # False sends them as given, for probing servers.
+    # Refuse, at request_start, a method that isn't a token or a request-target
+    # with whitespace or control characters, which would change the
+    # request-line's shape. False sends them as given, for probing servers.
     strict_request_line = True
 
     def __init__(self, client: HttpClient) -> None:
@@ -157,6 +157,11 @@ class HttpClientExchange(EventEmitter):
         except (TypeError, ValueError):
             self.input_error(UrlError("Invalid URL"), False)
             return
+        if self.strict_request_line:
+            problem = check_method(method) or check_request_target(self.req_target)
+            if problem:
+                self.input_error(OutputSyntaxError(problem), False)
+                return
         self.client.attach_conn(
             self.origin, self.handle_connect, self.handle_connect_error
         )
@@ -167,12 +172,6 @@ class HttpClientExchange(EventEmitter):
         """
         if self._request.started or self._error_sent:
             return
-        if self.strict_request_line:
-            assert self.method is not None and self.req_target is not None
-            problem = check_method(self.method) or check_request_target(self.req_target)
-            if problem:
-                self.input_error(OutputSyntaxError(problem), False)
-                return
         req_hdrs = strip_hop_by_hop(self.req_hdrs, also=[b"host"])  # Host is ours
         assert self.authority, "authority not found in _req_start"
         req_hdrs.append((b"Host", self.authority))

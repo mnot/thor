@@ -227,6 +227,7 @@ class TestTimer(unittest.TestCase):
         self.loop.schedule(0.2, self.loop.stop)
         self.loop.run()
         self.assertEqual(self.fired, ["x"])
+        self.assertFalse(timer.armed)  # disarmed as it fired
 
     def test_timer_restart_replaces_and_stop_disarms(self):
         timer = thor.loop.Timer(self.loop, self.fired.append)

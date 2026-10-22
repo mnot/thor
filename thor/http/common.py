@@ -92,7 +92,8 @@ def strip_hop_by_hop(
     """
     Return the header list without its hop-by-hop fields: the standard ones,
     any the list's own Connection field names (RFC 9110 section 7.6.1), and
-    those in `also` (lower-cased names).
+    those in `also`. A sender mustn't nominate a field that frames the
+    message, and Content-Length is kept whatever Connection says.
     """
     remove = set(hop_by_hop_hdrs)
     remove.update(name.lower() for name in also)
@@ -100,7 +101,7 @@ def strip_hop_by_hop(
         if name.lower() == b"connection":
             for token in value.split(b","):
                 token = token.strip(b" \t").lower()
-                if token:
+                if token and token != b"content-length":
                     remove.add(token)
     return [(name, value) for name, value in hdr_tuples if name.lower() not in remove]
 
