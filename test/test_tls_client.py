@@ -139,6 +139,30 @@ class TestTlsClientConnect(framework.ClientServerTestCase):
         self.assertEqual(self.last_error, errno.ETIMEDOUT)
         self.assertEqual(self.timeout_hit, False)
 
+    def test_handshake_failure_closes_the_socket(self):
+        "A server that doesn't speak TLS fails the handshake; the fd must not leak."
+        server = SocketServer.TCPServer(
+            (framework.test_host.decode("ascii"), 0), framework.LittleRequestHandler
+        )
+        port = server.server_address[1]
+        self.move_to_thread(lambda: server.serve_forever(poll_interval=0.1))
+        try:
+            self.client.connect(framework.test_host, port)
+            self.loop.schedule(5, self.timeout)
+            self.loop.run()
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(self.timeout_hit, False)
+        self.assertEqual(self.connect_count, 0)
+        self.assertEqual(self.error_count, 1)
+        # The echo closes straight after replying, so the handshake may see
+        # the bad reply (ssl) or the close (socket) first; either way, no leak.
+        self.assertIn(self.last_error_type, ("ssl", "socket"))
+        self.assertEqual(self.client.sock.fileno(), -1)
+        if self.client.tls_sock:
+            self.assertEqual(self.client.tls_sock.fileno(), -1)
+
     def test_tls_connect_after_error_is_ignored(self):
         client = TlsClient(self.loop)
         client.unregister_fd = MagicMock()

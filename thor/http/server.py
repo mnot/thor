@@ -106,6 +106,8 @@ class HttpServer(EventEmitter):
         http_conn = HttpServerConnection(tcp_conn, self)
         self.connections.add(http_conn)
         tcp_conn.on("data", http_conn.handle_input)
+        tcp_conn.on("close", http_conn.peer_closed)
+        tcp_conn.on("sent", http_conn.output_sent)
         tcp_conn.on("disconnect", http_conn.conn_closed)
         tcp_conn.on("pause", http_conn.res_body_pause)
         tcp_conn.pause(False)
@@ -228,6 +230,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._req_paused = False
         self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
+        self._peer_closed = False  # the client won't send any more
+        self._linger_timer: Optional[ScheduledEvent] = None
         self._arm_idle_timer()
 
     @property
@@ -300,6 +304,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._res_timer_ex = target
             self._res_timer.start(timeout)
 
+    def _stop_linger_timer(self) -> None:
+        if self._linger_timer:
+            self._linger_timer.delete()
+            self._linger_timer = None
+
     def _stop_idle_timer(self) -> None:
         self._idler.stop()
 
@@ -316,7 +325,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         """
         if not self.tcp_conn or not self.is_idle or self._in_input:
             return
-        if self.server.shutting_down:
+        if self.server.shutting_down or self._peer_closed:
             self.close_conn()
         elif restart or not self._idler.armed:
             self._arm_idle_timer()
@@ -326,6 +335,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
+        self._stop_linger_timer()
         if self.tcp_conn:
             if self.tcp_conn.tcp_connected:
                 self.tcp_conn.close()
@@ -372,12 +382,42 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if not paused:
             self.drain_exchange_queue()
 
+    def peer_closed(self) -> None:
+        """
+        The client has closed its side. It may still be reading (a half-close),
+        so what it has sent gets answered and the connection closes once that
+        is done; but a client that has gone away looks the same, so the
+        connection is dropped if nothing has been sent to it for
+        request_timeout (a stall bound, not a total), and at once during
+        shutdown.
+        """
+        self._peer_closed = True
+        self._update_idle_timer()
+        if not self.tcp_conn or self.is_idle:
+            return
+        if self.server.shutting_down:
+            self.close_conn()
+            return
+        self._arm_linger()
+
+    def _arm_linger(self) -> None:
+        self._stop_linger_timer()
+        timeout = self.server.request_timeout
+        if timeout and timeout > 0:
+            self._linger_timer = self.server.loop.schedule(timeout, self.close_conn)
+
+    def output_sent(self) -> None:
+        "Bytes went out: a half-closed client is still reading, so give it longer."
+        if self._linger_timer:
+            self._arm_linger()
+
     def conn_closed(self) -> None:
         "The server connection has closed."
         self.server.connections.discard(self)
         self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
+        self._stop_linger_timer()
         self.exchanges.clear()
         self._pending_error = None
         self.tcp_conn = None
