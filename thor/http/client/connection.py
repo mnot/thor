@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # pylint: disable=raise-missing-from
 
+from enum import Enum
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from thor.events import EventEmitter
@@ -25,9 +26,16 @@ if TYPE_CHECKING:
     from .exchange import HttpClientExchange
 
 
+class ConnectionState(Enum):
+    ACTIVE = "active"  # attached to an exchange
+    IDLE = "idle"  # in the pool, or not yet attached
+    CLOSED = "closed"  # out of service; the pool has forgotten it
+
+
 class HttpClientConnection(HttpMessageHandler, EventEmitter):
     """
-    A persistent connection for the HTTP client.
+    A persistent connection for the HTTP client. The pool (HttpClient) moves
+    it between states; it reports its own death to the pool.
     """
 
     default_state = States.WAITING
@@ -44,7 +52,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.last_active_exchange: Optional[HttpClientExchange] = None
         self.res_version: Optional[bytes] = None
         self.reusable = False
-        self._counted_dead = False  # removed from client.conn_counts
+        self.state = ConnectionState.IDLE
         self.idler: Optional[ScheduledEvent] = None
         self._read_timeout_ev: Optional[ScheduledEvent] = None
         self._in_read = False
@@ -57,6 +65,8 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.tcp_conn.on("sent", self._restart_timeout)
 
     def attach(self, exchange: HttpClientExchange) -> None:
+        self.stop_idle()
+        self.state = ConnectionState.ACTIVE
         self.active_exchange = exchange
         self.last_active_exchange = None
         self.careful = exchange.careful
@@ -78,6 +88,24 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         if self.active_exchange:
             self.last_active_exchange = self.active_exchange
         self.active_exchange = None
+
+    def idle(self, timeout: float) -> None:
+        "Wait in the pool, for at most timeout seconds."
+        self.stop_idle()
+        self.state = ConnectionState.IDLE
+        self.idler = self.client.loop.schedule(timeout, self._idle_expired)
+
+    def stop_idle(self) -> None:
+        if self.idler:
+            self.idler.delete()
+            self.idler = None
+
+    def _idle_expired(self) -> None:
+        self.idler = None
+        # abort() emits no 'close', so an unresponsive peer can't hold the slot
+        # open; tell the pool ourselves.
+        self.tcp_conn.abort()
+        self.client.dead_conn(self)
 
     def close(self) -> None:
         self.tcp_conn.close()

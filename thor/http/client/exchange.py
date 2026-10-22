@@ -109,7 +109,7 @@ class HttpClientExchange(EventEmitter):
         req_hdrs = [i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs]
         assert self.authority, "authority not found in _req_start"
         req_hdrs.append((b"Host", self.authority))
-        if self.client.idle_timeout == 0:
+        if not self.client.idle_timeout:  # we won't reuse it, so say so
             req_hdrs.append((b"Connection", b"close"))
         if b"content-length" in header_names(req_hdrs):
             delimit = Delimiters.COUNTED

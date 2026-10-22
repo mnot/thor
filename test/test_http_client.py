@@ -1489,6 +1489,20 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_response_done_listener_runtime_error(self):
         self._listener_runtime_error("response_done")
 
+    def test_idle_timeout_none_closes_instead_of_pooling(self):
+        client = HttpClient(loop=MagicMock())
+        client.idle_timeout = None
+        tcp_conn = MagicMock()
+        tcp_conn.tcp_connected = True
+        conn = client.new_conn((b"http", b"localhost", 80), tcp_conn)
+        conn.attach(MagicMock())
+
+        client.release_conn(conn)
+
+        tcp_conn.close.assert_called_once()
+        self.assertEqual(client._idle_conns, {})
+        self.assertEqual(client.conn_counts, {})
+
     def test_no_timeouts_schedules_nothing(self):
         client = HttpClient(loop=MagicMock())
         client.connect_timeout = None
