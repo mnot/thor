@@ -1104,6 +1104,86 @@ Content-Length: 5
     def test_missing_host_http10_rejected(self):
         self.check_missing_host_rejected(b"GET / HTTP/1.0\r\n\r\n")
 
+    def check_host_rejected(self, request, detail):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(request)
+
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(exchanges, [])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+        self.assertIn(b"Invalid Host header (" + detail, output)
+
+    def test_duplicate_host_rejected(self):
+        for version in (b"1.0", b"1.1"):
+            with self.subTest(version=version):
+                self.check_host_rejected(
+                    b"GET / HTTP/%s\r\nHost: a.example\r\nHost: a.example\r\n\r\n"
+                    % version,
+                    b"more than one Host field line",
+                )
+
+    def test_duplicate_host_different_case_rejected(self):
+        self.check_host_rejected(
+            b"GET / HTTP/1.1\r\nHost: a.example\r\nhost: b.example\r\n\r\n",
+            b"more than one Host field line",
+        )
+
+    def test_empty_host_rejected(self):
+        for value in (b"", b" ", b"\t"):
+            with self.subTest(value=value):
+                self.check_host_rejected(
+                    b"GET / HTTP/1.1\r\nHost:%s\r\n\r\n" % value, b"empty Host"
+                )
+
+    def test_invalid_host_rejected(self):
+        for value in (
+            b"a.example b.example",
+            b"user@a.example",
+            b"a.example/path",
+            b"a.example?q",
+            b"a.example#f",
+            b"a.example:80:80",
+            b"a.example:http",
+            b"a.example, b.example",
+            b"[::1",
+            b"[xyz]:80",
+            b"a%2.example",
+            b"\xc3\xa9.example",
+            b":80",
+        ):
+            with self.subTest(value=value):
+                self.check_host_rejected(
+                    b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % value,
+                    b"Host " + repr(value).encode("ascii"),
+                )
+
+    def test_valid_host_accepted(self):
+        for value in (
+            b"a.example",
+            b"A.Example:8080",
+            b"a.example:",
+            b"192.0.2.1",
+            b"192.0.2.1:80",
+            b"[::1]",
+            b"[2001:db8::1]:8080",
+            b"[v1.fe80::a+en1]",
+            b"a%20b.example",
+            b"under_score.example",
+        ):
+            with self.subTest(value=value):
+                tcp_conn = FakeTcpConnection()
+                server = FakeServer()
+                conn = HttpServerConnection(tcp_conn, server)
+                conn.handle_input(b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % value)
+                exchanges = [e for e, args in server.events if e == "exchange"]
+                self.assertEqual(exchanges, ["exchange"])
+                self.assertTrue(tcp_conn.tcp_connected)
+
     def test_missing_host_after_valid_request_pipelined(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

@@ -26,6 +26,13 @@ _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
 _TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")  # RFC 9110 section 5.6.2
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
+# RFC 3986 host (reg-name, IPv4 or IP-literal) and optional port; see
+# RFC 9110 section 7.2. An empty host isn't accepted.
+_HOST = re.compile(
+    rb"(?:\[(?:[0-9A-Fa-f:.]+|[vV][0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+)\]"
+    rb"|(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+)"
+    rb"(?::[0-9]*)?"
+)
 _MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
 
@@ -83,6 +90,21 @@ def check_request_target(target: bytes) -> Optional[str]:
     for byte in target:
         if byte <= 0x20 or byte == 0x7F:
             return f"request-target contains {bytes([byte])!r}"
+    return None
+
+
+def check_host(values: List[bytes]) -> Optional[str]:
+    """
+    Why a request's Host field lines (RFC 9112 section 3.2: exactly one,
+    holding a host and optional port) can't be accepted, or None if they can.
+    """
+    if len(values) > 1:
+        return "more than one Host field line"
+    value = values[0].strip(b" \t")
+    if not value:
+        return "empty Host"
+    if not _HOST.fullmatch(value):
+        return f"Host {value[:64]!r} is not a host and optional port"
     return None
 
 

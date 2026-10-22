@@ -22,9 +22,9 @@ from thor.http.common import (
     Delimiters,
     HttpMessageHandler,
     States,
+    check_host,
     check_method,
     check_request_target,
-    header_names,
     no_body_status,
     output_content_length,
     strip_hop_by_hop,
@@ -33,6 +33,7 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    InvalidHostError,
     OutputStateError,
     RequestLineError,
     RequestTransferEncodingError,
@@ -471,8 +472,13 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # Reported to whoever listens on this connection, then accepted as
             # is: the application decides what to make of it.
             self.input_error(RequestLineError(problem))
-        if b"host" not in header_names(hdr_tuples):
+        hosts = [value for name, value in hdr_tuples if name.lower() == b"host"]
+        if not hosts:
             self.input_error(HostRequiredError())
+            raise ValueError
+        problem = check_host(hosts)
+        if problem:
+            self.input_error(InvalidHostError(problem))
             raise ValueError
         for code in transfer_codes:
             # only chunked is supported; 'identity' is tolerated before it
