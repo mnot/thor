@@ -22,7 +22,8 @@ class HttpClient:
     It is also the connection pool: per origin, it knows the live
     connections (to cap them), the idle ones (to reuse them) and the
     requests waiting for one. A connection moves between those through
-    attach_conn, release_conn and dead_conn only.
+    attach_conn, release_conn and dead_conn only. Connects still in progress
+    count against the cap too, so a burst can't overshoot it.
     """
 
     def __init__(self, loop: Optional[LoopBase] = None) -> None:
@@ -38,10 +39,12 @@ class HttpClient:
         self.check_ip: Optional[Callable[[str], bool]] = None
         self.careful: bool = True
         self._conns: Dict[OriginType, Set[HttpClientConnection]] = {}
+        self._connecting: Dict[OriginType, int] = {}
         self._idle_conns: Dict[OriginType, List[HttpClientConnection]] = {}
         self._waiting: Dict[
             OriginType, List[Tuple[ConnectHandler, ConnectErrorHandler]]
         ] = {}
+        self._closing: Set[HttpClientConnection] = set()
         self.loop.once("stop", self._close_conns)
 
     def exchange(self) -> HttpClientExchange:
@@ -69,12 +72,12 @@ class HttpClient:
                 handle_connect(conn)
                 return
             self._forget(conn)
-        if len(self._conns.get(origin, ())) >= self.max_server_conn:
+        if self._at_capacity(origin):
             self._waiting.setdefault(origin, []).append(
                 (handle_connect, handle_connect_error)
             )
             return
-        initiate_connection(self, origin, handle_connect, handle_connect_error)
+        self._connect(origin, handle_connect, handle_connect_error)
 
     def new_conn(
         self, origin: OriginType, tcp_conn: TcpConnection
@@ -126,25 +129,84 @@ class HttpClient:
         if conn.state is ConnectionState.CLOSED:
             return
         conn.state = ConnectionState.CLOSED
+        if conn.tcp_connected:  # closing gracefully; stop must still reach it
+            self._closing.add(conn)
+            conn.tcp_conn.once("disconnect", lambda: self._closing.discard(conn))
         origin = conn.origin
         conns = self._conns.get(origin)
         if conns:
             conns.discard(conn)
             if not conns:
                 del self._conns[origin]
+        self._start_waiting(origin)
+
+    def _at_capacity(self, origin: OriginType) -> bool:
+        "Live connections and connects in progress both take a slot."
+        used = len(self._conns.get(origin, ())) + self._connecting.get(origin, 0)
+        return used >= self.max_server_conn
+
+    def _connect(
+        self,
+        origin: OriginType,
+        handle_connect: ConnectHandler,
+        handle_connect_error: ConnectErrorHandler,
+    ) -> None:
+        "Start a new connection, holding a slot until it succeeds or fails."
+        self._connecting[origin] = self._connecting.get(origin, 0) + 1
+
+        holding = True
+
+        def release_slot() -> bool:
+            "True the first time only, however many outcomes get reported."
+            nonlocal holding
+            if not holding:
+                return False
+            holding = False
+            left = self._connecting[origin] - 1
+            if left:
+                self._connecting[origin] = left
+            else:
+                del self._connecting[origin]
+            return True
+
+        def connected(conn: HttpClientConnection) -> None:
+            release_slot()  # conn is counted in _conns now
+            handle_connect(conn)
+
+        def failed(err_type: str, err_id: int, err_str: str) -> None:
+            if not release_slot():
+                return
+            handle_connect_error(err_type, err_id, err_str)
+            self._start_waiting(origin)  # nothing else will wake the queue
+
+        initiate_connection(self, origin, connected, failed)
+
+    def _start_waiting(self, origin: OriginType) -> None:
+        "If there's room, let the oldest waiting request have a new connection."
         waiting = self._waiting.get(origin)
-        if waiting and len(self._conns.get(origin, ())) < self.max_server_conn:
+        if waiting and not self._at_capacity(origin):
             handle_connect, handle_connect_error = waiting.pop(0)
             if not waiting:
                 del self._waiting[origin]
-            initiate_connection(self, origin, handle_connect, handle_connect_error)
+            self._connect(origin, handle_connect, handle_connect_error)
 
     def _close_conns(self) -> None:
-        "Close all idle HTTP connections."
-        for conn_list in list(self._idle_conns.values()):
-            for conn in list(conn_list):
-                try:
-                    conn.close()
-                except socket.error:
-                    pass
+        """
+        The loop has stopped: drop every connection, idle, in use or still
+        closing, and forget the requests waiting for one. The loop has already given up its
+        file descriptors, so a graceful close would never finish; abort.
+        """
+        conns = [conn for origin_conns in self._conns.values() for conn in origin_conns]
+        conns.extend(self._closing)
+        self._conns.clear()
+        self._closing.clear()
         self._idle_conns.clear()
+        self._waiting.clear()
+        for conn in conns:
+            conn.state = ConnectionState.CLOSED
+            conn.stop_idle()
+            conn.clear_timeout()
+            try:
+                conn.tcp_conn.abort()
+            except socket.error:
+                pass
