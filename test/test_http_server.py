@@ -686,6 +686,37 @@ Content-Length: 5
         )
         self.assertEqual(list(conn.exchanges), [])
 
+    def test_pipelined_release_does_not_recurse_per_exchange(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        count = sys.getrecursionlimit() + 100
+        conn.max_pipeline_requests = count
+        conn.handle_input(
+            b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n" * count
+        )
+        exchanges = list(conn.exchanges)
+        self.assertEqual(len(exchanges), count)
+        for exchange in reversed(exchanges[1:]):
+            self.respond(exchange, b"")
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(exchanges[0], b"")
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 200 OK"), count)
+        self.assertEqual(list(conn.exchanges), [])
+
+    def test_response_done_twice_refused(self):
+        # HTTP/1.0 and no declared length: delimited by close, so the output
+        # state doesn't reset after the first
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(b"GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
+        first = [args[0] for event, args in server.events if event == "exchange"][0]
+        first.response_start(b"200", b"OK", [])
+        first.response_done([])
+        with self.assertRaises(thor.http.error.OutputStateError):
+            first.response_done([])
+
     def test_pipelined_response_streams_once_its_turn_comes(self):
         tcp_conn, conn, (first, second) = self.pipelined_two_conn()
 

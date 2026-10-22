@@ -355,14 +355,20 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self.tcp_conn = None  # even if it was already gone
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
-        exchange.res_complete = True
-        self.exchanges.retire(exchange)
+        self._answered(exchange)
+        # Later exchanges that finished while they waited go out now, in order.
         next_ex = self.exchanges.next_to_answer
-        if next_ex:
-            next_ex.release()
+        while next_ex and next_ex.release():
+            next_ex.close_if_needed()
+            self._answered(next_ex)
+            next_ex = self.exchanges.next_to_answer
         self._handle_pending_error()
         self._update_res_timer()
         self._update_idle_timer()
+
+    def _answered(self, exchange: "HttpServerExchange") -> None:
+        exchange.res_complete = True
+        self.exchanges.retire(exchange)
 
     def _handle_pending_error(self) -> None:
         """
@@ -603,7 +609,11 @@ class ExchangeOutput(HttpMessageHandler):
 
     @property
     def started(self) -> bool:
-        "Have the final response's headers gone out, with the response unfinished?"
+        """
+        Have the final response's headers gone out? It's cleared again when the
+        response ends with its length known; one that ends by closing the
+        connection stays set.
+        """
         return self._output_state != States.WAITING
 
     def output(self, data: bytes) -> None:
@@ -700,19 +710,21 @@ class HttpServerExchange(EventEmitter):
             self._held_len = 0
             self.http_conn.output(data)
 
-    def release(self) -> None:
-        "It's now this exchange's turn: send what it held, and finish it if it's done."
+    def release(self) -> bool:
+        """
+        It's now this exchange's turn: send what it held. Returns whether its
+        response is finished, so the connection can complete it.
+        """
         try:
             self._flush()
         except (BufferError, OSError):
             self.http_conn.close_conn()  # can't deliver it
-        if self.res_done:
-            self._complete()
+        return self.res_done
 
-    def _complete(self) -> None:
+    def close_if_needed(self) -> None:
+        "Close the connection if this response calls for it."
         if self._close and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
-        self.http_conn.exchange_done(self)
 
     def _check_open(self) -> None:
         if self.res_done:
@@ -761,11 +773,13 @@ class HttpServerExchange(EventEmitter):
         underlying TCP connection is closed after the response is flushed,
         regardless of response framing.
         """
+        self._check_open()
         should_close = self._out.output_end(trailers)
         self._close = should_close or close or not self.persistent
         self.res_done = True
         if self.http_conn.exchanges.is_next(self):
-            self._complete()
+            self.close_if_needed()
+            self.http_conn.exchange_done(self)
 
 
 def test_handler(ex: HttpServerExchange) -> None:  # pragma: no cover
