@@ -36,6 +36,74 @@ class NonFinalParser(DummyHttpParser):
         return True, False
 
 
+class FramingParser(DummyHttpParser):
+    "Records what the parser extracted for framing."
+
+    def input_start(
+        self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length
+    ):
+        self.conn_tokens = conn_tokens
+        self.transfer_codes = transfer_codes
+        self.content_length = content_length
+        return DummyHttpParser.input_start(
+            self, top_line, hdr_tuples, conn_tokens, transfer_codes, content_length
+        )
+
+
+class TestFramingFields(unittest.TestCase):
+    "Only SP / HTAB are optional whitespace; other control bytes are not."
+
+    def parse(self, *fields, careful=True):
+        parser = FramingParser()
+        parser.careful = careful
+        parser.handle_input(
+            b"HTTP/1.1 200 OK\r\n" + b"".join(f + b"\r\n" for f in fields) + b"\r\nabc"
+        )
+        return parser
+
+    def test_cl_name_leading_control(self):
+        parser = self.parse(b"\x0bContent-Length: 3")
+        self.assertIsInstance(parser.test_err, error.HeaderNameError)
+
+    def test_cl_name_trailing_control(self):
+        parser = self.parse(b"Content-Length\x0c: 3")
+        self.assertIsInstance(parser.test_err, error.HeaderNameError)
+
+    def test_cl_name_control_permissive(self):
+        for field in [b"\x0bContent-Length: 3", b"Content-Length\x0c: 3"]:
+            parser = self.parse(field, careful=False)
+            self.assertIsInstance(parser.test_err, error.HeaderNameError)
+            self.assertIsNone(parser.content_length)
+
+    def test_name_not_token(self):
+        for name in [b"Foo Bar", b"Foo(", b"Foo\x7f", "Fö".encode("utf-8")]:
+            parser = self.parse(name + b": bar")
+            self.assertIsInstance(parser.test_err, error.HeaderNameError, name)
+
+    def test_name_token(self):
+        parser = self.parse(b"!#$%&'*+-.^_`|~aZ09: bar", b"Content-Length: 3")
+        self.assertIsNone(parser.test_err)
+        self.assertEqual(parser.content_length, 3)
+
+    def test_te_value_control(self):
+        parser = self.parse(b"Transfer-Encoding:\x0bchunked")
+        self.assertEqual(parser.transfer_codes, [b"\x0bchunked"])
+        self.assertEqual(parser._input_delimit, Delimiters.CLOSE)
+
+    def test_connection_value_control(self):
+        parser = self.parse(b"Connection:\x0cclose", b"Content-Length: 3")
+        self.assertEqual(parser.conn_tokens, [b"\x0cclose"])
+
+    def test_ows_trimmed(self):
+        parser = self.parse(
+            b"Transfer-Encoding: \t chunked \t,\t gzip\t",
+            b"Connection:\t close ",
+            careful=False,
+        )
+        self.assertEqual(parser.transfer_codes, [b"chunked", b"gzip"])
+        self.assertEqual(parser.conn_tokens, [b"close"])
+
+
 class TestHttpParser(unittest.TestCase):
     def setUp(self):
         self.parser = DummyHttpParser()

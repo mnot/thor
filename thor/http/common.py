@@ -24,6 +24,8 @@ RETURN = ord("\r")
 _BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
 _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
+_TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+_OWS = b" \t"
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
 _MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
@@ -125,7 +127,7 @@ def header_dict(
         name = name.lower()
         if name in (omit or []):
             continue
-        out[name].extend([i.strip() for i in val.split(b",")])
+        out[name].extend([i.strip(_OWS) for i in val.split(b",")])
     return out
 
 
@@ -140,7 +142,7 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
     Set-Cookie, or any value with a quoted string).
     """
     return [
-        v.strip()
+        v.strip(_OWS)
         for v in sum(
             [l.split(b",") for l in [i[1] for i in hdr_tuples if i[0].lower() == name]],
             [],
@@ -457,6 +459,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 continue
             if fn[-1:] in [b" ", b"\t"]:
                 self._fail(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
+            elif not _TOKEN.fullmatch(fn):
+                self._fail(error.HeaderNameError(fn.decode("utf-8", "replace")))
             if b"\0" in fv:
                 self._fail(error.HeaderValueError("NUL in field-value"))
             hdr_tuples.append((fn, fv))
@@ -464,14 +468,14 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if not gather_conn_info:
                 continue
 
-            f_name = fn.strip().lower()
-            f_val = fv.strip()
+            f_name = fn.strip(_OWS).lower()
+            f_val = fv.strip(_OWS)
 
             # parse connection-related headers
             if f_name == b"connection":
-                conn_tokens += [v.strip().lower() for v in f_val.split(b",")]
+                conn_tokens += [v.strip(_OWS).lower() for v in f_val.split(b",")]
             elif f_name == b"transfer-encoding":
-                transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
+                transfer_codes += [v.strip(_OWS).lower() for v in f_val.split(b",")]
             elif f_name == b"content-length":
                 if content_length is not None:
                     try:
