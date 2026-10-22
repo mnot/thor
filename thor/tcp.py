@@ -206,6 +206,9 @@ class TcpConnection(EventSource):
         self._output_paused = False
         self._close_timeout_ev: Optional[ScheduledEvent] = None
         self._write_buffer = WriteBuffer()
+        # What send() was last offered and didn't take: TLS wants the same
+        # bytes again after a want-write, so they aren't re-peeked.
+        self._pending_send: Optional[Union[bytes, memoryview]] = None
 
         self.register_fd(sock.fileno())
         self.on("fd_readable", self.handle_readable)
@@ -231,15 +234,6 @@ class TcpConnection(EventSource):
     def tcp_connected(self) -> bool:
         "Is the socket open?"
         return self._state is not TcpState.CLOSED
-
-    @property
-    def _closing(self) -> bool:
-        "Has close() been called on a socket that's still open?"
-        return self._state in (TcpState.FLUSHING, TcpState.OUTPUT_CLOSED)
-
-    @property
-    def _closed_output(self) -> bool:
-        return self._state is TcpState.OUTPUT_CLOSED
 
     def handle_readable(self) -> None:
         "The connection has data read for reading"
@@ -286,8 +280,10 @@ class TcpConnection(EventSource):
     def handle_writable(self) -> None:
         "The connection is ready for writing; write any buffered data."
         if self._write_buffer:
+            if self._pending_send is None:
+                self._pending_send = self._write_buffer.peek(self.write_coalesce)
             try:
-                sent = self.socket.send(self._write_buffer.peek(self.write_coalesce))
+                sent = self.socket.send(self._pending_send)
             except OSError as why:
                 failure = self._io_failure(why)
                 if failure is IoFailure.BLOCK:
@@ -296,6 +292,7 @@ class TcpConnection(EventSource):
                     self._lost()
                     return
                 raise
+            self._pending_send = None
             self._write_buffer.consume(sent)
             if sent:
                 self.emit("sent")
@@ -316,6 +313,8 @@ class TcpConnection(EventSource):
         "Write data to the connection."
         if self._state is not TcpState.OPEN:
             raise OSError("Connection closed")
+        if not data:
+            return  # nothing to send, and a lone empty chunk would never drain
         if len(self._write_buffer) >= self.max_write_buffer_chunks:
             if not self._output_paused:
                 self._output_paused = True
@@ -337,8 +336,8 @@ class TcpConnection(EventSource):
         Temporarily stop/start reading from the connection and pushing
         it to the app.
         """
-        if paused:
-            self.event_del("fd_readable")
+        if paused or self._peer_closed or self._state is TcpState.CLOSED:
+            self.event_del("fd_readable")  # at EOF there's nothing to wait for
         else:
             self.event_add("fd_readable")
         self._input_paused = paused
@@ -407,8 +406,8 @@ class TcpConnection(EventSource):
 
     def _lost(self) -> None:
         "The connection has failed: nothing can be sent or received."
-        if self._close():
-            self.emit("close")
+        if self._close() and not self._peer_closed:
+            self.emit("close")  # unless the peer's FIN already said so
 
     def _handle_close(self) -> None:
         "The poller reports a hangup; read what's left to find the peer's FIN."
@@ -442,6 +441,7 @@ class TcpConnection(EventSource):
             return False
         self._state = TcpState.CLOSED
         self._write_buffer.clear()
+        self._pending_send = None
         if self._close_timeout_ev:
             self._close_timeout_ev.delete()
             self._close_timeout_ev = None

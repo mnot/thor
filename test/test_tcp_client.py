@@ -7,13 +7,14 @@ except ImportError:
 
 import errno
 import socket
+import ssl
 import unittest
 from unittest.mock import MagicMock, patch
 
 import framework
 
 from thor import loop
-from thor.tcp import TcpClient, TcpConnection, WriteBuffer
+from thor.tcp import TcpClient, TcpConnection, TcpState, WriteBuffer
 
 
 class FakeSocket:
@@ -293,7 +294,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         # Expectation: conn.tcp_connected should still be True because it's waiting to flush
         self.assertTrue(conn.tcp_connected)
-        self.assertTrue(conn._closing)
+        self.assertIs(conn._state, TcpState.FLUSHING)
 
         # Use abort to force close
         conn.abort()
@@ -342,7 +343,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         conn.close()
 
         self.assertTrue(conn.tcp_connected)
-        self.assertTrue(conn._closing)
+        self.assertIs(conn._state, TcpState.OUTPUT_CLOSED)
         self.assertFalse(conn._input_paused)
         self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
         loop_mock.schedule.assert_called_once_with(conn.close_timeout, conn._close)
@@ -459,6 +460,65 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertFalse(conn.tcp_connected)
         self.assertEqual(disconnects, [True])
         self.assertTrue(sock.closed)
+
+    def test_unpause_after_peer_eof_does_not_watch_readable(self):
+        "At EOF there's nothing to read; watching would spin on every poll."
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b""])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.pause(False)
+        conn.handle_readable()  # EOF
+        conn.pause(True)
+        conn.pause(False)
+        self.assertNotIn("fd_readable", conn.interesting_events())
+
+    def test_empty_write_is_ignored(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.write(b"")
+        self.assertEqual(list(conn._write_buffer), [])
+        self.assertNotIn("fd_writable", conn.interesting_events())
+        conn.close()
+        self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
+
+    def test_close_emitted_once_on_fin_then_reset(self):
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b""], send_error=errno.ECONNRESET)
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        events = []
+        conn.on("close", lambda: events.append("close"))
+        conn.on("disconnect", lambda: events.append("disconnect"))
+        conn.write(b"x")
+        conn.handle_readable()  # FIN
+        conn.handle_writable()  # reset
+        self.assertEqual(events, ["close", "disconnect"])
+
+    def test_same_bytes_offered_again_after_want_write(self):
+        "TLS needs a retried send to carry the bytes it was first given."
+
+        class WantWriteOnce(FakeSocket):
+            def __init__(self):
+                FakeSocket.__init__(self, sends=[4, 2])
+                self.refused = False
+
+            def send(self, data):
+                if not self.refused:
+                    self.refused = True
+                    raise ssl.SSLWantWriteError()
+                return FakeSocket.send(self, data)
+
+        loop_mock = MagicMock()
+        sock = WantWriteOnce()
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.write(b"ab")
+        conn.write(b"cd")
+        conn.handle_writable()  # want-write
+        conn.write(b"ef")  # more arrives meanwhile
+        conn.handle_writable()
+        self.assertEqual(sock.sent[0], b"abcd")  # not re-peeked to abcdef
+        conn.handle_writable()
+        self.assertEqual(sock.sent, [b"abcd", b"ef"])
 
     def test_write_buffer_byte_limit(self):
         loop_mock = MagicMock()

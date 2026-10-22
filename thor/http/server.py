@@ -62,6 +62,7 @@ class HttpServer(EventEmitter):
         self.connections.add(http_conn)
         tcp_conn.on("data", http_conn.handle_input)
         tcp_conn.on("close", http_conn.peer_closed)
+        tcp_conn.on("sent", http_conn.output_sent)
         tcp_conn.on("disconnect", http_conn.conn_closed)
         tcp_conn.on("pause", http_conn.res_body_pause)
         tcp_conn.pause(False)
@@ -278,7 +279,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         The client has closed its side. It may still be reading (a half-close),
         so what it has sent gets answered and the connection closes once that
         is done; but a client that has gone away looks the same, so the
-        application gets request_timeout to answer, and none during shutdown.
+        connection is dropped if nothing has been sent to it for
+        request_timeout (a stall bound, not a total), and at once during
+        shutdown.
         """
         self._peer_closed = True
         self._update_idle_timer()
@@ -287,9 +290,18 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if self.server.shutting_down:
             self.close_conn()
             return
+        self._arm_linger()
+
+    def _arm_linger(self) -> None:
+        self._stop_linger_timer()
         timeout = self.server.request_timeout
-        if timeout and timeout > 0 and not self._linger_timer:
+        if timeout and timeout > 0:
             self._linger_timer = self.server.loop.schedule(timeout, self.close_conn)
+
+    def output_sent(self) -> None:
+        "Bytes went out: a half-closed client is still reading, so give it longer."
+        if self._linger_timer:
+            self._arm_linger()
 
     def conn_closed(self) -> None:
         "The server connection has closed."
