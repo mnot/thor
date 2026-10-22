@@ -30,7 +30,7 @@ from typing import (
 from thor.events import EventEmitter
 from thor.types import EventListener, ScheduledEventTuple
 
-__all__ = ["run", "stop", "schedule", "run_in_loop"]
+__all__ = ["run", "stop", "schedule", "run_in_loop", "Timer"]
 
 
 class EventSource(EventEmitter):
@@ -316,6 +316,41 @@ class ScheduledEvent:
         if not self._deleted:
             self._loop.schedule_del(self._event)
             self._deleted = True
+
+
+class Timer:
+    """
+    A callback its owner arms, re-arms and disarms by name, instead of
+    keeping the ScheduledEvent and the if-set-then-delete around it.
+    Arming it again replaces the pending one; a delay of None or 0 arms
+    nothing. It stays armed after firing until stopped or restarted, so
+    'armed' means "has been started and not stopped since".
+    """
+
+    def __init__(self, loop: LoopBase, callback: EventListener) -> None:
+        self._loop = loop
+        self._callback = callback
+        self._event: Optional[ScheduledEvent] = None
+
+    def start(self, delay: Optional[float], *args: Any) -> None:
+        "Arm (or re-arm) the timer, if delay is a positive number."
+        self.stop()
+        if delay and delay > 0:
+            self._event = self._loop.schedule(delay, self._callback, *args)
+
+    def stop(self) -> None:
+        if self._event:
+            self._event.delete()
+            self._event = None
+
+    @property
+    def armed(self) -> bool:
+        return self._event is not None
+
+    @property
+    def event(self) -> Optional[ScheduledEvent]:
+        "The pending event, if any, for inspection."
+        return self._event
 
 
 class PollLoop(LoopBase):

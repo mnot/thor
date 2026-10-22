@@ -16,7 +16,7 @@ from thor.http.error import (
     HttpVersionError,
     StartLineError,
 )
-from thor.loop import ScheduledEvent
+from thor.loop import Timer
 from thor.tcp import TcpConnection
 from thor.types import OriginType, RawHeaderListType
 
@@ -45,8 +45,8 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.res_version: Optional[bytes] = None
         self.reusable = False
         self._counted_dead = False  # removed from client.conn_counts
-        self.idler: Optional[ScheduledEvent] = None
-        self._read_timeout_ev: Optional[ScheduledEvent] = None
+        self.idler: Optional[Timer] = None  # the pool's, while idle
+        self._read_timer = Timer(self.client.loop, self.input_error)
         self._response_ended = False
 
         self.tcp_conn.on("data", self._handle_data)
@@ -88,12 +88,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.client.dead_conn(self)
 
     def set_timeout(self, timeout: Optional[float], kind: str) -> None:
-        self.clear_timeout()
-        if timeout is None:
-            return
-        self._read_timeout_ev = self.client.loop.schedule(
-            timeout, self.input_error, error.ReadTimeoutError(kind)
-        )
+        self._read_timer.start(timeout, error.ReadTimeoutError(kind))
 
     def _read_timeout(self) -> Optional[float]:
         if self.client.read_timeout is not None:
@@ -101,9 +96,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         return self.client.connect_timeout
 
     def clear_timeout(self) -> None:
-        if self._read_timeout_ev:
-            self._read_timeout_ev.delete()
-            self._read_timeout_ev = None
+        self._read_timer.stop()
 
     @property
     def tcp_connected(self) -> bool:
@@ -150,7 +143,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     def _restart_timeout(self) -> None:
         "Inactivity timeout: restart on data received or sent, if one is running."
-        if self._read_timeout_ev:
+        if self._read_timer.armed:
             self.set_timeout(self._read_timeout(), "read")
 
     def _extra_data(self, inbytes: bytes) -> None:

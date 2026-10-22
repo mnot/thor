@@ -35,7 +35,7 @@ from thor.http.error import (
     TooManyMsgsError,
     TransferCodeError,
 )
-from thor.loop import LoopBase, ScheduledEvent
+from thor.loop import LoopBase, Timer
 from thor.tcp import TcpConnection, TcpServer
 from thor.types import RawHeaderListType
 
@@ -99,11 +99,13 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
         self.output_paused = False
         self._pending_error: Optional[HttpError] = None  # deferred error
-        self._idler: Optional[ScheduledEvent] = None
-        self._req_timer: Optional[ScheduledEvent] = None
+        # Each closes the connection: when it has sat idle too long, when a
+        # request body stops arriving, or when a response doesn't come.
+        self._idler = Timer(self.server.loop, self.close_conn)
+        self._req_timer = Timer(self.server.loop, self.close_conn)
+        self._res_timer = Timer(self.server.loop, self.close_conn)
         self._req_in_progress = False  # request body incomplete
         self._req_paused = False
-        self._res_timer: Optional[ScheduledEvent] = None
         self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
         self._arm_idle_timer()
@@ -134,16 +136,14 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         )
 
     def _stop_req_timer(self) -> None:
-        if self._req_timer:
-            self._req_timer.delete()
-            self._req_timer = None
+        self._req_timer.stop()
 
     def _start_req_timer(self) -> None:
         "(Re)start the inactivity timer for the request being received."
-        self._stop_req_timer()
-        timeout = self.server.request_timeout
-        if timeout and timeout > 0 and self.tcp_conn and not self._req_paused:
-            self._req_timer = self.server.loop.schedule(timeout, self.close_conn)
+        if self.tcp_conn and not self._req_paused:
+            self._req_timer.start(self.server.request_timeout)
+        else:
+            self._req_timer.stop()
 
     def handle_input(self, inbytes: bytes) -> None:
         if self._in_input:  # the parser calls itself for pipelined data
@@ -161,9 +161,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._update_idle_timer(restart=False)
 
     def _stop_res_timer(self) -> None:
-        if self._res_timer:
-            self._res_timer.delete()
-            self._res_timer = None
+        self._res_timer.stop()
         self._res_timer_ex = None
 
     def _update_res_timer(self) -> None:
@@ -184,18 +182,13 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_res_timer()
         if target and timeout:
             self._res_timer_ex = target
-            self._res_timer = self.server.loop.schedule(timeout, self.close_conn)
+            self._res_timer.start(timeout)
 
     def _stop_idle_timer(self) -> None:
-        if self._idler:
-            self._idler.delete()
-            self._idler = None
+        self._idler.stop()
 
     def _arm_idle_timer(self) -> None:
-        self._stop_idle_timer()
-        timeout = self.server.idle_timeout
-        if timeout and timeout > 0:
-            self._idler = self.server.loop.schedule(timeout, self.close_conn)
+        self._idler.start(self.server.idle_timeout)
 
     def _update_idle_timer(self, restart: bool = True) -> None:
         """
@@ -209,7 +202,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             return
         if self.server.shutting_down:
             self.close_conn()
-        elif restart or not self._idler:
+        elif restart or not self._idler.armed:
             self._arm_idle_timer()
 
     def close_conn(self) -> None:

@@ -4,7 +4,7 @@ import socket
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
-from thor.loop import LoopBase, _loop
+from thor.loop import LoopBase, Timer, _loop
 from thor.types import OriginType
 
 from .connection import HttpClientConnection
@@ -65,7 +65,7 @@ class HttpClient:
                 break
             if conn.tcp_connected:
                 if conn.idler:
-                    conn.idler.delete()
+                    conn.idler.stop()
                 handle_connect(conn)
                 break
 
@@ -89,7 +89,7 @@ class HttpClient:
         def idle_close() -> None:
             "Remove the connection from the pool when it closes."
             if conn.idler:
-                conn.idler.delete()
+                conn.idler.stop()
             self._conn_is_dead(conn)
             unpool()
 
@@ -107,7 +107,8 @@ class HttpClient:
             handle_connect(conn)
         elif self.idle_timeout > 0:
             conn.once("close", idle_close)
-            conn.idler = self.loop.schedule(self.idle_timeout, idle_expire)
+            conn.idler = Timer(self.loop, idle_expire)
+            conn.idler.start(self.idle_timeout)
             self._idle_conns[origin].append(conn)
         else:
             conn.close()
@@ -119,7 +120,7 @@ class HttpClient:
         idle = self._idle_conns.get(conn.origin)
         if idle and conn in idle:
             if conn.idler:
-                conn.idler.delete()
+                conn.idler.stop()
                 conn.idler = None
             idle.remove(conn)
             if not idle:

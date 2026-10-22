@@ -965,7 +965,7 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertLess(output.index(b"200 OK"), output.index(b"400 Bad Request"))
         self.assertFalse(tcp_conn.tcp_connected)
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_timer_waits_for_exchange_queue_to_drain(self):
         tcp_conn = FakeTcpConnection()
@@ -1292,7 +1292,7 @@ Content-Length: 5
         live = self.idle_timers(server, timers)
         self.assertEqual(len(live), 1)
         self.assertEqual(live[0].callback, conn.close_conn)
-        self.assertIs(conn._idler, live[0])  # pylint: disable=protected-access
+        self.assertIs(conn._idler.event, live[0])  # pylint: disable=protected-access
 
     def test_idle_timer_armed_after_response_following_request(self):
         tcp_conn, server, conn, timers, exchanges = self.make_idle_conn(sync_paths=[])
@@ -1358,7 +1358,7 @@ Content-Length: 5
         conn.handle_input(b"GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.idle_timers(server, timers), [])
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_connection_closed_when_shutting_down(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
@@ -1394,14 +1394,14 @@ Content-Length: 5
         self.assertEqual(len(self.idle_timers(server, timers)), 1)
         conn.close_conn()
         self.assertEqual(self.idle_timers(server, timers), [])
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_timer_deleted_when_connection_drops(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         conn.conn_closed()
         self.assertEqual(self.idle_timers(server, timers), [])
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_timer_removed_by_next_request(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
@@ -1439,13 +1439,13 @@ Content-Length: 5
     def test_idle_timer_is_total_deadline_for_next_header_block(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
-        idler = conn._idler  # pylint: disable=protected-access
+        idler = conn._idler.event  # pylint: disable=protected-access
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         both = [server.idle_timeout, server.request_timeout]
         for piece in [b"GET /2 HTTP/1.1\r\nHo", b"st: example.com\r\n"]:
             conn.handle_input(piece)
             self.assertEqual(self.live_delays(timers), both)
-            self.assertIs(conn._idler, idler)  # pylint: disable=protected-access
+            self.assertIs(conn._idler.event, idler)  # pylint: disable=protected-access
             idler.delete.assert_not_called()
         conn.handle_input(b"\r\n")
         idler.delete.assert_called_once()
@@ -1456,7 +1456,7 @@ Content-Length: 5
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
         conn.handle_input(b"GET /2 HTTP/1.1\r\nHo")
-        conn._idler.callback()  # pylint: disable=protected-access
+        conn._idler.event.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.live_delays(timers), [])
 
@@ -1573,7 +1573,7 @@ Content-Length: 5
         self.assertEqual(
             self.live_delays(timers), [server.idle_timeout, server.request_timeout]
         )
-        conn._idler.callback()  # pylint: disable=protected-access
+        conn._idler.event.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.live_delays(timers), [])
 
@@ -1587,7 +1587,7 @@ Content-Length: 5
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         conn.req_body_pause(False)
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
-        conn._idler.callback()  # pylint: disable=protected-access
+        conn._idler.event.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
 
     def check_timer_invariants(self, server, conn, timers, history):
@@ -1600,7 +1600,7 @@ Content-Length: 5
             return
         # idle, or still receiving the next header block
         self.assertEqual(len(idle), 1, msg)
-        self.assertIs(conn._idler, idle[0], msg)  # pylint: disable=protected-access
+        self.assertIs(conn._idler.event, idle[0], msg)  # pylint: disable=protected-access
 
     def run_timer_sequence(self, request_timeout, requests, history):
         tcp_conn = FakeTcpConnection()
