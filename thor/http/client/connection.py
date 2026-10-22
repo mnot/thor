@@ -82,6 +82,50 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
     def close(self) -> None:
         self.tcp_conn.close()
 
+    # Sending the request. Each checks that the exchange still owns this
+    # connection (a stray call after an exchange is finished must not disturb
+    # whoever has it now), and takes the connection out of service if writing
+    # fails, so the exchange only ever has to report the error.
+
+    def _check_owner(self, exchange: HttpClientExchange) -> None:
+        if exchange is not self.active_exchange:
+            raise error.OutputStateError("Exchange is not attached to a connection")
+
+    def send_start(
+        self,
+        exchange: HttpClientExchange,
+        top_line: bytes,
+        req_hdrs: RawHeaderListType,
+        delimit: Delimiters,
+    ) -> None:
+        self._check_owner(exchange)
+        try:
+            self.output_start(top_line, req_hdrs, delimit)
+        except error.OutputError:
+            self.client.dead_conn(self)
+            raise
+
+    def send_body(self, exchange: HttpClientExchange, chunk: bytes) -> None:
+        self._check_owner(exchange)
+        try:
+            self.output_body(chunk)
+        except error.OutputError:
+            self.client.dead_conn(self)
+            raise
+
+    def send_end(
+        self, exchange: HttpClientExchange, trailers: RawHeaderListType
+    ) -> None:
+        self._check_owner(exchange)
+        try:
+            short = self.output_end(trailers)
+        except error.OutputError:
+            self.client.dead_conn(self)
+            raise
+        if short:
+            self.client.dead_conn(self)
+            raise error.OutputError("Request body shorter than Content-Length")
+
     def kill(self) -> None:
         if self.tcp_connected:
             self.close()

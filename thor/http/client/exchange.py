@@ -120,21 +120,12 @@ class HttpClientExchange(EventEmitter):
             delimit = Delimiters.NOBODY
 
         top_line = b"%s %s HTTP/1.1" % (self.method, self.req_target)
-        if self.conn:
-            try:
-                self.conn.output_start(top_line, req_hdrs, delimit)
-            except OutputError as why:
-                self.client.dead_conn(self.conn)
-                self.input_error(why)
-        else:
-            self._output_q.append(("start", top_line, req_hdrs, delimit))
+        self._send(("start", top_line, req_hdrs, delimit))
 
     def request_body(self, chunk: bytes) -> None:
         "Send part of the request body. May be called zero to many times."
         self._req_body = True
         self._req_start()
-        if self.conn and self._error_sent:
-            return
         if self.method in idempotent_methods and not self._req_body_overflow:
             self._req_body_len += len(chunk)
             if self._req_body_len > self.client.retry_body_limit:
@@ -142,14 +133,7 @@ class HttpClientExchange(EventEmitter):
                 self._req_body_chunks = []
             else:
                 self._req_body_chunks.append(chunk)
-        if self.conn:
-            try:
-                self.conn.output_body(chunk)
-            except OutputError as why:
-                self.client.dead_conn(self.conn)
-                self.input_error(why)
-        else:
-            self._output_q.append(("body", chunk))
+        self._send(("body", chunk))
 
     def request_done(self, trailers: RawHeaderListType) -> None:
         """
@@ -158,27 +142,32 @@ class HttpClientExchange(EventEmitter):
         """
         self._req_done_trailers = trailers
         self._req_start()
-        if self.conn and self._error_sent:
-            return
-        if self.conn:
-            try:
-                self._output_end(trailers)
-            except OutputError as why:
-                self.client.dead_conn(self.conn)
-                self.input_error(why)
-        else:
-            self._output_q.append(("end", trailers))
+        self._send(("end", trailers))
 
-    def _output_end(self, trailers: RawHeaderListType) -> None:
-        "Finish the request; a close here means the body was shorter than declared."
-        assert self.conn, "conn not found in _output_end"
-        if self.conn.output_end(trailers):
-            self.client.dead_conn(self.conn)
-            self.input_error(OutputError("Request body shorter than Content-Length"))
+    def _send(self, item: Tuple[Any, ...]) -> None:
+        """
+        Send part of the request on the connection, or queue it until there
+        is one. The connection handles a write failure itself; this exchange
+        just reports it.
+        """
+        if self._error_sent:
+            return
+        if not self.conn:
+            self._output_q.append(item)
+            return
+        try:
+            if item[0] == "start":
+                self.conn.send_start(self, *item[1:])
+            elif item[0] == "body":
+                self.conn.send_body(self, *item[1:])
+            else:
+                self.conn.send_end(self, *item[1:])
+        except OutputError as why:
+            self.input_error(why)
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
-        if self.conn and self.conn.tcp_connected:
+        if self.conn and self.conn.active_exchange is self and self.conn.tcp_connected:
             self.conn.tcp_conn.pause(paused)
 
     @property
@@ -200,17 +189,8 @@ class HttpClientExchange(EventEmitter):
         self.conn = conn
         self.conn.attach(self)
         queued, self._output_q = self._output_q, []
-        try:
-            for item in queued:
-                if item[0] == "start":
-                    self.conn.output_start(*item[1:])
-                elif item[0] == "body":
-                    self.conn.output_body(*item[1:])
-                elif item[0] == "end":
-                    self._output_end(*item[1:])
-        except OutputError as why:
-            self.client.dead_conn(self.conn)
-            self.input_error(why)
+        for item in queued:
+            self._send(item)
 
     def handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
         "The connection has failed."

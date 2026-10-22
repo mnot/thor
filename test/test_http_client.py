@@ -53,10 +53,21 @@ class LittleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 class DummyClientConnection(framework.DummyHttpParser):
+    "A parser standing in for a connection; sends like the real one does."
+
     tcp_connected = True
+    _check_owner = HttpClientConnection._check_owner
+    send_start = HttpClientConnection.send_start
+    send_body = HttpClientConnection.send_body
+    send_end = HttpClientConnection.send_end
+
+    def __init__(self, client=None):
+        framework.DummyHttpParser.__init__(self)
+        self.client = client
+        self.active_exchange = None
 
     def attach(self, exchange):
-        pass
+        self.active_exchange = exchange
 
 
 class TestHttpClient(framework.ClientServerTestCase):
@@ -144,7 +155,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def check_invalid_request_output(self, method, headers):
         client = HttpClient(loop=self.loop)
-        conn = DummyClientConnection()
+        conn = DummyClientConnection(client)
 
         def attach_conn(origin, handle_connect, handle_error):
             handle_connect(conn)
@@ -164,7 +175,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def test_request_short_body_reports_error(self):
         client = HttpClient(loop=self.loop)
-        conn = DummyClientConnection()
+        conn = DummyClientConnection(client)
 
         def attach_conn(origin, handle_connect, handle_error):
             handle_connect(conn)
@@ -186,7 +197,7 @@ class TestHttpClient(framework.ClientServerTestCase):
 
     def check_connected_output_error(self, headers, body, trailers):
         client = HttpClient(loop=self.loop)
-        conn = DummyClientConnection()
+        conn = DummyClientConnection(client)
 
         def attach_conn(origin, handle_connect, handle_error):
             handle_connect(conn)
@@ -1786,6 +1797,31 @@ class TestHttpClient(framework.ClientServerTestCase):
             conn.request.close()
 
         self.go([server_side], [client_side])
+
+    def test_stray_request_done_leaves_new_owner_alone(self):
+        "A finished exchange's late request_done errors only that exchange."
+        client = HttpClient(loop=MagicMock())
+        client.dead_conn = MagicMock()
+        conn = DummyClientConnection(client)
+        first = client.exchange()
+        second = client.exchange()
+        errors = {first: [], second: []}
+        for exchange in (first, second):
+            exchange.method = b"GET"
+            exchange.req_target = b"/"
+            exchange.authority = b"example.com"
+            exchange.origin = ("http", "example.com", 80)
+            exchange.on("error", errors[exchange].append)
+        first.handle_connect(conn)
+        first.request_done([])
+        second.handle_connect(conn)  # the pool has moved the connection on
+
+        first.request_done([])  # stray
+
+        self.assertEqual(len(errors[first]), 1)
+        self.assertIsInstance(errors[first][0], thor.http.error.OutputStateError)
+        self.assertEqual(errors[second], [])
+        client.dead_conn.assert_not_called()
 
     def test_retry_clears_dead_connection(self):
         client = HttpClient(loop=MagicMock())
