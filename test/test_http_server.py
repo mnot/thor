@@ -941,6 +941,43 @@ Content-Length: 5
         self.assertEqual(len(exchanges), 1)
         self.assertTrue(tcp_conn.tcp_connected)
 
+    def test_request_te_empty(self):
+        for value in [b"", b" ", b",", b" , ,"]:
+            with self.subTest(value=value):
+                tcp_conn = FakeTcpConnection()
+                server = FakeServer()
+                conn = HttpServerConnection(tcp_conn, server)
+                conn.handle_input(
+                    b"POST /one HTTP/1.1\r\n"
+                    b"Host: example.com\r\n"
+                    b"Transfer-Encoding:" + value + b"\r\n"
+                    b"Content-Length: 4\r\n"
+                    b"\r\n"
+                    b"abcd"
+                )
+                exchanges = [e for e, args in server.events if e == "exchange"]
+                self.assertEqual(exchanges, [])
+                self.assertFalse(tcp_conn.tcp_connected)
+                output = b"".join(tcp_conn.output)
+                self.assertIn(b"HTTP/1.1 501 Not Implemented", output)
+
+    def test_request_te_chunked_empty_member(self):
+        for value in [b"chunked,", b", chunked", b"identity,,chunked"]:
+            with self.subTest(value=value):
+                tcp_conn = FakeTcpConnection()
+                server = FakeServer()
+                conn = HttpServerConnection(tcp_conn, server)
+                conn.handle_input(
+                    b"POST /one HTTP/1.1\r\n"
+                    b"Host: example.com\r\n"
+                    b"Transfer-Encoding: " + value + b"\r\n"
+                    b"\r\n"
+                    b"0\r\n\r\n"
+                )
+                exchanges = [e for e, args in server.events if e == "exchange"]
+                self.assertEqual(len(exchanges), 1)
+                self.assertTrue(tcp_conn.tcp_connected)
+
     def check_missing_host_rejected(self, request):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
