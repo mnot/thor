@@ -9,6 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 # pylint: disable=raise-missing-from
 
+import ipaddress
 import re
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
@@ -26,13 +27,13 @@ _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
 _TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")  # RFC 9110 section 5.6.2
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
-# RFC 3986 host (reg-name, IPv4 or IP-literal) and optional port; see
-# RFC 9110 section 7.2. An empty host isn't accepted.
+# RFC 3986 host and optional port, split for check_host: a bracketed
+# IP-literal or a reg-name (an IPv4 address is one), then the port.
 _HOST = re.compile(
-    rb"(?:\[(?:[0-9A-Fa-f:.]+|[vV][0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+)\]"
-    rb"|(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+)"
-    rb"(?::[0-9]*)?"
+    rb"(\[[^\]]*\]|(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+)(?::([0-9]*))?"
 )
+_IP_FUTURE = re.compile(rb"[vV][0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+")
+_MAX_PORT = 65535
 _MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
 
@@ -103,9 +104,29 @@ def check_host(values: List[bytes]) -> Optional[str]:
     value = values[0].strip(b" \t")
     if not value:
         return "empty Host"
-    if not _HOST.fullmatch(value):
+    match = _HOST.fullmatch(value)
+    if not match or not _valid_ip_literal(match.group(1)):
         return f"Host {value[:64]!r} is not a host and optional port"
+    port = match.group(2)
+    if port and (len(port) > 5 or int(port) > _MAX_PORT):
+        return f"Host {value[:64]!r} has a port above {_MAX_PORT}"
     return None
+
+
+def _valid_ip_literal(host: bytes) -> bool:
+    "Is host, if it is bracketed, a well-formed IPv6 address or IPvFuture?"
+    if not host.startswith(b"["):
+        return True
+    inner = host[1:-1]
+    if _IP_FUTURE.fullmatch(inner):
+        return True
+    if b"%" in inner:  # a zone identifier isn't part of a Host
+        return False
+    try:
+        ipaddress.IPv6Address(inner.decode("ascii"))
+    except ValueError:
+        return False
+    return True
 
 
 def strip_hop_by_hop(

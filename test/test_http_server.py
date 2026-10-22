@@ -1183,6 +1183,12 @@ Content-Length: 5
             b"a.example, b.example",
             b"[::1",
             b"[xyz]:80",
+            b"[:::.]",
+            b"[fe80::1%25eth0]",
+            b"[]",
+            b"a.example:65536",
+            b"a.example:99999999",
+            b"a.example:" + b"9" * 5000,
             b"a%2.example",
             b"\xc3\xa9.example",
             b":80",
@@ -1190,7 +1196,7 @@ Content-Length: 5
             with self.subTest(value=value):
                 self.check_host_rejected(
                     b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % value,
-                    b"Host " + repr(value).encode("ascii"),
+                    b"Host " + repr(value[:64]).encode("ascii"),
                 )
 
     def test_valid_host_accepted(self):
@@ -1201,6 +1207,8 @@ Content-Length: 5
             b"192.0.2.1",
             b"192.0.2.1:80",
             b"[::1]",
+            b"a.example:65535",
+            b"[::ffff:192.0.2.1]:80",
             b"[2001:db8::1]:8080",
             b"[v1.fe80::a+en1]",
             b"a%20b.example",
