@@ -231,7 +231,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
         self._peer_closed = False  # the client won't send any more
-        self._linger_timer: Optional[ScheduledEvent] = None
+        self._linger_timer = Timer(self.server.loop, self.close_conn)
         self._arm_idle_timer()
 
     @property
@@ -305,9 +305,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._res_timer.start(timeout)
 
     def _stop_linger_timer(self) -> None:
-        if self._linger_timer:
-            self._linger_timer.delete()
-            self._linger_timer = None
+        self._linger_timer.stop()
 
     def _stop_idle_timer(self) -> None:
         self._idler.stop()
@@ -401,14 +399,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._arm_linger()
 
     def _arm_linger(self) -> None:
-        self._stop_linger_timer()
-        timeout = self.server.request_timeout
-        if timeout and timeout > 0:
-            self._linger_timer = self.server.loop.schedule(timeout, self.close_conn)
+        self._linger_timer.start(self.server.request_timeout)
 
     def output_sent(self) -> None:
         "Bytes went out: a half-closed client is still reading, so give it longer."
-        if self._linger_timer:
+        if self._linger_timer.armed:
             self._arm_linger()
 
     def conn_closed(self) -> None:
