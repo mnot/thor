@@ -47,7 +47,9 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._counted_dead = False  # removed from client.conn_counts
         self.idler: Optional[ScheduledEvent] = None
         self._read_timeout_ev: Optional[ScheduledEvent] = None
-        self._response_ended = False
+        self._in_read = False
+        self._response_ended = False  # complete, but the read isn't settled yet
+        self._end_trailers: RawHeaderListType = []
 
         self.tcp_conn.on("data", self._handle_data)
         self.tcp_conn.once("close", self._conn_closed)
@@ -69,8 +71,6 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.input_header_length = 0
         self.input_transfer_length = 0
         self.tcp_conn.pause(False)
-        if self._input_buffer:
-            self.handle_input(b"")
         self.set_timeout(self._read_timeout(), "read")
 
     def detach(self) -> None:
@@ -130,18 +130,39 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
     # HttpMessageHandler overrides
 
     def _handle_data(self, inbytes: bytes) -> None:
+        self._in_read = True
+        try:
+            self.handle_input(inbytes)
+        finally:
+            self._in_read = False
+        self._settle()
+
+    def _settle(self) -> None:
+        """
+        Once a read has been fully parsed, finish a response that completed
+        during it. Waiting until then, rather than finishing from inside
+        input_end, means anything unexpected after the response is seen
+        before the connection is handed on, so a queued request is never
+        written onto a connection that's about to be found untrustworthy.
+        """
+        if not self._response_ended:
+            return
         self._response_ended = False
-        self.handle_input(inbytes)
+        self._finish(self._end_trailers)
+
+    def _finish(self, trailers: RawHeaderListType) -> None:
+        "Hand the connection back (or drop it), then tell the exchange."
+        exchange = self.active_exchange or self.last_active_exchange
+        if self.reusable:
+            self.client.release_conn(self)
+        else:
+            self.client.dead_conn(self)
+        if exchange:
+            exchange.input_end_notify(trailers)
 
     def _handle_input_step(self, inbytes: bytes) -> Optional[bytes]:
-        if self._response_ended:
-            # Whatever follows a complete response is not a response, even if
-            # the next exchange has already been attached.
-            if inbytes.strip():
-                self._extra_data(inbytes)
-            return None
         if self.reusable and not self.active_exchange:
-            # No response is outstanding, so nothing should arrive.
+            # Idle in the pool: no response is outstanding, so nothing should arrive.
             if inbytes.strip():
                 self._extra_data(inbytes)
             return None
@@ -155,16 +176,21 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
             self.set_timeout(self._read_timeout(), "read")
 
     def _extra_data(self, inbytes: bytes) -> None:
-        "Data arrived when no response is due; the connection can't be trusted."
+        "Data arrived on an idle connection; it can't be trusted."
         self.reusable = False
-        self._response_ended = False
         self._input_state = States.ERROR
         self._input_buffer = []
-        if self.active_exchange:
-            self.input_extra_data(inbytes)
-        else:
-            self.clear_timeout()
-            self.client.dead_conn(self)
+        self.clear_timeout()
+        self.client.dead_conn(self)
+
+    def input_extra_data(self, inbytes: bytes) -> None:
+        "Data followed a complete response; the response stands, the connection doesn't."
+        if not self._response_ended:
+            HttpMessageHandler.input_extra_data(self, inbytes)
+            return
+        self.reusable = False
+        self._input_state = States.ERROR
+        self._input_buffer = []
 
     # HttpMessageHandler implementation
 
@@ -228,16 +254,16 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         self.clear_timeout()
-        # A close-delimited body ends in _conn_closed, after dead_conn has detached.
-        exchange = self.active_exchange or self.last_active_exchange
-        keep = self.reusable
-        if keep:
-            self.client.release_conn(self)
-        else:
-            self.client.dead_conn(self)
-        self._response_ended = keep
-        if exchange:
-            exchange.input_end_notify(trailers)
+        if self.reusable and self._in_read:
+            # Whatever else this read holds is not a response; _settle finishes
+            # once the read has been looked at.
+            self._input_state = States.QUIET
+            self._response_ended = True
+            self._end_trailers = trailers
+            return
+        # Not reusable, or a close-delimited body ending in _conn_closed (after
+        # dead_conn has detached): nothing can follow, so finish now.
+        self._finish(trailers)
 
     def input_error(self, err: error.HttpError) -> None:
         self.clear_timeout()

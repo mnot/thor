@@ -2068,8 +2068,9 @@ class TestHttpClient(framework.ClientServerTestCase):
         """
         The server sends a second, unsolicited response in the same write as the
         first. It must not be delivered to the next request, and the connection
-        must be dropped. The next request is attached from the first one's
-        response_done handler, or (if queued) by a handoff from the pool.
+        must be dropped rather than handed on, so the next request goes out on
+        a fresh one. The next request is started from the first one's
+        response_done handler, or (if queued) is waiting for a connection.
         """
 
         test_done = threading.Event()
@@ -2081,24 +2082,26 @@ class TestHttpClient(framework.ClientServerTestCase):
             exchange1 = client.exchange()
             self.check_exchange(exchange1, {"body": b"12345"})
             exchange2 = client.exchange()
-            self.check_exchange(exchange2, {"error": thor.http.error.ExtraDataError})
+            self.check_exchange(exchange2, {"body": b"12345"})
+            first_tcp = []
+
+            @on(exchange1)
+            def response_start(*args):
+                first_tcp.append(exchange1.conn.tcp_conn)
 
             @on(exchange2)
             def response_start(*args):
-                self.fail(f"Injected response delivered: {args!r}")
-
-            @on(exchange2)
-            def response_body(chunk):
-                self.fail(f"Injected response delivered: {chunk!r}")
-
-            @on(exchange2)
-            def error(err):
-                conn = exchange2.conn
+                # The poisoned connection was dropped, never handed on.
+                self.assertIsNot(exchange2.conn.tcp_conn, first_tcp[0])
                 self.assertFalse(client._idle_conns)
-                tcp = conn.tcp_conn
+
+            @on(exchange2)
+            def response_done(trailers):
+                tcp = first_tcp[0]
                 self.assertTrue(
                     tcp._closing or tcp._closed_output or not tcp.tcp_connected
                 )
+                self.loop.stop()
 
             def start2():
                 exchange2.request_start(b"GET", req_uri, [])
