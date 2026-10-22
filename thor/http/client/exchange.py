@@ -6,8 +6,11 @@ from thor.events import EventEmitter
 from thor.http.common import (
     Delimiters,
     States,
+    check_method,
+    check_request_target,
     header_names,
     idempotent_methods,
+    strip_hop_by_hop,
 )
 from thor.http.error import (
     AccessError,
@@ -15,6 +18,7 @@ from thor.http.error import (
     DnsError,
     HttpError,
     OutputError,
+    OutputSyntaxError,
     UrlError,
 )
 from thor.http.uri import parse_uri
@@ -26,18 +30,6 @@ if TYPE_CHECKING:
 
     from .client import HttpClient
     from .connection import HttpClientConnection
-
-req_rm_hdrs = [
-    b"connection",
-    b"keep-alive",
-    b"proxy-authenticate",
-    b"proxy-authorization",
-    b"te",
-    b"trailers",
-    b"transfer-encoding",
-    b"upgrade",
-    b"host",
-]
 
 
 OutputItem = Tuple[
@@ -108,6 +100,11 @@ class _RequestRecord:
 
 
 class HttpClientExchange(EventEmitter):
+    # Refuse, at request_start, a method that isn't a token or a request-target
+    # with whitespace or control characters, which would change the
+    # request-line's shape. False sends them as given, for probing servers.
+    strict_request_line = True
+
     def __init__(self, client: HttpClient) -> None:
         EventEmitter.__init__(self)
         self.client = client
@@ -160,6 +157,11 @@ class HttpClientExchange(EventEmitter):
         except (TypeError, ValueError):
             self.input_error(UrlError("Invalid URL"), False)
             return
+        if self.strict_request_line:
+            problem = check_method(method) or check_request_target(self.req_target)
+            if problem:
+                self.input_error(OutputSyntaxError(problem), False)
+                return
         self.client.attach_conn(
             self.origin, self.handle_connect, self.handle_connect_error
         )
@@ -170,7 +172,7 @@ class HttpClientExchange(EventEmitter):
         """
         if self._request.started or self._error_sent:
             return
-        req_hdrs = [i for i in self.req_hdrs if not i[0].lower() in req_rm_hdrs]
+        req_hdrs = strip_hop_by_hop(self.req_hdrs, also=[b"host"])  # Host is ours
         assert self.authority, "authority not found in _req_start"
         req_hdrs.append((b"Host", self.authority))
         if not self.client.idle_timeout:  # we won't reuse it, so say so

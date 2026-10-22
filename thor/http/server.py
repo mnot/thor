@@ -22,8 +22,10 @@ from thor.http.common import (
     Delimiters,
     HttpMessageHandler,
     States,
+    check_method,
+    check_request_target,
     header_names,
-    hop_by_hop_hdrs,
+    strip_hop_by_hop,
     no_body_status,
     output_content_length,
 )
@@ -31,11 +33,12 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    RequestLineError,
     RequestTransferEncodingError,
     TooManyMsgsError,
     TransferCodeError,
 )
-from thor.loop import LoopBase, ScheduledEvent
+from thor.loop import LoopBase, Timer
 from thor.tcp import TcpConnection, TcpServer
 from thor.types import RawHeaderListType
 
@@ -52,7 +55,7 @@ def response_framing(
     return the headers to send (hop-by-hop ones dropped, framing and
     Connection added) along with the delimiter.
     """
-    res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
+    res_hdrs = strip_hop_by_hop(res_hdrs)
     body_len = output_content_length(res_hdrs)
     # A final response with a 1xx status is not an interim response; use
     # response_nonfinal for those.
@@ -218,15 +221,17 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.exchanges = ExchangeQueue()
         self.output_paused = False
         self._pending_error: Optional[HttpError] = None  # deferred error
-        self._idler: Optional[ScheduledEvent] = None
-        self._req_timer: Optional[ScheduledEvent] = None
+        # Each closes the connection: when it has sat idle too long, when a
+        # request body stops arriving, or when a response doesn't come.
+        self._idler = Timer(self.server.loop, self.close_conn)
+        self._req_timer = Timer(self.server.loop, self.close_conn)
+        self._res_timer = Timer(self.server.loop, self.close_conn)
         self._req_in_progress = False  # request body incomplete
         self._req_paused = False
-        self._res_timer: Optional[ScheduledEvent] = None
         self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
         self._peer_closed = False  # the client won't send any more
-        self._linger_timer: Optional[ScheduledEvent] = None
+        self._linger_timer = Timer(self.server.loop, self.close_conn)
         self._arm_idle_timer()
 
     @property
@@ -255,16 +260,14 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         )
 
     def _stop_req_timer(self) -> None:
-        if self._req_timer:
-            self._req_timer.delete()
-            self._req_timer = None
+        self._req_timer.stop()
 
     def _start_req_timer(self) -> None:
         "(Re)start the inactivity timer for the request being received."
-        self._stop_req_timer()
-        timeout = self.server.request_timeout
-        if timeout and timeout > 0 and self.tcp_conn and not self._req_paused:
-            self._req_timer = self.server.loop.schedule(timeout, self.close_conn)
+        if self.tcp_conn and not self._req_paused:
+            self._req_timer.start(self.server.request_timeout)
+        else:
+            self._req_timer.stop()
 
     def handle_input(self, inbytes: bytes) -> None:
         self._in_input = True
@@ -279,9 +282,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._update_idle_timer(restart=False)
 
     def _stop_res_timer(self) -> None:
-        if self._res_timer:
-            self._res_timer.delete()
-            self._res_timer = None
+        self._res_timer.stop()
         self._res_timer_ex = None
 
     def _update_res_timer(self) -> None:
@@ -301,23 +302,16 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_res_timer()
         if target and timeout:
             self._res_timer_ex = target
-            self._res_timer = self.server.loop.schedule(timeout, self.close_conn)
+            self._res_timer.start(timeout)
 
     def _stop_linger_timer(self) -> None:
-        if self._linger_timer:
-            self._linger_timer.delete()
-            self._linger_timer = None
+        self._linger_timer.stop()
 
     def _stop_idle_timer(self) -> None:
-        if self._idler:
-            self._idler.delete()
-            self._idler = None
+        self._idler.stop()
 
     def _arm_idle_timer(self) -> None:
-        self._stop_idle_timer()
-        timeout = self.server.idle_timeout
-        if timeout and timeout > 0:
-            self._idler = self.server.loop.schedule(timeout, self.close_conn)
+        self._idler.start(self.server.idle_timeout)
 
     def _update_idle_timer(self, restart: bool = True) -> None:
         """
@@ -331,7 +325,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             return
         if self.server.shutting_down or self._peer_closed:
             self.close_conn()
-        elif restart or not self._idler:
+        elif restart or not self._idler.armed:
             self._arm_idle_timer()
 
     def close_conn(self) -> None:
@@ -405,14 +399,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._arm_linger()
 
     def _arm_linger(self) -> None:
-        self._stop_linger_timer()
-        timeout = self.server.request_timeout
-        if timeout and timeout > 0:
-            self._linger_timer = self.server.loop.schedule(timeout, self.close_conn)
+        self._linger_timer.start(self.server.request_timeout)
 
     def output_sent(self) -> None:
         "Bytes went out: a half-closed client is still reading, so give it longer."
-        if self._linger_timer:
+        if self._linger_timer.armed:
             self._arm_linger()
 
     def conn_closed(self) -> None:
@@ -460,6 +451,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
                 HttpVersionError(req_version_txt.decode("utf-8", "replace"))
             )
             raise ValueError
+        problem = check_method(method) or check_request_target(uri)
+        if problem:
+            # Reported to whoever listens on this connection, then accepted as
+            # is: the application decides what to make of it.
+            self.input_error(RequestLineError(problem))
         if b"host" not in header_names(hdr_tuples):
             self.input_error(HostRequiredError())
             raise ValueError

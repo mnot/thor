@@ -40,6 +40,8 @@ Also, hop-by-hop headers will be stripped from `headers`; Thor manages its own c
 
 After calling *request_start*, *request_body* may be called zero or more times, and then *request_done* must be called.
 
+The method must be a token and the request-target must contain no whitespace or control characters; otherwise the exchange emits an *OutputSyntaxError* and sends nothing. Set `strict_request_line` to `False` on the exchange to send them as given, for probing servers.
+
 
 #### _void_ request\_body ( _bytes_ `chunk` ) 
 

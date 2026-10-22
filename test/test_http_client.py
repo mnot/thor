@@ -174,6 +174,80 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
 
+    def check_request_line(self, method, uri, strict):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+        sent = []
+        conn.output = sent.append
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        exchange = client.exchange()
+        exchange.strict_request_line = strict
+        errors = []
+        exchange.on("error", errors.append)
+        exchange.request_start(method, uri, [])
+        exchange.request_done([])
+        return b"".join(sent), errors
+
+    def test_odd_request_line_refused_by_default(self):
+        output, errors = self.check_request_line(b"GET", b"http://example.com/a b", True)
+        self.assertEqual(output, b"")
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
+        output, errors = self.check_request_line(b"GE T", b"http://example.com/", True)
+        self.assertEqual(output, b"")
+        self.assertEqual(len(errors), 1)
+
+    def test_odd_request_line_refused_before_a_connection_is_requested(self):
+        client = HttpClient(loop=MagicMock())
+        client.attach_conn = MagicMock()
+        exchange = client.exchange()
+        errors = []
+        exchange.on("error", errors.append)
+        exchange.request_start(b"GET", b"http://example.com/a b", [])
+        exchange.request_done([])
+        self.assertEqual(len(errors), 1)
+        client.attach_conn.assert_not_called()
+
+    def test_odd_request_line_sent_as_given_when_not_strict(self):
+        output, errors = self.check_request_line(b"GET", b"http://example.com/a b", False)
+        self.assertTrue(output.startswith(b"GET /a b HTTP/1.1\r\n"), output)
+        self.assertEqual(errors, [])
+
+    def test_request_strips_nominated_and_proxy_hop_by_hop_fields(self):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+        sent = []
+        conn.output = sent.append
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        exchange = client.exchange()
+        exchange.request_start(
+            b"GET",
+            b"http://example.com/",
+            [
+                (b"Connection", b"X-Hop"),
+                (b"X-Hop", b"1"),
+                (b"Proxy-Connection", b"keep-alive"),
+                (b"Host", b"evil.example"),
+                (b"X-Keep", b"yes"),
+            ],
+        )
+        exchange.request_done([])
+
+        output = b"".join(sent)
+        self.assertNotIn(b"X-Hop", output)
+        self.assertNotIn(b"Proxy-Connection", output)
+        self.assertNotIn(b"evil.example", output)
+        self.assertIn(b"Host: example.com\r\n", output)
+        self.assertIn(b"X-Keep: yes\r\n", output)
+
     def test_request_short_body_reports_error(self):
         client = HttpClient(loop=self.loop)
         conn = DummyClientConnection(client)
@@ -229,7 +303,13 @@ class TestHttpClient(framework.ClientServerTestCase):
                 self.check_invalid_request_output(b"POST", [(b"Content-Length", value)])
 
     def test_request_bad_method_output_syntax(self):
-        self.check_invalid_request_output(b"GET\r\nX-Injected: yes", [])
+        "A method that isn't a token is refused before any connection is touched."
+        output, errors = self.check_request_line(
+            b"GET\r\nX-Injected: yes", b"http://example.com/", True
+        )
+        self.assertEqual(output, b"")
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
 
     def test_request_bad_header_name_output_syntax(self):
         self.check_invalid_request_output(b"GET", [(b"Bad Name", b"value")])

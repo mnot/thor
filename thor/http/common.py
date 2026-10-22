@@ -13,7 +13,7 @@ import re
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, NoReturn, Optional, Set, Tuple
+from typing import Dict, Iterable, List, NoReturn, Optional, Set, Tuple
 
 from thor.http import error
 from thor.types import RawHeaderListType
@@ -24,6 +24,7 @@ RETURN = ord("\r")
 _BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
 _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
+_TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")  # RFC 9110 section 5.6.2
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
 _MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
@@ -61,6 +62,48 @@ hop_by_hop_hdrs = [
     b"upgrade",
     b"proxy-connection",
 ]
+
+
+def check_method(method: bytes) -> Optional[str]:
+    "Why method isn't a token (RFC 9110 section 9.1), or None if it is."
+    if not method:
+        return "empty method"
+    if not _TOKEN.fullmatch(method):
+        return f"method {method[:32]!r} is not a token"
+    return None
+
+
+def check_request_target(target: bytes) -> Optional[str]:
+    """
+    Why target can't go in a request-line as it is (RFC 9112 section 3.2
+    allows no whitespace or control characters), or None if it can.
+    """
+    if not target:
+        return "empty request-target"
+    for byte in target:
+        if byte <= 0x20 or byte == 0x7F:
+            return f"request-target contains {bytes([byte])!r}"
+    return None
+
+
+def strip_hop_by_hop(
+    hdr_tuples: RawHeaderListType, also: Iterable[bytes] = ()
+) -> RawHeaderListType:
+    """
+    Return the header list without its hop-by-hop fields: the standard ones,
+    any the list's own Connection field names (RFC 9110 section 7.6.1), and
+    those in `also`. A sender mustn't nominate a field that frames the
+    message, and Content-Length is kept whatever Connection says.
+    """
+    remove = set(hop_by_hop_hdrs)
+    remove.update(name.lower() for name in also)
+    for name, value in hdr_tuples:
+        if name.lower() == b"connection":
+            for token in value.split(b","):
+                token = token.strip(b" \t").lower()
+                if token and token != b"content-length":
+                    remove.add(token)
+    return [(name, value) for name, value in hdr_tuples if name.lower() not in remove]
 
 
 def parse_uint(value: bytes, base: int = 10) -> int:

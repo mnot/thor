@@ -57,6 +57,7 @@ class FakeServer:
     def __init__(self):
         self.loop = MagicMock()
         self.loop.schedule.return_value = MagicMock()
+        self.loop.schedule.return_value.fired = False
         self.events = []
         self.connections = set()
 
@@ -984,7 +985,7 @@ Content-Length: 5
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
         self.assertLess(output.index(b"200 OK"), output.index(b"400 Bad Request"))
         self.assertFalse(tcp_conn.tcp_connected)
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_timer_waits_for_exchange_queue_to_drain(self):
         tcp_conn = FakeTcpConnection()
@@ -1019,6 +1020,7 @@ Content-Length: 5
             timer = MagicMock()
             timer.delay = delay
             timer.callback = callback
+            timer.fired = False
             timers.append(timer)
             return timer
 
@@ -1312,7 +1314,7 @@ Content-Length: 5
         live = self.idle_timers(server, timers)
         self.assertEqual(len(live), 1)
         self.assertEqual(live[0].callback, conn.close_conn)
-        self.assertIs(conn._idler, live[0])  # pylint: disable=protected-access
+        self.assertIs(conn._idler.event, live[0])  # pylint: disable=protected-access
 
     def test_idle_timer_armed_after_response_following_request(self):
         tcp_conn, server, conn, timers, exchanges = self.make_idle_conn(sync_paths=[])
@@ -1378,7 +1380,7 @@ Content-Length: 5
         conn.handle_input(b"GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.idle_timers(server, timers), [])
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_connection_closed_when_shutting_down(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
@@ -1414,14 +1416,14 @@ Content-Length: 5
         self.assertEqual(len(self.idle_timers(server, timers)), 1)
         conn.close_conn()
         self.assertEqual(self.idle_timers(server, timers), [])
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_timer_deleted_when_connection_drops(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         conn.conn_closed()
         self.assertEqual(self.idle_timers(server, timers), [])
-        self.assertIsNone(conn._idler)  # pylint: disable=protected-access
+        self.assertIsNone(conn._idler.event)  # pylint: disable=protected-access
 
     def test_idle_timer_removed_by_next_request(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
@@ -1459,13 +1461,13 @@ Content-Length: 5
     def test_idle_timer_is_total_deadline_for_next_header_block(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
-        idler = conn._idler  # pylint: disable=protected-access
+        idler = conn._idler.event  # pylint: disable=protected-access
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         both = [server.idle_timeout, server.request_timeout]
         for piece in [b"GET /2 HTTP/1.1\r\nHo", b"st: example.com\r\n"]:
             conn.handle_input(piece)
             self.assertEqual(self.live_delays(timers), both)
-            self.assertIs(conn._idler, idler)  # pylint: disable=protected-access
+            self.assertIs(conn._idler.event, idler)  # pylint: disable=protected-access
             idler.delete.assert_not_called()
         conn.handle_input(b"\r\n")
         idler.delete.assert_called_once()
@@ -1476,7 +1478,7 @@ Content-Length: 5
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(b"GET /1 HTTP/1.1\r\nHost: example.com\r\n\r\n")
         conn.handle_input(b"GET /2 HTTP/1.1\r\nHo")
-        conn._idler.callback()  # pylint: disable=protected-access
+        conn._idler.event.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.live_delays(timers), [])
 
@@ -1593,7 +1595,7 @@ Content-Length: 5
         self.assertEqual(
             self.live_delays(timers), [server.idle_timeout, server.request_timeout]
         )
-        conn._idler.callback()  # pylint: disable=protected-access
+        conn._idler.event.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.live_delays(timers), [])
 
@@ -1607,7 +1609,7 @@ Content-Length: 5
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
         conn.req_body_pause(False)
         self.assertEqual(self.live_delays(timers), [server.idle_timeout])
-        conn._idler.callback()  # pylint: disable=protected-access
+        conn._idler.event.callback()  # pylint: disable=protected-access
         self.assertFalse(tcp_conn.tcp_connected)
 
     def check_timer_invariants(self, server, conn, timers, history):
@@ -1620,7 +1622,7 @@ Content-Length: 5
             return
         # idle, or still receiving the next header block
         self.assertEqual(len(idle), 1, msg)
-        self.assertIs(conn._idler, idle[0], msg)  # pylint: disable=protected-access
+        self.assertIs(conn._idler.event, idle[0], msg)  # pylint: disable=protected-access
 
     def run_timer_sequence(self, request_timeout, requests, history):
         tcp_conn = FakeTcpConnection()
@@ -1634,6 +1636,7 @@ Content-Length: 5
             timer = MagicMock()
             timer.delay = delay
             timer.callback = callback
+            timer.fired = False
             timers.append(timer)
             return timer
 
@@ -1875,6 +1878,42 @@ Content-Length: 5
 
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertIsNone(conn.tcp_conn)
+
+    def test_odd_request_line_is_reported_and_passed_through(self):
+        "thor probes servers, so an odd request-line is accepted; listeners are told."
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        reported = []
+        conn.on("error", reported.append)
+
+        conn.handle_input(b"GET /foo bar HTTP/1.1\r\nHost: example.com\r\n\r\n")
+
+        exchanges = [args[0] for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        self.assertEqual(exchanges[0].uri, b"/foo bar")
+        self.assertEqual(len(reported), 1)
+        self.assertIsInstance(reported[0], thor.http.error.RequestLineError)
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_response_strips_fields_nominated_by_connection(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
+        exchange.req_complete = True
+        conn.exchanges.add(exchange)
+
+        exchange.response_start(
+            b"200",
+            b"OK",
+            [(b"Connection", b"X-Hop"), (b"X-Hop", b"1"), (b"Content-Length", b"0")],
+        )
+        exchange.response_done([])
+
+        output = b"".join(tcp_conn.output)
+        self.assertNotIn(b"X-Hop", output)
+        self.assertIn(b"Content-Length: 0\r\n", output)
 
     def test_close_conn_forgets_a_connection_that_is_already_gone(self):
         tcp_conn = FakeTcpConnection()
