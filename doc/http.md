@@ -139,6 +139,11 @@ Emitted zero to many times, when a `chunk` of the request body is received.
 Emitted once, when the request is successfully completed. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
+#### event 'error' ( _[thor.http.error.HttpError](error.md)_ `err` )
+
+Emitted once if the connection closes (the client went away, a timeout expired, or the server dropped it after a protocol error) after *request_start* but before the response is finished. `err` is a *ConnectError*. Stop generating the response when it arrives; any further *response_start*, *response_body* or *response_done* calls are accepted but their output is discarded.
+
+
 #### _void_ response\_start ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
 
 Start sending the exchange's response. `status` and `phrase` should contain the HTTP response status code and reason phrase, respectively, and `headers` should contain the response header tuples (see [working with HTTP headers](#headers)).

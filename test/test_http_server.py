@@ -731,8 +731,8 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
 
     def test_body_error_in_flight_response_started_closes(self):
-        # pins behaviour preserved from main, not the fix
         tcp_conn, conn, (first, second) = self.start_pipelined_post()
+        errors = self.watch_errors(second)
         self.respond(first, b"one")
         second.response_start(b"200", b"OK", [])
         second.response_body(b"two")
@@ -741,6 +741,119 @@ Content-Length: 5
 
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertNotIn(b"400", b"".join(tcp_conn.output))
+        self.assertEqual(len(errors), 1)
+
+    @staticmethod
+    def watch_errors(exchange):
+        errors = []
+        exchange.on("error", errors.append)
+        return errors
+
+    def started_exchange(self, conn, server, uri=b"/"):
+        "Feed a request in and return its exchange, started."
+        conn.handle_input(b"GET %s HTTP/1.1\r\nHost: example.com\r\n\r\n" % uri)
+        exchange = [args[0] for event, args in server.events if event == "exchange"][-1]
+        self.assertTrue(exchange.started)
+        return exchange
+
+    def test_conn_closed_tells_unanswered_exchange(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = self.started_exchange(conn, server)
+        errors = self.watch_errors(exchange)
+        exchange.response_start(b"200", b"OK", [])
+        exchange.response_body(b"part")
+
+        conn.conn_closed()
+
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.ConnectError)
+
+    def test_conn_closed_skips_answered_exchange(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = self.started_exchange(conn, server)
+        errors = self.watch_errors(exchange)
+        self.respond(exchange, b"done")
+
+        conn.conn_closed()
+
+        self.assertEqual(errors, [])
+
+    def test_conn_closed_tells_each_unanswered_exchange(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        first_errors = self.watch_errors(first)
+        second_errors = self.watch_errors(second)
+        self.respond(first, b"one")
+
+        conn.conn_closed()
+
+        self.assertEqual(first_errors, [])
+        self.assertEqual(len(second_errors), 1)
+
+    def test_conn_closed_skips_exchange_the_app_was_never_told_about(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.res_body_pause(True)
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        exchange = [args[0] for event, args in server.events if event == "exchange"][0]
+        errors = self.watch_errors(exchange)
+
+        conn.conn_closed()
+
+        self.assertEqual(errors, [])
+
+    def test_close_conn_tells_unanswered_exchange_once(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = self.started_exchange(conn, server)
+        errors = self.watch_errors(exchange)
+
+        conn.close_conn()
+        self.assertEqual(len(errors), 1)
+        conn.conn_closed()  # the TCP connection reports in afterwards
+
+        self.assertEqual(len(errors), 1)
+
+    def test_response_timeout_tells_exchange(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        server.response_timeout = 5
+        exchange = self.started_exchange(conn, server)
+        errors = self.watch_errors(exchange)
+
+        timers[-1].callback()
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertEqual(len(errors), 1)
+
+    def test_response_done_with_close_is_not_an_error(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = self.started_exchange(conn, server)
+        errors = self.watch_errors(exchange)
+
+        self.respond(exchange, b"bye", close=True)
+        conn.conn_closed()
+
+        self.assertFalse(tcp_conn.tcp_connected)
+        self.assertEqual(errors, [])
+
+    def test_error_handler_can_finish_exchange_after_close(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchange = self.started_exchange(conn, server)
+        exchange.on("error", lambda err: exchange.response_done([]))
+        exchange.response_start(b"200", b"OK", [])
+
+        conn.conn_closed()
+
+        self.assertTrue(exchange.res_complete)
 
     def test_request_done_only_app_gets_error_on_body_error(self):
         tcp_conn = FakeTcpConnection()
@@ -2276,6 +2389,36 @@ Content-Length: 5
         response = b"".join(received)
         self.assertIn(b"HTTP/1.1 200 OK", response)
         self.assertTrue(response.endswith(b"done"), response)
+
+    def test_client_disconnect_tells_exchange(self):
+        errors = []
+
+        def server_side(server):
+            server.request_timeout = 0.2  # bounds how long a half-closed client lingers
+
+            def check(exchange):
+                @on(exchange, "request_start")
+                def on_request_start(method, uri, headers):
+                    exchange.response_start(b"200", b"OK", [])
+                    exchange.response_body(b"part")
+
+                @on(exchange, "error")
+                def on_error(err):
+                    errors.append(err)
+                    self.loop.stop()
+
+            server.on("exchange", check)
+
+        def client_side(client_conn, test_host, test_port):
+            client_conn.sendall(
+                wire(b"GET / HTTP/1.1\nHost: %s:%i\n\n" % (test_host, test_port))
+            )
+            client_conn.recv(1024)
+            client_conn.close()
+
+        self.go([server_side], [client_side])
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.ConnectError)
 
     def test_reentrancy(self):
         def server_side(server):

@@ -25,11 +25,12 @@ from thor.http.common import (
     check_method,
     check_request_target,
     header_names,
-    strip_hop_by_hop,
     no_body_status,
     output_content_length,
+    strip_hop_by_hop,
 )
 from thor.http.error import (
+    ConnectError,
     HostRequiredError,
     HttpError,
     HttpVersionError,
@@ -338,6 +339,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             if self.tcp_conn.tcp_connected:
                 self.tcp_conn.close()
             self.tcp_conn = None  # even if it was already gone
+        self._abandon_exchanges()
+
+    def _abandon_exchanges(self) -> None:
+        "Tell the application about each response that can no longer be sent."
+        for exchange in list(self.exchanges):
+            exchange.connection_lost()
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
@@ -413,9 +420,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_req_timer()
         self._stop_res_timer()
         self._stop_linger_timer()
+        self.tcp_conn = None
+        self._abandon_exchanges()
         self.exchanges.clear()
         self._pending_error = None
-        self.tcp_conn = None
 
     # Methods called by common.HttpRequestHandler
 
@@ -582,6 +590,7 @@ class HttpServerExchange(EventEmitter):
         self.started = False
         self.req_complete = False
         self.res_complete = False
+        self._lost = False  # the application has been told the connection went
         # request events that arrived before the application was told of it
         self._deferred: List[Tuple[str, Tuple[Any, ...]]] = []
 
@@ -612,6 +621,15 @@ class HttpServerExchange(EventEmitter):
             self.emit(event, *args)
         else:
             self._deferred.append((event, args))
+
+    def connection_lost(self) -> None:
+        "The connection closed; if a response was owed, say so, once."
+        if self._lost or self.res_complete or not self.started:
+            return
+        self._lost = True
+        self.emit(
+            "error", ConnectError("Connection closed before the response was sent.")
+        )
 
     def response_nonfinal(
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
@@ -650,6 +668,7 @@ class HttpServerExchange(EventEmitter):
         regardless of response framing.
         """
         should_close = self.http_conn.output_end(trailers)
+        self.res_complete = True  # closing now doesn't leave it unanswered
         if (should_close or close or not self.persistent) and self.http_conn.tcp_conn:
             self.http_conn.close_conn()
         self.http_conn.exchange_done(self)
