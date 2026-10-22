@@ -842,6 +842,42 @@ class TestHttpClient(framework.ClientServerTestCase):
     def test_stop_closes_idle_conn(self):
         self._stop_closes_conns(in_use=False)
 
+    def test_stop_closes_closing_conn(self):
+        """
+        A connection the client has finished with, and is closing gracefully
+        while it waits for the server's FIN, is closed too when the loop stops.
+        """
+        release = threading.Event()
+        clients = []
+        tcp_conns = []
+
+        def client_side(client, test_host, test_port):
+            clients.append(client)
+            client.idle_timeout = 0  # close rather than pool
+            self.loop.on("stop", release.set)
+            req_uri = b"http://%s:%i/" % (test_host, test_port)
+            exchange = client.exchange()
+            exchange.on("error", lambda err: self.fail(f"Unexpected error: {err}"))
+            exchange.on("response_start", lambda *args: tcp_conns.append(exchange.conn.tcp_conn))
+
+            def stop():
+                self.assertEqual(client._conns, {})
+                self.assertIs(tcp_conns[0]._state, thor.tcp.TcpState.OUTPUT_CLOSED)
+                self.loop.stop()
+
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+            self.loop.schedule(0.5, stop)
+
+        def server_side(conn):
+            drain(conn)
+            conn.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n12345")
+            release.wait(5)  # hold our side open, so the client can't finish closing
+
+        self.go([server_side], [client_side])
+        self.assertIs(tcp_conns[0]._state, thor.tcp.TcpState.CLOSED)
+        self.assertEqual(clients[0]._closing, set())
+
     def test_conn_refuse_err(self):
         def server_side(conn):
             pass

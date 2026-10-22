@@ -44,6 +44,7 @@ class HttpClient:
         self._waiting: Dict[
             OriginType, List[Tuple[ConnectHandler, ConnectErrorHandler]]
         ] = {}
+        self._closing: Set[HttpClientConnection] = set()
         self.loop.once("stop", self._close_conns)
 
     def exchange(self) -> HttpClientExchange:
@@ -128,6 +129,9 @@ class HttpClient:
         if conn.state is ConnectionState.CLOSED:
             return
         conn.state = ConnectionState.CLOSED
+        if conn.tcp_connected:  # closing gracefully; stop must still reach it
+            self._closing.add(conn)
+            conn.tcp_conn.once("disconnect", lambda: self._closing.discard(conn))
         origin = conn.origin
         conns = self._conns.get(origin)
         if conns:
@@ -188,12 +192,14 @@ class HttpClient:
 
     def _close_conns(self) -> None:
         """
-        The loop has stopped: drop every connection, idle or in use, and
-        forget the requests waiting for one. The loop has already given up its
+        The loop has stopped: drop every connection, idle, in use or still
+        closing, and forget the requests waiting for one. The loop has already given up its
         file descriptors, so a graceful close would never finish; abort.
         """
         conns = [conn for origin_conns in self._conns.values() for conn in origin_conns]
+        conns.extend(self._closing)
         self._conns.clear()
+        self._closing.clear()
         self._idle_conns.clear()
         self._waiting.clear()
         for conn in conns:
