@@ -205,3 +205,8 @@ class AccessError(HttpError):
 class HostRequiredError(HttpError):
     desc = "Host header required"
     server_status = (b"400", b"Bad Request")
+
+
+class InvalidHostError(HttpError):
+    desc = "Invalid Host header"
+    server_status = (b"400", b"Bad Request")

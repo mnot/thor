@@ -9,6 +9,7 @@ for the parsing portions of the HTTP client and server.
 
 # pylint: disable=raise-missing-from
 
+import ipaddress
 import re
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
@@ -25,7 +26,15 @@ _BAD_OUTPUT_HEADER_NAME = set(b'()<>@,;:\\"/[]?={} \t\r\n')
 _BAD_OUTPUT_HEADER_VALUE = {RETURN, NEWLINE}
 _DIGITS = re.compile(rb"[0-9]+")
 _TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")  # RFC 9110 section 5.6.2
+_OWS = b" \t"
 _HEX_DIGITS = re.compile(rb"[0-9A-Fa-f]+")
+# RFC 3986 host and optional port, split for check_host: a bracketed
+# IP-literal or a reg-name (an IPv4 address is one), then the port.
+_HOST = re.compile(
+    rb"(\[[^\]]*\]|(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+)(?::([0-9]*))?"
+)
+_IP_FUTURE = re.compile(rb"[vV][0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+")
+_MAX_PORT = 65535
 _MAX_OUTPUT_CL_DIGITS = 20  # enough for any 64-bit length
 
 
@@ -86,6 +95,41 @@ def check_request_target(target: bytes) -> Optional[str]:
     return None
 
 
+def check_host(values: List[bytes]) -> Optional[str]:
+    """
+    Why a request's Host field lines (RFC 9112 section 3.2: exactly one,
+    holding a host and optional port) can't be accepted, or None if they can.
+    """
+    if len(values) > 1:
+        return "more than one Host field line"
+    value = values[0].strip(b" \t")
+    if not value:
+        return "empty Host"
+    match = _HOST.fullmatch(value)
+    if not match or not _valid_ip_literal(match.group(1)):
+        return f"Host {value[:64]!r} is not a host and optional port"
+    port = match.group(2)
+    if port and (len(port) > 5 or int(port) > _MAX_PORT):
+        return f"Host {value[:64]!r} has a port above {_MAX_PORT}"
+    return None
+
+
+def _valid_ip_literal(host: bytes) -> bool:
+    "Is host, if it is bracketed, a well-formed IPv6 address or IPvFuture?"
+    if not host.startswith(b"["):
+        return True
+    inner = host[1:-1]
+    if _IP_FUTURE.fullmatch(inner):
+        return True
+    if b"%" in inner:  # a zone identifier isn't part of a Host
+        return False
+    try:
+        ipaddress.IPv6Address(inner.decode("ascii"))
+    except ValueError:
+        return False
+    return True
+
+
 def strip_hop_by_hop(
     hdr_tuples: RawHeaderListType, also: Iterable[bytes] = ()
 ) -> RawHeaderListType:
@@ -114,6 +158,11 @@ def parse_uint(value: bytes, base: int = 10) -> int:
     if not (_HEX_DIGITS if base == 16 else _DIGITS).fullmatch(value):
         raise ValueError(value)
     return int(value, base)
+
+
+def _list_members(value: bytes) -> List[bytes]:
+    "Split a comma-separated list into lower-cased members, ignoring empty ones."
+    return [m for m in (v.strip(_OWS).lower() for v in value.split(b",")) if m]
 
 
 def parse_content_length(value: bytes) -> int:
@@ -168,7 +217,7 @@ def header_dict(
         name = name.lower()
         if name in (omit or []):
             continue
-        out[name].extend([i.strip() for i in val.split(b",")])
+        out[name].extend([i.strip(_OWS) for i in val.split(b",")])
     return out
 
 
@@ -183,7 +232,7 @@ def get_header(hdr_tuples: RawHeaderListType, name: bytes) -> List[bytes]:
     Set-Cookie, or any value with a quoted string).
     """
     return [
-        v.strip()
+        v.strip(_OWS)
         for v in sum(
             [l.split(b",") for l in [i[1] for i in hdr_tuples if i[0].lower() == name]],
             [],
@@ -500,6 +549,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 continue
             if fn[-1:] in [b" ", b"\t"]:
                 self._fail(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
+            elif not _TOKEN.fullmatch(fn):
+                self._fail(error.HeaderNameError(fn.decode("utf-8", "replace")))
             if b"\0" in fv:
                 self._fail(error.HeaderValueError("NUL in field-value"))
             hdr_tuples.append((fn, fv))
@@ -507,14 +558,18 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if not gather_conn_info:
                 continue
 
-            f_name = fn.strip().lower()
-            f_val = fv.strip()
+            f_name = fn.strip(_OWS).lower()
+            f_val = fv.strip(_OWS)
 
             # parse connection-related headers
             if f_name == b"connection":
-                conn_tokens += [v.strip().lower() for v in f_val.split(b",")]
+                conn_tokens += _list_members(f_val)
             elif f_name == b"transfer-encoding":
-                transfer_codes += [v.strip().lower() for v in f_val.split(b",")]
+                codes = _list_members(f_val)
+                if not codes:
+                    # a list needs at least one member (RFC 9110 5.6.1.2)
+                    self._fail(error.TransferCodeError(""))
+                transfer_codes += codes
             elif f_name == b"content-length":
                 if content_length is not None:
                     try:

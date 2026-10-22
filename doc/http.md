@@ -152,6 +152,8 @@ Start sending the exchange's response. `status` and `phrase` should contain the 
 
 Note that hop-by-hop headers will be stripped from `headers`; Thor manages its own connections headers (such as _Connection_, _Keep-Alive_, and so on.)
 
+Responses are sent in the order the requests arrived. If an earlier request on the connection hasn't been answered yet (the client is pipelining), what this exchange writes is held until it has, and sent then; the application doesn't need to order its own responses. At most `HttpServerConnection.max_buffered_response` bytes (default 1 MiB) are held for the connection's exchanges in all; a write that would exceed that raises *BufferError*.
+
 
 #### _void_ response\_nonfinal ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
 
@@ -163,9 +165,13 @@ Send a non-final (1xx) HTTP response. This can be called zero to many times befo
 Send a `chunk` of response body content.
 
 
-#### _void_ response\_done ( _[headers](#headers)_ `trailers` )
+#### _void_ response\_done ( _[headers](#headers)_ `trailers`, _bool_ `close`? )
 
 Signal that the response body is finished. This must be called for every response, unless the exchange has emitted [error](#event-error-). `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+
+If `close` is `True`, the connection is closed once the response has been sent, whatever the response's framing. It defaults to `False`.
+
+The connection is also closed after a final response that *response_start* sent before the request body was complete, and the response carries _Connection: close_. A client might not send the rest of the body (for example, after `Expect: 100-continue`), so the server can't tell where the next request begins. To keep the connection for another request, wait for *request_done* before calling *response_start*.
 
 
 
