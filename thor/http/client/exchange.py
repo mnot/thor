@@ -6,6 +6,8 @@ from thor.events import EventEmitter
 from thor.http.common import (
     Delimiters,
     States,
+    check_method,
+    check_request_target,
     header_names,
     idempotent_methods,
     strip_hop_by_hop,
@@ -16,6 +18,7 @@ from thor.http.error import (
     DnsError,
     HttpError,
     OutputError,
+    OutputSyntaxError,
     UrlError,
 )
 from thor.http.uri import parse_uri
@@ -30,6 +33,11 @@ if TYPE_CHECKING:
 
 
 class HttpClientExchange(EventEmitter):
+    # Refuse a method that isn't a token or a request-target with whitespace
+    # or control characters, which would change the request-line's shape.
+    # False sends them as given, for probing servers.
+    strict_request_line = True
+
     def __init__(self, client: HttpClient) -> None:
         EventEmitter.__init__(self)
         self.client = client
@@ -95,6 +103,12 @@ class HttpClientExchange(EventEmitter):
         if self._req_started or self._error_sent:
             return
         self._req_started = True
+        if self.strict_request_line:
+            assert self.method is not None and self.req_target is not None
+            problem = check_method(self.method) or check_request_target(self.req_target)
+            if problem:
+                self.input_error(OutputSyntaxError(problem), False)
+                return
         req_hdrs = strip_hop_by_hop(self.req_hdrs, also=[b"host"])  # Host is ours
         assert self.authority, "authority not found in _req_start"
         req_hdrs.append((b"Host", self.authority))

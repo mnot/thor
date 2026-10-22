@@ -162,6 +162,38 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
 
+    def check_request_line(self, method, uri, strict):
+        client = HttpClient(loop=self.loop)
+        conn = DummyClientConnection()
+        sent = []
+        conn.output = sent.append
+
+        def attach_conn(origin, handle_connect, handle_error):
+            handle_connect(conn)
+
+        client.attach_conn = attach_conn
+        exchange = client.exchange()
+        exchange.strict_request_line = strict
+        errors = []
+        exchange.on("error", errors.append)
+        exchange.request_start(method, uri, [])
+        exchange.request_done([])
+        return b"".join(sent), errors
+
+    def test_odd_request_line_refused_by_default(self):
+        output, errors = self.check_request_line(b"GET", b"http://example.com/a b", True)
+        self.assertEqual(output, b"")
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
+        output, errors = self.check_request_line(b"GE T", b"http://example.com/", True)
+        self.assertEqual(output, b"")
+        self.assertEqual(len(errors), 1)
+
+    def test_odd_request_line_sent_as_given_when_not_strict(self):
+        output, errors = self.check_request_line(b"GET", b"http://example.com/a b", False)
+        self.assertTrue(output.startswith(b"GET /a b HTTP/1.1\r\n"), output)
+        self.assertEqual(errors, [])
+
     def test_request_strips_nominated_and_proxy_hop_by_hop_fields(self):
         client = HttpClient(loop=self.loop)
         conn = DummyClientConnection()
@@ -248,7 +280,13 @@ class TestHttpClient(framework.ClientServerTestCase):
                 self.check_invalid_request_output(b"POST", [(b"Content-Length", value)])
 
     def test_request_bad_method_output_syntax(self):
-        self.check_invalid_request_output(b"GET\r\nX-Injected: yes", [])
+        "A method that isn't a token is refused before any connection is touched."
+        output, errors = self.check_request_line(
+            b"GET\r\nX-Injected: yes", b"http://example.com/", True
+        )
+        self.assertEqual(output, b"")
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.OutputSyntaxError)
 
     def test_request_bad_header_name_output_syntax(self):
         self.check_invalid_request_output(b"GET", [(b"Bad Name", b"value")])

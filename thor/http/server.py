@@ -22,6 +22,8 @@ from thor.http.common import (
     Delimiters,
     HttpMessageHandler,
     States,
+    check_method,
+    check_request_target,
     header_names,
     strip_hop_by_hop,
     no_body_status,
@@ -31,6 +33,7 @@ from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    RequestLineError,
     RequestTransferEncodingError,
     TooManyMsgsError,
     TransferCodeError,
@@ -301,6 +304,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
                 HttpVersionError(req_version_txt.decode("utf-8", "replace"))
             )
             raise ValueError
+        problem = check_method(method) or check_request_target(uri)
+        if problem:
+            # Reported to whoever listens on this connection, then accepted as
+            # is: the application decides what to make of it.
+            self.input_error(RequestLineError(problem))
         if b"host" not in header_names(hdr_tuples):
             self.input_error(HostRequiredError())
             raise ValueError

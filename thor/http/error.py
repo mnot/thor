@@ -153,6 +153,18 @@ class TopLineSpaceError(HttpError):
     client_recoverable = True
 
 
+class RequestLineError(HttpError):
+    """
+    The method isn't a token, or the request-target holds whitespace or a
+    control character. The server reports it and carries on, since thor
+    is used to probe servers with requests like these.
+    """
+
+    desc = "Request-line contains unexpected characters"
+    server_status = (b"400", b"Bad Request")
+    server_recoverable = True
+
+
 class TooManyMsgsError(HttpError):
     desc = "Too many messages to parse"
     server_status = (b"400", b"Bad Request")

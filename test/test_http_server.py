@@ -1856,6 +1856,23 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertIsNone(conn.tcp_conn)
 
+    def test_odd_request_line_is_reported_and_passed_through(self):
+        "thor probes servers, so an odd request-line is accepted; listeners are told."
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        reported = []
+        conn.on("error", reported.append)
+
+        conn.handle_input(b"GET /foo bar HTTP/1.1\r\nHost: example.com\r\n\r\n")
+
+        exchanges = [args[0] for event, args in server.events if event == "exchange"]
+        self.assertEqual(len(exchanges), 1)
+        self.assertEqual(exchanges[0].uri, b"/foo bar")
+        self.assertEqual(len(reported), 1)
+        self.assertIsInstance(reported[0], thor.http.error.RequestLineError)
+        self.assertTrue(tcp_conn.tcp_connected)
+
     def test_response_strips_fields_nominated_by_connection(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

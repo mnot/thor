@@ -3,7 +3,7 @@
 import sys
 import unittest
 
-from thor.http.common import strip_hop_by_hop, header_names, header_dict, get_header
+from thor.http.common import check_method, check_request_target, strip_hop_by_hop, header_names, header_dict, get_header
 
 
 class TestHttpUtilsBytes(unittest.TestCase):
@@ -38,6 +38,21 @@ class TestHttpUtilsBytes(unittest.TestCase):
         self.assertEqual(get_header(self.hdrs, b"a"), [b"a1", b"a2", b"a3", b"a4"])
         self.assertEqual(get_header(self.hdrs, b"b"), [b"b1", b"b2"])
         self.assertEqual(get_header(self.hdrs, b"c"), [b"c1"])
+
+
+class TestRequestLineChecks(unittest.TestCase):
+    def test_method(self):
+        self.assertIsNone(check_method(b"GET"))
+        self.assertIsNone(check_method(b"M-SEARCH"))
+        for bad in (b"", b"GE T", b"G\x00ET", b"GET/", b"GET\r"):
+            self.assertIsNotNone(check_method(bad), bad)
+
+    def test_request_target(self):
+        self.assertIsNone(check_request_target(b"/a?b=c%20d"))
+        self.assertIsNone(check_request_target(b"*"))
+        self.assertIsNone(check_request_target(b"/caf\xc3\xa9"))  # not ours to police
+        for bad in (b"", b"/a b", b"/a\tb", b"/a\x01", b"/a\x7f"):
+            self.assertIsNotNone(check_request_target(bad), bad)
 
 
 class TestStripHopByHop(unittest.TestCase):
