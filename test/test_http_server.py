@@ -822,6 +822,25 @@ Content-Length: 5
         output = b"".join(tcp_conn.output)
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
 
+    def test_error_response_framing(self):
+        "Error responses are counted and close, whatever the request's version."
+        for request in [
+            b"GET / HTTP/1.0\r\n\r\n",  # no Host
+            b"GET / HTTP/1.1\r\n\r\n",
+        ]:
+            with self.subTest(request):
+                tcp_conn = FakeTcpConnection()
+                server = FakeServer()
+                conn = HttpServerConnection(tcp_conn, server)
+                conn.handle_input(request)
+                output = b"".join(tcp_conn.output)
+                self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+                self.assertIn(b"Connection: close\r\n", output)
+                self.assertNotIn(b"Transfer-Encoding", output)
+                headers, body = output.split(b"\r\n\r\n", 1)
+                self.assertIn(b"Content-Length: %d\r\n" % len(body), headers)
+                self.assertFalse(tcp_conn.tcp_connected)
+
     def check_listener_runtime_error(self, event):
         """
         A RuntimeError raised by a request listener must propagate to the caller

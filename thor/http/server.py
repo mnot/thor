@@ -40,6 +40,48 @@ from thor.tcp import TcpConnection, TcpServer
 from thor.types import RawHeaderListType
 
 
+def response_framing(
+    method: bytes,
+    status_code: bytes,
+    req_version: bytes,
+    persistent: bool,
+    res_hdrs: RawHeaderListType,
+) -> Tuple[RawHeaderListType, Delimiters]:
+    """
+    Decide how a final response to the given request is delimited, and
+    return the headers to send (hop-by-hop ones dropped, framing and
+    Connection added) along with the delimiter.
+    """
+    res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
+    body_len = output_content_length(res_hdrs)
+    # A final response with a 1xx status is not an interim response; use
+    # response_nonfinal for those.
+    bodiless = (
+        method == b"HEAD"
+        or status_code in no_body_status
+        or status_code.startswith(b"1")
+    )
+    if bodiless:
+        # No body framing. Content-Length is kept for HEAD and 304 (it
+        # describes the unsent representation) but must not be sent
+        # with 204 or 1xx (RFC 9110 section 8.6).
+        delimit = Delimiters.NOBODY
+        if status_code == b"204" or status_code.startswith(b"1"):
+            res_hdrs = [i for i in res_hdrs if i[0].lower() != b"content-length"]
+    elif body_len is not None:
+        delimit = Delimiters.COUNTED
+    elif req_version == b"1.1":
+        delimit = Delimiters.CHUNKED
+        res_hdrs.append((b"Transfer-Encoding", b"chunked"))
+    else:
+        delimit = Delimiters.CLOSE
+    if delimit is Delimiters.CLOSE or not persistent:
+        res_hdrs.append((b"Connection", b"close"))
+    elif req_version == b"1.0":
+        res_hdrs.append((b"Connection", b"keep-alive"))
+    return res_hdrs, delimit
+
+
 class HttpServer(EventEmitter):
     "An asynchronous HTTP server."
 
@@ -460,12 +502,16 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def _send_error(self, err: HttpError) -> None:
         "Send an error response for an unrecoverable error, then close."
         status_code, status_phrase = err.server_status
-        hdrs = [(b"Content-Type", b"text/plain")]
         body = err.desc.encode("utf-8")
         if err.detail:
             body += b" (%s)" % err.detail.encode("utf-8")
-        ex = HttpServerExchange(self, b"", b"", [], b"1.1")
-        self.exchanges.add(ex)  # so completing it doesn't arm the idle timer
+        hdrs = [
+            (b"Content-Type", b"text/plain"),
+            (b"Content-Length", b"%d" % len(body)),
+        ]
+        # Framed like any other response to a request that doesn't persist:
+        # counted, with Connection: close, whatever the request's version.
+        ex = HttpServerExchange(self, b"", b"", [], b"1.1", persistent=False)
         try:
             ex.response_start(status_code, status_phrase, hdrs)
             ex.response_body(body)
@@ -537,34 +583,9 @@ class HttpServerExchange(EventEmitter):
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
     ) -> None:
         "Start a response. Must only be called once per response."
-        res_hdrs = [i for i in res_hdrs if not i[0].lower() in hop_by_hop_hdrs]
-        body_len = output_content_length(res_hdrs)
-        # A final response with a 1xx status is not an interim response; use
-        # response_nonfinal for those.
-        bodiless = (
-            self.method == b"HEAD"
-            or status_code in no_body_status
-            or status_code.startswith(b"1")
+        res_hdrs, delimit = response_framing(
+            self.method, status_code, self.req_version, self.persistent, res_hdrs
         )
-        if bodiless:
-            # No body framing. Content-Length is kept for HEAD and 304 (it
-            # describes the unsent representation) but must not be sent
-            # with 204 or 1xx (RFC 9110 section 8.6).
-            delimit = Delimiters.NOBODY
-            if status_code == b"204" or status_code.startswith(b"1"):
-                res_hdrs = [i for i in res_hdrs if i[0].lower() != b"content-length"]
-        elif body_len is not None:
-            delimit = Delimiters.COUNTED
-        elif self.req_version == b"1.1":
-            delimit = Delimiters.CHUNKED
-            res_hdrs.append((b"Transfer-Encoding", b"chunked"))
-        else:
-            delimit = Delimiters.CLOSE
-        if delimit is Delimiters.CLOSE or not self.persistent:
-            res_hdrs.append((b"Connection", b"close"))
-        elif self.req_version == b"1.0":
-            res_hdrs.append((b"Connection", b"keep-alive"))
-
         self.http_conn.output_start(
             b"HTTP/1.1 %s %s" % (status_code, status_phrase),
             res_hdrs,
