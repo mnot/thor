@@ -498,9 +498,13 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # RFC 9112 6.1: Transfer-Encoding in HTTP/1.0 means the framing is
             # faulty; answer, then close.
             persistent = False
+        allows_body = bool(content_length and content_length > 0) or (
+            transfer_codes != []
+        )
         exchange = HttpServerExchange(
             self, method, uri, hdr_tuples, req_version, persistent
         )
+        exchange.req_body_pending = allows_body
         if not persistent:
             # Silently ignore anything pipelined after a request that closes.
             # This shadows the class attribute: every later reset to
@@ -512,9 +516,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # we only start new requests if we have some output buffer
             # available.
             exchange.request_start()
-        allows_body = bool(content_length and content_length > 0) or (
-            transfer_codes != []
-        )
         self._req_in_progress = allows_body  # timer is started by handle_input
         return allows_body, True
 
@@ -531,6 +532,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_req_timer()
         ex = self.exchanges.last
         ex.req_complete = True
+        ex.req_body_pending = False
         if not ex.res_done:
             ex.emit("request_done", trailers)
         self.exchanges.retire(ex)
@@ -644,6 +646,7 @@ class HttpServerExchange(EventEmitter):
         self.persistent = persistent
         self.started = False
         self.req_complete = False
+        self.req_body_pending = False  # a request body is due and hasn't ended
         self.res_done = False  # the application has finished its response
         self.res_complete = False  # ...and it has been handed to the connection
         self._out = ExchangeOutput(self._write)
@@ -726,6 +729,11 @@ class HttpServerExchange(EventEmitter):
     ) -> None:
         "Start a response. Must only be called once per response."
         self._check_open()
+        if self.req_body_pending:
+            # A final response ahead of the request body: the client may not
+            # send the rest, so the connection can't carry another request
+            # (RFC 9110 10.1.1, RFC 9112 9.6).
+            self.persistent = False
         res_hdrs, delimit = response_framing(
             self.method, status_code, self.req_version, self.persistent, res_hdrs
         )

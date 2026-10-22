@@ -156,9 +156,13 @@ Send a non-final (1xx) HTTP response. This can be called zero to many times befo
 Send a `chunk` of response body content.
 
 
-#### _void_ response\_done ( _[headers](#headers)_ `trailers` )
+#### _void_ response\_done ( _[headers](#headers)_ `trailers`, _bool_ `close`? )
 
 Signal that the response body is finished. This must be called for every response. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+
+If `close` is `True`, the connection is closed once the response has been sent, whatever the response's framing. It defaults to `False`.
+
+The connection is also closed after a final response that *response_start* sent before the request body was complete, and the response carries _Connection: close_. A client might not send the rest of the body (for example, after `Expect: 100-continue`), so the server can't tell where the next request begins. To keep the connection for another request, wait for *request_done* before calling *response_start*.
 
 
 

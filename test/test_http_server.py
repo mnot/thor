@@ -1467,18 +1467,13 @@ Content-Length: 5
         self.assertEqual(len(self.idle_timers(server, timers)), 1)
         self.assertTrue(tcp_conn.tcp_connected)
 
-    def test_idle_timer_armed_when_response_precedes_request_body(self):
+    def test_early_response_closes_before_request_body(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(
             b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n"
         )
-        conn.handle_input(b"01")
+        self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.idle_timers(server, timers), [])
-        conn.handle_input(b"23")
-        self.assertEqual(len(self.idle_timers(server, timers)), 1)
-        self.assertEqual(len([t for t in timers if t.delay == 7]), 1)
-        self.assertEqual([t for t in timers if not t.delete.called], timers[-1:])
-        self.assertTrue(tcp_conn.tcp_connected)
 
     def test_idle_timer_armed_when_response_follows_request_body(self):
         tcp_conn, server, conn, timers, exchanges = self.make_idle_conn(sync_paths=[])
@@ -1533,13 +1528,15 @@ Content-Length: 5
         self.assertEqual(self.idle_timers(server, timers), [])
 
     def test_idle_connection_closed_when_shutting_down_after_request_body(self):
-        tcp_conn, server, conn, timers, _ = self.make_idle_conn()
+        tcp_conn, server, conn, timers, exchanges = self.make_idle_conn(sync_paths=[])
         server.shutting_down = True
         conn.handle_input(
             b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n01"
         )
         self.assertTrue(tcp_conn.tcp_connected)  # the request isn't finished
         conn.handle_input(b"23")
+        self.assertTrue(tcp_conn.tcp_connected)  # it isn't answered
+        self.respond(exchanges[0], b"")
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.idle_timers(server, timers), [])
 
@@ -2217,6 +2214,89 @@ Content-Length: 5
         self.assertEqual(output.count(b"HTTP/1.1 200"), 1)
         self.assertIn(b"Connection: close\r\n", output)
         self.assertNotIn(b"keep-alive", output)
+
+    def check_early_response(self, request, trailing):
+        "Answer a request with a body before its body is in, as request_start."
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        seen = []
+
+        def handle_exchange(exchange):
+            seen.append(exchange.uri)
+
+            @on(exchange, "request_start")
+            def start(method, uri, headers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(request)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(seen, [b"/one"])
+        self.assertIn(b"Connection: close\r\n", output)
+        self.assertFalse(tcp_conn.tcp_connected)
+        conn.handle_input(trailing)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1"), 1)
+        self.assertEqual(seen, [b"/one"])
+
+    def test_early_response_to_counted_body_closes(self):
+        self.check_early_response(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n",
+            b"Host: x\r\n\r\n",
+        )
+
+    def test_early_response_to_chunked_body_closes(self):
+        self.check_early_response(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n",
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+
+    def test_early_response_after_expect_continue_closes(self):
+        # the client skips the body and sends its next request instead
+        self.check_early_response(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n"
+            b"Expect: 100-continue\r\n\r\n",
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+
+    def test_response_after_complete_request_body_keeps_connection(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 3\r\n\r\n"
+        )
+        conn.handle_input(b"abc")
+        self.respond(exchanges[0], b"ok")
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertNotIn(b"Connection:", b"".join(tcp_conn.output))
+
+    def test_response_started_before_request_body_ends_closes(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 3\r\n\r\n"
+        )
+        exchanges[0].response_start(b"200", b"OK", [(b"Content-Length", b"2")])
+        conn.handle_input(b"abc")  # the body ends before the response does
+        self.respond_rest(exchanges[0])
+        self.assertIn(b"Connection: close\r\n", b"".join(tcp_conn.output))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    @staticmethod
+    def respond_rest(exchange):
+        exchange.response_body(b"ok")
+        exchange.response_done([])
 
     def test_http10_keep_alive(self):
         self.check_connection_handling(
