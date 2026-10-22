@@ -221,6 +221,10 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         self.assertEqual(data, [b"pending"])
         self.assertEqual(closes, [True])
+        # The peer is done sending; we may not be.
+        self.assertTrue(conn.tcp_connected)
+        self.assertFalse(sock.closed)
+        conn.close()
         self.assertFalse(conn.tcp_connected)
         self.assertTrue(sock.closed)
 
@@ -257,6 +261,8 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         self.assertEqual(data, [b"late"])
         self.assertEqual(closes, [True])
+        self.assertTrue(conn.tcp_connected)  # until we close our side
+        conn.close()
         self.assertFalse(conn.tcp_connected)
         self.assertTrue(sock.closed)
 
@@ -424,6 +430,35 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertTrue(all(len(piece) <= 3 for piece in sock.sent), sock.sent)
         self.assertEqual(b"".join(piece[:1] for piece in sock.sent), b"abcdef")
         self.assertEqual(list(conn._write_buffer), [])
+
+    def test_peer_eof_leaves_output_open_until_close(self):
+        "After the peer's FIN we can still answer; the socket goes when we close."
+        loop_mock = MagicMock()
+        sock = FakeSocket(recvs=[b"request", b""], sends=[8])
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        data = []
+        closes = []
+        disconnects = []
+        conn.on("data", data.append)
+        conn.on("close", lambda: closes.append(True))
+        conn.on("disconnect", lambda: disconnects.append(True))
+
+        conn.handle_readable()
+        conn.handle_readable()  # EOF
+        self.assertEqual(data, [b"request"])
+        self.assertEqual(closes, [True])
+        self.assertTrue(conn.tcp_connected)
+        self.assertNotIn("fd_readable", conn.interesting_events())
+
+        conn.write(b"response")
+        conn.close()
+        self.assertEqual(disconnects, [])
+        conn.handle_writable()
+        self.assertEqual(sock.sent, [b"response"])
+        self.assertEqual(sock.shutdowns, [])  # both sides done; no half-close needed
+        self.assertFalse(conn.tcp_connected)
+        self.assertEqual(disconnects, [True])
+        self.assertTrue(sock.closed)
 
     def test_write_buffer_byte_limit(self):
         loop_mock = MagicMock()

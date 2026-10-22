@@ -16,6 +16,7 @@ import os
 import socket
 import sys
 from collections import deque
+from enum import Enum
 from itertools import islice
 from typing import Callable, Deque, Iterator, Optional, Set, Union
 
@@ -87,13 +88,21 @@ class WriteBuffer:
                 sent = 0
 
 
+class TcpState(Enum):
+    OPEN = "open"
+    FLUSHING = "flushing"  # close() called; buffered writes still going out
+    OUTPUT_CLOSED = "output closed"  # our FIN is sent; waiting for the peer's
+    CLOSED = "closed"
+
+
 class TcpConnection(EventSource):
     """
     An asynchronous TCP connection.
 
     Emits:
      - data (chunk): incoming data
-     - close (): the other party has closed the connection
+     - close (): the other party has closed its side of the connection
+     - disconnect (): the socket is closed
      - pause (bool): whether the connection has been paused
 
     It will emit the 'data' even every time incoming data is
@@ -120,12 +129,17 @@ class TcpConnection(EventSource):
 
     If you try to write to a closed connection, an OSError will be raised.
 
-    If the other side closes the connection, The 'close' event will be
-    emitted;
+    If the other side closes its end of the connection, the 'close' event
+    will be emitted;
 
     > def handle_close():
     >   print "oops, they don't like us any more..."
     > tcp_conn.on('close', handle_close)
+
+    Nothing more will arrive, but the peer may still be reading: you can
+    keep writing, and the socket is only closed once you call close() and
+    the buffered data has gone (or you call abort()). 'disconnect' is
+    emitted when the socket is closed, whoever started it.
 
     If you write too much data to the connection and the buffers fill up,
     pause_cb will be emitted with True to tell you to stop sending data
@@ -180,11 +194,10 @@ class TcpConnection(EventSource):
         EventSource.__init__(self, loop)
         self.socket = sock
         self.address = address
-        self.tcp_connected = True  # we assume a connected socket
+        self._state = TcpState.OPEN  # we assume a connected socket
+        self._peer_closed = False  # the peer has sent its FIN
         self._input_paused = True  # we start with input paused
         self._output_paused = False
-        self._closing = False
-        self._closed_output = False
         self._close_timeout_ev: Optional[ScheduledEvent] = None
         self._write_buffer = WriteBuffer()
 
@@ -196,17 +209,31 @@ class TcpConnection(EventSource):
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
-        status.append(self.tcp_connected and "connected" or "disconnected")
+        status.append(self._state.value)
         status.append(f"{self.address[0]}:{self.address[1]}")
+        if self._peer_closed:
+            status.append("peer closed")
         if self._input_paused:
             status.append("input paused")
         if self._output_paused:
             status.append("output paused")
-        if self._closing:
-            status.append("closing")
         if self._write_buffer:
             status.append(f"{len(self._write_buffer)} write buffered")
         return f"<{', '.join(status)} at {id(self):#x}>"
+
+    @property
+    def tcp_connected(self) -> bool:
+        "Is the socket open?"
+        return self._state is not TcpState.CLOSED
+
+    @property
+    def _closing(self) -> bool:
+        "Has close() been called on a socket that's still open?"
+        return self._state in (TcpState.FLUSHING, TcpState.OUTPUT_CLOSED)
+
+    @property
+    def _closed_output(self) -> bool:
+        return self._state is TcpState.OUTPUT_CLOSED
 
     def handle_readable(self) -> None:
         "The connection has data read for reading"
@@ -216,13 +243,13 @@ class TcpConnection(EventSource):
             if why.args[0] in self.block_errs:
                 return
             if why.args[0] in self.close_errs:
-                self._handle_close(False)
+                self._lost()
                 return
             raise
         if data == b"":
-            self._handle_close(False)
-        elif self._closing and self._closed_output:
-            return
+            self._handle_peer_eof()
+        elif self._state is TcpState.OUTPUT_CLOSED:
+            return  # we've said we're done; nothing to give it to
         else:
             self.emit("data", data)
 
@@ -245,7 +272,7 @@ class TcpConnection(EventSource):
                 raise
             if data == b"":
                 return True
-            if not (self._closing and self._closed_output):
+            if self._state is not TcpState.OUTPUT_CLOSED:
                 self.emit("data", data)
 
     def handle_writable(self) -> None:
@@ -257,7 +284,7 @@ class TcpConnection(EventSource):
                 if why.args[0] in self.block_errs:
                     return
                 if why.args[0] in self.close_errs:
-                    self._handle_close(False)
+                    self._lost()
                     return
                 raise
             self._write_buffer.consume(sent)
@@ -270,7 +297,7 @@ class TcpConnection(EventSource):
         ):
             self._output_paused = False
             self.emit("pause", False)
-        if self._closing and not self._write_buffer:
+        if self._state is TcpState.FLUSHING and not self._write_buffer:
             self._shutdown_output()
             return
         if not self._write_buffer:
@@ -278,7 +305,7 @@ class TcpConnection(EventSource):
 
     def write(self, data: bytes) -> None:
         "Write data to the connection."
-        if not self.tcp_connected:
+        if self._state is not TcpState.OPEN:
             raise OSError("Connection closed")
         if len(self._write_buffer) >= self.max_write_buffer_chunks:
             if not self._output_paused:
@@ -309,10 +336,10 @@ class TcpConnection(EventSource):
 
     def close(self) -> None:
         "Flush buffered data (if any) and close the connection."
-        if not self.tcp_connected:
+        if self._state is not TcpState.OPEN:
             return
-        self._closing = True
         if self._write_buffer:
+            self._state = TcpState.FLUSHING
             self.event_add("fd_writable")
         else:
             self._shutdown_output()
@@ -322,51 +349,72 @@ class TcpConnection(EventSource):
         self._close()
 
     def _shutdown_output(self) -> None:
-        if self._closed_output:
+        "Our side is done sending."
+        if self._peer_closed:  # and so is theirs: nothing left to wait for
+            self._close()
             return
         try:
             self.socket.shutdown(socket.SHUT_WR)
         except (socket.error, OSError) as why:
             if why.args[0] not in self.close_errs:
                 raise
-        self._closed_output = True
+        self._state = TcpState.OUTPUT_CLOSED
         self.event_del("fd_writable")
-        self.event_add("fd_readable")
+        self.event_add("fd_readable")  # to see the peer's FIN
         self._input_paused = False
         if self.close_timeout > 0 and not self._close_timeout_ev:
             self._close_timeout_ev = self.loop.schedule(self.close_timeout, self._close)
 
-    def _handle_close(self, drain: bool = True) -> None:
-        "The connection has been closed by the other side."
-        if not self.tcp_connected:
+    def _handle_peer_eof(self) -> None:
+        """
+        The peer has sent its FIN. Nothing more will arrive, but it may still
+        be reading, so writes go on until close(); the socket is closed once
+        both sides are done.
+        """
+        if self._peer_closed or self._state is TcpState.CLOSED:
             return
-        if drain:
-            eof = self._drain_readable()
-            if not self.tcp_connected:
-                return
-            if not eof:
-                self.event_add("fd_readable")
-                if self.close_timeout > 0 and not self._close_timeout_ev:
-                    self._close_timeout_ev = self.loop.schedule(
-                        self.close_timeout, self._close_after_drain_timeout
-                    )
-                return
+        self._peer_closed = True
+        self.event_del("fd_readable")
+        if self._state is TcpState.OUTPUT_CLOSED:
+            self._close()
+        self.emit("close")
+
+    def _lost(self) -> None:
+        "The connection has failed: nothing can be sent or received."
         if self._close():
             self.emit("close")
+
+    def _handle_close(self) -> None:
+        "The poller reports a hangup; read what's left to find the peer's FIN."
+        if self._state is TcpState.CLOSED or self._peer_closed:
+            return
+        eof = self._drain_readable()
+        if not self.tcp_connected:
+            return  # a data handler closed it
+        if eof:
+            self._handle_peer_eof()
+            return
+        self.event_add("fd_readable")
+        if self.close_timeout > 0 and not self._close_timeout_ev:
+            self._close_timeout_ev = self.loop.schedule(
+                self.close_timeout, self._close_after_drain_timeout
+            )
 
     def _close_after_drain_timeout(self) -> None:
-        self._drain_readable()
-        if not self.tcp_connected:
+        "The FIN still hasn't shown up after a hangup; stop waiting for it."
+        self._close_timeout_ev = None
+        eof = self._drain_readable()
+        if self._state is TcpState.CLOSED:
             return
-        if self._close():
-            self.emit("close")
+        if eof:
+            self._handle_peer_eof()
+        else:
+            self._lost()
 
     def _close(self) -> bool:
-        if not self.tcp_connected:
+        if self._state is TcpState.CLOSED:
             return False
-        self.tcp_connected = False
-        self._closing = False
-        self._closed_output = False
+        self._state = TcpState.CLOSED
         self._write_buffer.clear()
         if self._close_timeout_ev:
             self._close_timeout_ev.delete()
