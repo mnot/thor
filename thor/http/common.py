@@ -75,6 +75,11 @@ def parse_uint(value: bytes, base: int = 10) -> int:
     return int(value, base)
 
 
+def _list_members(value: bytes) -> List[bytes]:
+    "Split a comma-separated list into lower-cased members, ignoring empty ones."
+    return [m for m in (v.strip(_OWS).lower() for v in value.split(b",")) if m]
+
+
 def parse_content_length(value: bytes) -> int:
     "Strictly parse a Content-Length value, ignoring surrounding SP / HTAB."
     return parse_uint(value.strip(b" \t"))
@@ -473,9 +478,13 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
             # parse connection-related headers
             if f_name == b"connection":
-                conn_tokens += [v.strip(_OWS).lower() for v in f_val.split(b",")]
+                conn_tokens += _list_members(f_val)
             elif f_name == b"transfer-encoding":
-                transfer_codes += [v.strip(_OWS).lower() for v in f_val.split(b",")]
+                codes = _list_members(f_val)
+                if not codes:
+                    # a list needs at least one member (RFC 9110 5.6.1.2)
+                    self._fail(error.TransferCodeError(""))
+                transfer_codes += codes
             elif f_name == b"content-length":
                 if content_length is not None:
                     try:

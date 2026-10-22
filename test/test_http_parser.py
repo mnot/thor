@@ -94,6 +94,22 @@ class TestFramingFields(unittest.TestCase):
         parser = self.parse(b"Connection:\x0cclose", b"Content-Length: 3")
         self.assertEqual(parser.conn_tokens, [b"\x0cclose"])
 
+    def test_te_chunked_empty_member(self):
+        for value in [b"chunked,", b",chunked", b"chunked, ,\t", b" , chunked"]:
+            parser = self.parse(b"Transfer-Encoding: " + value)
+            self.assertIsNone(parser.test_err, value)
+            self.assertEqual(parser.transfer_codes, [b"chunked"], value)
+            self.assertEqual(parser._input_delimit, Delimiters.CHUNKED, value)
+
+    def test_te_empty_list(self):
+        for value in [b"", b" ", b",", b" , ,"]:
+            parser = self.parse(b"Transfer-Encoding:" + value)
+            self.assertIsInstance(parser.test_err, error.TransferCodeError, value)
+
+    def test_connection_empty_member(self):
+        parser = self.parse(b"Connection: close,, keep-alive,")
+        self.assertEqual(parser.conn_tokens, [b"close", b"keep-alive"])
+
     def test_ows_trimmed(self):
         parser = self.parse(
             b"Transfer-Encoding: \t chunked \t,\t gzip\t",
