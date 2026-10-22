@@ -746,6 +746,7 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertNotIn(b"400", b"".join(tcp_conn.output))
         self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.ChunkError)
 
     @staticmethod
     def watch_errors(exchange):
@@ -879,10 +880,12 @@ Content-Length: 5
         server = FakeServer()
         conn = HttpServerConnection(tcp_conn, server)
         done = []
+        errors = []
 
         def handle(event, *args):
             if event == "exchange":
                 args[0].on("request_done", lambda trailers: done.append(1))
+                args[0].on("error", errors.append)
 
         server.emit = handle
         conn.handle_input(
@@ -893,6 +896,8 @@ Content-Length: 5
         self.assertEqual(done, [])
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertIn(b"HTTP/1.1 400 Bad Request", b"".join(tcp_conn.output))
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], thor.http.error.ChunkError)
 
     def test_pipelined_error_drops_when_response_closes(self):
         tcp_conn, conn, (first, second) = self.pipelined_two_conn()

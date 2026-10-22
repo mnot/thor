@@ -222,6 +222,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.exchanges = ExchangeQueue()
         self.output_paused = False
         self._pending_error: Optional[HttpError] = None  # deferred error
+        self._close_error: Optional[HttpError] = None  # why we're closing
         # Each closes the connection: when it has sat idle too long, when a
         # request body stops arriving, or when a response doesn't come.
         self._idler = Timer(self.server.loop, self.close_conn)
@@ -364,7 +365,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         failure: Optional[Exception] = None
         for exchange in list(self.exchanges):
             try:
-                exchange.connection_lost()
+                exchange.connection_lost(self._close_error)
             except Exception as why:  # pylint: disable=broad-exception-caught
                 failure = failure or why
         if failure:
@@ -394,6 +395,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if not self.exchanges.answered_before(in_flight):
             return
         self._pending_error = None
+        self._close_error = err
         if in_flight and (
             in_flight.res_complete or self._output_state != States.WAITING
         ):
@@ -656,13 +658,18 @@ class HttpServerExchange(EventEmitter):
             self._deferred.append((event, args))
             self.http_conn.update_input_hold()
 
-    def connection_lost(self) -> None:
-        "The connection closed; if a response was owed, say so, once."
+    def connection_lost(self, cause: Optional[HttpError] = None) -> None:
+        """
+        The connection closed; if a response was owed, say so, once. The cause
+        is the error that made the server close it, if there was one.
+        """
         if self._lost or self.res_complete or not self.started:
             return
         self._lost = True
         self.emit(
-            "error", ConnectError("Connection closed before the response was sent.")
+            "error",
+            cause
+            or ConnectError("Connection closed before the response was sent."),
         )
 
     def response_nonfinal(
