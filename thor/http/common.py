@@ -13,7 +13,7 @@ import re
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, NoReturn, Optional, Set, Tuple
 
 from thor.http import error
 from thor.types import RawHeaderListType
@@ -41,6 +41,10 @@ class States(Enum):
     HEADERS_DONE = 2
     ERROR = 3
     QUIET = 4
+
+
+class _ParseError(Exception):
+    "Raised inside the parser once an error has been reported, to drop the rest of a read."
 
 
 idempotent_methods = [b"GET", b"HEAD", b"PUT", b"DELETE", b"OPTIONS", b"TRACE"]
@@ -227,6 +231,21 @@ class HttpMessageHandler(metaclass=ABCMeta):
         "Indicate that data was received after the message was supposed to end."
         self.input_error(error.ExtraDataError(inbytes.decode("utf-8", "replace")))
 
+    def _fail(self, err: error.HttpError) -> None:
+        """
+        Report a parse error. In careful mode that ends the input; otherwise
+        the caller carries on as best it can.
+        """
+        if self.careful:
+            self._abort(err)
+        self.input_error(err)
+
+    def _abort(self, err: error.HttpError) -> NoReturn:
+        "Report a fatal parse error and drop the rest of the input."
+        self.input_error(err)
+        self._input_state = States.ERROR
+        raise _ParseError
+
     def handle_input(self, inbytes: bytes) -> None:
         """
         Given a bytes representing a chunk of input, figure out what state
@@ -236,24 +255,26 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._input_buffer.append(inbytes)
             inbytes = b"".join(self._input_buffer)
             self._input_buffer = []
+        try:
+            self._handle_input_step(inbytes)
+        except _ParseError:
+            pass  # already reported; the rest of the read is dropped
+
+    def _handle_input_step(self, inbytes: bytes) -> None:
+        "Handle input according to the current state."
         if self._input_state == States.WAITING:  # waiting for headers or trailers
-            try:
-                headers, rest = self._split_headers(inbytes)
-            except ValueError:
-                return
+            headers, rest = self._split_headers(inbytes)
             if headers is not None:  # found one
-                if self._parse_headers(headers):
-                    try:
-                        self.handle_input(rest)
-                    except RecursionError:
-                        # too many messages in one read to handle recursively;
-                        # we can't recover from this, so we bail.
-                        self.input_error(error.TooManyMsgsError())
+                self._parse_headers(headers)
+                try:
+                    self.handle_input(rest)
+                except RecursionError:
+                    # too many messages in one read to handle recursively;
+                    # we can't recover from this, so we bail.
+                    self.input_error(error.TooManyMsgsError())
             else:  # partial headers; store it and wait for more
                 if len(inbytes) > self.max_input_field_section_length:
-                    self._input_state = States.ERROR
-                    self.input_error(error.FieldSectionTooLargeError())
-                    return
+                    self._abort(error.FieldSectionTooLargeError())
                 self._input_buffer.append(inbytes)
         elif self._input_state == States.QUIET:  # shouldn't be getting any data now.
             if inbytes.strip():
@@ -304,9 +325,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             # don't have the whole chunk_size yet... wait a bit
             if len(inbytes) > 512:
                 # OK, this is absurd...
-                self.input_error(error.ChunkError(inbytes.decode("utf-8", "replace")))
-                if self.careful:
-                    self._input_state = States.ERROR
+                self._fail(error.ChunkError(inbytes.decode("utf-8", "replace")))
             else:
                 self._input_buffer.append(inbytes)
             return b""
@@ -315,9 +334,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
         try:
             self._input_body_left = parse_uint(chunk_size, 16)
         except ValueError:
-            self.input_error(error.ChunkError(chunk_size.decode("utf-8", "replace")))
-            if self.careful:
-                self._input_state = States.ERROR
+            self._fail(error.ChunkError(chunk_size.decode("utf-8", "replace")))
             return b""
         self.input_transfer_length += len(inbytes) - len(rest)
         return rest
@@ -353,10 +370,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
         if terminator == LINESEP:
             return True
         detail = terminator.decode("utf-8", "replace")
-        self.input_error(error.ChunkTerminatorError(detail))
-        if self.careful:
-            self._input_state = States.ERROR
-            return False
+        self._fail(error.ChunkTerminatorError(detail))
         return True
 
     def _handle_chunk_done(self, inbytes: bytes) -> None:
@@ -367,24 +381,15 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if len(inbytes) > 2:
                 self.handle_input(inbytes[2:])  # 2 consumes the CRLF
         else:
-            try:
-                trailer_block, rest = self._split_headers(inbytes)  # trailers
-            except ValueError:
-                return
+            trailer_block, rest = self._split_headers(inbytes)  # trailers
             if trailer_block is not None:
                 self._input_state = self.default_state
-                try:
-                    trailers = self._parse_fields(self._split_lines(trailer_block))[0]
-                except ValueError:
-                    self._input_state = States.ERROR
-                    return
+                trailers = self._parse_fields(self._split_lines(trailer_block))[0]
                 self.input_end(trailers)
                 self.handle_input(rest)
             else:  # don't have full trailers yet
                 if len(inbytes) > self.max_input_field_section_length:
-                    self._input_state = States.ERROR
-                    self.input_error(error.FieldSectionTooLargeError())
-                    return
+                    self._abort(error.FieldSectionTooLargeError())
                 self._input_buffer.append(inbytes)
 
     def _handle_counted(self, inbytes: bytes) -> None:
@@ -418,44 +423,26 @@ class HttpMessageHandler(metaclass=ABCMeta):
         for line in header_lines:
             if line[:1] in [b" ", b"\t"]:  # Fold LWS
                 if hdr_tuples:
-                    self.input_error(
-                        error.ObsoleteFoldError(line.decode("utf-8", "replace"))
-                    )
-                    if self.careful:
-                        raise ValueError
+                    self._fail(error.ObsoleteFoldError(line.decode("utf-8", "replace")))
                     hdr_tuples[-1] = (
                         hdr_tuples[-1][0],
                         b"%s %s" % (hdr_tuples[-1][1], line.lstrip()),
                     )
                     continue
                 # top header starts with whitespace
-                self.input_error(
-                    error.TopLineSpaceError(line.decode("utf-8", "replace"))
-                )
-                if self.careful:
-                    raise ValueError
+                self._fail(error.TopLineSpaceError(line.decode("utf-8", "replace")))
             try:
                 fn, fv = line.split(b":", 1)
             except ValueError:
-                self.input_error(
-                    error.HeaderNoColonError(line.decode("utf-8", "replace"))
-                )
-                if self.careful:
-                    raise ValueError
+                self._fail(error.HeaderNoColonError(line.decode("utf-8", "replace")))
                 continue
             if not fn:
-                self.input_error(error.HeaderNameError("empty field-name"))
-                if self.careful:
-                    raise ValueError
+                self._fail(error.HeaderNameError("empty field-name"))
                 continue
             if fn[-1:] in [b" ", b"\t"]:
-                self.input_error(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
-                if self.careful:
-                    raise ValueError
+                self._fail(error.HeaderSpaceError(fn.decode("utf-8", "replace")))
             if b"\0" in fv:
-                self.input_error(error.HeaderValueError("NUL in field-value"))
-                if self.careful:
-                    raise ValueError
+                self._fail(error.HeaderValueError("NUL in field-value"))
             hdr_tuples.append((fn, fv))
 
             if not gather_conn_info:
@@ -477,17 +464,11 @@ class HttpMessageHandler(metaclass=ABCMeta):
                             continue
                     except ValueError:
                         pass
-                    self.input_error(error.DuplicateCLError())
-                    if self.careful:
-                        raise ValueError
+                    self._fail(error.DuplicateCLError())
                 try:
                     content_length = parse_content_length(fv)
                 except ValueError:
-                    self.input_error(
-                        error.MalformedCLError(f_val.decode("utf-8", "replace"))
-                    )
-                    if self.careful:
-                        raise ValueError
+                    self._fail(error.MalformedCLError(f_val.decode("utf-8", "replace")))
 
         return hdr_tuples, conn_tokens, transfer_codes, content_length
 
@@ -501,9 +482,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if line[-1:] == b"\r":
                 line = line[:-1]
             if b"\r" in line:
-                self.input_error(error.BareCRError(line.decode("utf-8", "replace")))
-                if self.careful:
-                    raise ValueError
+                self._fail(error.BareCRError(line.decode("utf-8", "replace")))
                 line = line.replace(b"\r", b" ")
             lines[i] = line
         return lines
@@ -526,10 +505,7 @@ class HttpMessageHandler(metaclass=ABCMeta):
             if pos > 0 and inbytes[pos - 1] == RETURN:
                 back += 1
             else:
-                self.input_error(error.HeaderLineEndingError())
-                if self.careful:
-                    self._input_state = States.ERROR
-                    raise ValueError
+                self._fail(error.HeaderLineEndingError())
             pos += 1
             if pos < size:
                 if inbytes[pos] == RETURN:
@@ -539,26 +515,19 @@ class HttpMessageHandler(metaclass=ABCMeta):
                     return inbytes[: pos - back - 1], inbytes[pos + 1 :]
         return None, inbytes
 
-    def _parse_headers(  # pylint: disable=too-many-return-statements
-        self, inbytes: bytes
-    ) -> bool:
+    def _parse_headers(self, inbytes: bytes) -> None:
         """
         Given a bytes that we knows starts with a header block,
         parse the headers. Calls self.input_start to kick off processing.
 
-        Returns True if no fatal problems are found.
+        Raises _ParseError if a fatal problem is found.
         """
         self.input_header_length = len(inbytes)
         if self.input_header_length > self.max_input_field_section_length:
-            self.input_error(error.FieldSectionTooLargeError())
-            return False
-        try:
-            header_lines = self._split_lines(inbytes)
-        except ValueError:
-            return False
+            self._abort(error.FieldSectionTooLargeError())
+        header_lines = self._split_lines(inbytes)
         if len(header_lines) > self.max_input_fields + 1:
-            self.input_error(error.TooManyFieldsError())
-            return False
+            self._abort(error.TooManyFieldsError())
 
         # chop off the top line
         while True:
@@ -567,31 +536,28 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 if top_line.strip() != b"":
                     break
             except IndexError:  # empty
-                return True
+                return
 
-        try:
-            (
-                hdr_tuples,
-                conn_tokens,
-                transfer_codes,
-                content_length,
-            ) = self._parse_fields(header_lines, True)
-        except ValueError:  # returned empty because there was an error
-            return False  # throw away the rest
+        (
+            hdr_tuples,
+            conn_tokens,
+            transfer_codes,
+            content_length,
+        ) = self._parse_fields(header_lines, True)
 
         # ignore content-length if transfer-encoding is present
         if transfer_codes != [] and content_length is not None:
             if self.careful:
-                self.input_error(error.TransferEncodingCLError())
-                return False
+                self._abort(error.TransferEncodingCLError())
             content_length = None
 
         try:
             allows_body, is_final = self.input_start(
                 top_line, hdr_tuples, conn_tokens, transfer_codes, content_length
             )
-        except ValueError:  # fatal parsing error of some kind; abort.
-            return False  # throw away the rest
+        except ValueError:  # the subclass found a fatal problem and reported it
+            self._input_state = States.ERROR
+            raise _ParseError from None
 
         if not is_final:
             self._input_state = States.WAITING
@@ -610,7 +576,6 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._input_body_left = content_length
         else:
             self._input_delimit = Delimiters.CLOSE
-        return True
 
     ### output-related methods
 
