@@ -15,12 +15,7 @@ from typing import Callable, Optional
 import certifi
 
 from thor.loop import LoopBase
-from thor.tcp import TcpClient, TcpConnection
-
-TcpConnection.block_errs.add(sys_ssl.SSL_ERROR_WANT_READ)
-TcpConnection.block_errs.add(sys_ssl.SSL_ERROR_WANT_WRITE)
-TcpConnection.close_errs.add(sys_ssl.SSL_ERROR_EOF)
-TcpConnection.close_errs.add(sys_ssl.SSL_ERROR_SSL)
+from thor.tcp import TcpClient
 
 
 class TlsClient(TcpClient):
@@ -59,11 +54,12 @@ class TlsClient(TcpClient):
         self.once(event, callback)
         self.event_add(event)
 
-    def handle_connect(self) -> None:
+    def _connected(self) -> None:
+        "TCP is up; wrap the socket and run the handshake before handing it over."
         if self._error_sent:
             return
-        assert self.sock, "self.sock not found in handle_connect"
-        assert self.hostname, "hostname not found in handle_connect"
+        assert self.sock, "self.sock not found in _connected"
+        assert self.hostname, "hostname not found in _connected"
         try:
             self.tls_sock = self._tls_context.wrap_socket(
                 self.sock,
@@ -71,11 +67,14 @@ class TlsClient(TcpClient):
                 server_hostname=self.hostname.decode("idna"),
             )
         except BlockingIOError:
-            self._wait_for_tls_event("fd_writable", self.handle_connect)
+            self._wait_for_tls_event("fd_writable", self._connected)
             return
         except OSError as why:
             self.handle_socket_error(why, "ssl")
             return
+        # wrap_socket moves the fd into the new object and detaches the old
+        # one, so from here the TLS socket is the one to close on error.
+        self.sock = self.tls_sock
         self._wait_for_tls_event("fd_writable", self.handshake)
 
     def handshake(self) -> None:
@@ -99,12 +98,4 @@ class TlsClient(TcpClient):
             self._wait_for_tls_event("fd_writable", self.handshake)
 
     def handle_tls_connect(self) -> None:
-        self.unregister_fd()
-        if self._timeout_ev:
-            self._timeout_ev.delete()
-        if self._error_sent:
-            return
-        assert self.tls_sock, "tls_sock not found in handle_tls_connect"
-        assert self.address, "address not found in handle_tls_connect"
-        tls_conn = TcpConnection(self.tls_sock, self.address, self.loop)
-        self.emit("connect", tls_conn)
+        self._hand_over(self.tls_sock)

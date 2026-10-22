@@ -14,6 +14,7 @@ you (using a 'data' event), and you push data to the network connection
 import errno
 import os
 import socket
+import ssl
 import sys
 from collections import deque
 from enum import Enum
@@ -86,6 +87,11 @@ class WriteBuffer:
             else:
                 self._offset += sent
                 sent = 0
+
+
+class IoFailure(Enum):
+    BLOCK = "block"  # try again when the socket is ready
+    LOST = "lost"  # the connection is gone
 
 
 class TcpState(Enum):
@@ -239,10 +245,11 @@ class TcpConnection(EventSource):
         "The connection has data read for reading"
         try:
             data = self.socket.recv(self.read_bufsize)
-        except (socket.error, OSError) as why:
-            if why.args[0] in self.block_errs:
+        except OSError as why:
+            failure = self._io_failure(why)
+            if failure is IoFailure.BLOCK:
                 return
-            if why.args[0] in self.close_errs:
+            if failure is IoFailure.LOST:
                 self._lost()
                 return
             raise
@@ -264,10 +271,11 @@ class TcpConnection(EventSource):
         while True:
             try:
                 data = self.socket.recv(self.read_bufsize)
-            except (socket.error, OSError) as why:
-                if why.args[0] in self.block_errs:
+            except OSError as why:
+                failure = self._io_failure(why)
+                if failure is IoFailure.BLOCK:
                     return False
-                if why.args[0] in self.close_errs:
+                if failure is IoFailure.LOST:
                     return True
                 raise
             if data == b"":
@@ -280,10 +288,11 @@ class TcpConnection(EventSource):
         if self._write_buffer:
             try:
                 sent = self.socket.send(self._write_buffer.peek(self.write_coalesce))
-            except (socket.error, OSError) as why:
-                if why.args[0] in self.block_errs:
+            except OSError as why:
+                failure = self._io_failure(why)
+                if failure is IoFailure.BLOCK:
                     return
-                if why.args[0] in self.close_errs:
+                if failure is IoFailure.LOST:
                     self._lost()
                     return
                 raise
@@ -378,6 +387,23 @@ class TcpConnection(EventSource):
         if self._state is TcpState.OUTPUT_CLOSED:
             self._close()
         self.emit("close")
+
+    def _io_failure(self, why: OSError) -> Optional[IoFailure]:
+        """
+        What a failed recv or send means: wait for the socket, or give the
+        connection up. None for anything else, which the caller raises.
+        TLS sockets ask to wait with their own exceptions, and any other TLS
+        error (EOF without close_notify, a protocol error) ends the connection.
+        """
+        if isinstance(why, (ssl.SSLWantReadError, ssl.SSLWantWriteError)):
+            return IoFailure.BLOCK
+        if isinstance(why, ssl.SSLError):
+            return IoFailure.LOST
+        if why.args[0] in self.block_errs:
+            return IoFailure.BLOCK
+        if why.args[0] in self.close_errs:
+            return IoFailure.LOST
+        return None
 
     def _lost(self) -> None:
         "The connection has failed: nothing can be sent or received."
@@ -670,9 +696,7 @@ class TcpClient(EventSource):
             return
 
     def handle_connect(self) -> None:
-        self.unregister_fd()
-        if self._timeout_ev:
-            self._timeout_ev.delete()
+        "The socket is writable: the connect has finished, one way or the other."
         if self._error_sent:
             return
         assert self.sock, "Socket not found in handle_connect"
@@ -680,9 +704,26 @@ class TcpClient(EventSource):
         if err:
             self.handle_socket_error(socket.error(err, os.strerror(err)))
         else:
-            assert self.address, "address not found in handle_connect"
-            tcp_conn = TcpConnection(self.sock, self.address, self.loop)
-            self.emit("connect", tcp_conn)
+            self._connected()
+
+    def _connected(self) -> None:
+        """
+        The TCP connection is up. Hand it over; a subclass with more to do
+        first (a TLS handshake, say) does that here and calls _hand_over when
+        it is ready.
+        """
+        self._hand_over(self.sock)
+
+    def _hand_over(self, sock: Optional[socket.socket]) -> None:
+        "Stop watching the socket ourselves and emit it as a connection."
+        self.unregister_fd()
+        if self._timeout_ev:
+            self._timeout_ev.delete()
+        if self._error_sent:
+            return
+        assert sock, "Socket not found in _hand_over"
+        assert self.address, "address not found in _hand_over"
+        self.emit("connect", TcpConnection(sock, self.address, self.loop))
 
     def handle_fd_error(self) -> None:
         assert self.sock, "Socket not found in handle_fd_error"
