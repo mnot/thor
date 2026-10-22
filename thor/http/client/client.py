@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import socket
-from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from thor.loop import LoopBase, _loop
@@ -38,7 +37,7 @@ class HttpClient:
         self.max_server_conn: int = 6
         self.check_ip: Optional[Callable[[str], bool]] = None
         self.careful: bool = True
-        self._conns: Dict[OriginType, Set[HttpClientConnection]] = defaultdict(set)
+        self._conns: Dict[OriginType, Set[HttpClientConnection]] = {}
         self._idle_conns: Dict[OriginType, List[HttpClientConnection]] = {}
         self._waiting: Dict[
             OriginType, List[Tuple[ConnectHandler, ConnectErrorHandler]]
@@ -65,12 +64,12 @@ class HttpClient:
             conn = idle.pop()
             if not idle:
                 del self._idle_conns[origin]
-            if conn.tcp_connected:
+            if conn.tcp_connected and conn.state is ConnectionState.IDLE:
                 conn.stop_idle()
                 handle_connect(conn)
                 return
             self._forget(conn)
-        if len(self._conns[origin]) >= self.max_server_conn:
+        if len(self._conns.get(origin, ())) >= self.max_server_conn:
             self._waiting.setdefault(origin, []).append(
                 (handle_connect, handle_connect_error)
             )
@@ -82,11 +81,13 @@ class HttpClient:
     ) -> HttpClientConnection:
         "Wrap a newly connected socket and count it against its origin."
         conn = HttpClientConnection(self, origin, tcp_conn)
-        self._conns[origin].add(conn)
+        self._conns.setdefault(origin, set()).add(conn)
         return conn
 
     def release_conn(self, conn: HttpClientConnection) -> None:
         "The exchange is done with the connection: hand it on, pool it, or close it."
+        if conn.state is not ConnectionState.ACTIVE:
+            return  # already released, or closed
         conn.detach()
         if not conn.tcp_connected:
             self._forget(conn)

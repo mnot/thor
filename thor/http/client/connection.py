@@ -225,6 +225,10 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
     def _finish(self, trailers: RawHeaderListType) -> None:
         "Hand the connection back (or drop it), then tell the exchange."
         exchange = self.active_exchange or self.last_active_exchange
+        if self._output_state is not States.WAITING:
+            # The request isn't complete (the server answered early); what
+            # the application sends next would land in the middle of it.
+            self.reusable = False
         if self.reusable:
             self.client.release_conn(self)
         else:

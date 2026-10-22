@@ -11,7 +11,7 @@ import time
 import socket
 import threading
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import framework
 
@@ -1501,6 +1501,34 @@ class TestHttpClient(framework.ClientServerTestCase):
 
         tcp_conn.close.assert_called_once()
         self.assertEqual(client._idle_conns, {})
+        self.assertEqual(client.conn_counts, {})
+
+    def test_failed_connect_leaves_no_pool_entry(self):
+        client = HttpClient(loop=MagicMock())
+        origin = (b"http", b"localhost", 80)
+        with patch("thor.http.client.client.initiate_connection") as initiate:
+            initiate.side_effect = lambda c, o, ok, err: err("gai", 1, "no")
+            client.attach_conn(origin, MagicMock(), MagicMock())
+        self.assertEqual(client._conns, {})
+        self.assertEqual(client.conn_counts, {})
+
+    def test_connection_with_incomplete_request_is_not_pooled(self):
+        "A server that answers early leaves the request half-written; don't reuse."
+        client = HttpClient(loop=MagicMock())
+        tcp_conn = MagicMock()
+        tcp_conn.tcp_connected = True
+        conn = client.new_conn((b"http", b"localhost", 80), tcp_conn)
+        exchange = client.exchange()
+        exchange.request_start(b"POST", b"http://localhost/", [(b"Content-Length", b"10")])
+        exchange.request_body(b"12345")
+        conn.attach(exchange)
+        exchange.conn = conn
+        exchange.handle_connect(conn)
+
+        conn._handle_data(b"HTTP/1.1 413 Too Large\r\nContent-Length: 0\r\n\r\n")
+
+        self.assertEqual(client._idle_conns, {})
+        tcp_conn.close.assert_called_once()
         self.assertEqual(client.conn_counts, {})
 
     def test_no_timeouts_schedules_nothing(self):
