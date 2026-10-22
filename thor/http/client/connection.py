@@ -17,7 +17,7 @@ from thor.http.error import (
     HttpVersionError,
     StartLineError,
 )
-from thor.loop import ScheduledEvent
+from thor.loop import Timer
 from thor.tcp import TcpConnection
 from thor.types import OriginType, RawHeaderListType
 
@@ -53,8 +53,8 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.res_version: Optional[bytes] = None
         self.reusable = False
         self.state = ConnectionState.IDLE
-        self.idler: Optional[ScheduledEvent] = None
-        self._read_timeout_ev: Optional[ScheduledEvent] = None
+        self._idle_timer = Timer(self.client.loop, self._idle_expired)
+        self._read_timer = Timer(self.client.loop, self.input_error)
         self._in_read = False
         self._response_ended = False  # complete, but the read isn't settled yet
         self._end_trailers: RawHeaderListType = []
@@ -91,17 +91,13 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     def idle(self, timeout: float) -> None:
         "Wait in the pool, for at most timeout seconds."
-        self.stop_idle()
         self.state = ConnectionState.IDLE
-        self.idler = self.client.loop.schedule(timeout, self._idle_expired)
+        self._idle_timer.start(timeout)
 
     def stop_idle(self) -> None:
-        if self.idler:
-            self.idler.delete()
-            self.idler = None
+        self._idle_timer.stop()
 
     def _idle_expired(self) -> None:
-        self.idler = None
         # abort() emits no 'close', so an unresponsive peer can't hold the slot
         # open; tell the pool ourselves.
         self.tcp_conn.abort()
@@ -160,12 +156,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self.client.dead_conn(self)
 
     def set_timeout(self, timeout: Optional[float], kind: str) -> None:
-        self.clear_timeout()
-        if timeout is None:
-            return
-        self._read_timeout_ev = self.client.loop.schedule(
-            timeout, self.input_error, error.ReadTimeoutError(kind)
-        )
+        self._read_timer.start(timeout, error.ReadTimeoutError(kind))
 
     def _read_timeout(self) -> Optional[float]:
         if self.client.read_timeout is not None:
@@ -173,9 +164,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         return self.client.connect_timeout
 
     def clear_timeout(self) -> None:
-        if self._read_timeout_ev:
-            self._read_timeout_ev.delete()
-            self._read_timeout_ev = None
+        self._read_timer.stop()
 
     @property
     def tcp_connected(self) -> bool:
@@ -248,7 +237,7 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
 
     def _restart_timeout(self) -> None:
         "Inactivity timeout: restart on data received or sent, if one is running."
-        if self._read_timeout_ev:
+        if self._read_timer.armed:
             self.set_timeout(self._read_timeout(), "read")
 
     def _extra_data(self, inbytes: bytes) -> None:

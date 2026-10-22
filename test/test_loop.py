@@ -215,6 +215,33 @@ class TestLoop(unittest.TestCase):
         self.check_stale_target_recovery(thor.loop.PollLoop())
 
 
+class TestTimer(unittest.TestCase):
+    def setUp(self):
+        self.loop = thor.loop.make()
+        self.fired = []
+
+    def test_timer_arms_fires_and_passes_args(self):
+        timer = thor.loop.Timer(self.loop, self.fired.append)
+        timer.start(0.01, "x")
+        self.assertTrue(timer.armed)
+        self.loop.schedule(0.2, self.loop.stop)
+        self.loop.run()
+        self.assertEqual(self.fired, ["x"])
+        self.assertFalse(timer.armed)  # disarmed as it fired
+
+    def test_timer_restart_replaces_and_stop_disarms(self):
+        timer = thor.loop.Timer(self.loop, self.fired.append)
+        timer.start(0.01, "first")
+        timer.start(0.01, "second")
+        self.assertEqual(len(self.loop.scheduled_events()), 1)
+        timer.stop()
+        self.assertFalse(timer.armed)
+        self.assertEqual(self.loop.scheduled_events(), [])
+        timer.start(None, "never")
+        timer.start(0, "never")
+        self.assertFalse(timer.armed)
+
+
 class TestEventSource(unittest.TestCase):
     def setUp(self):
         self.loop = thor.loop.make()

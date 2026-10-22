@@ -37,6 +37,31 @@ Returns an object with a *delete* () method; if called, it will remove the
 timeout.
 
 
+### _thor.loop.Timer_ thor.loop.Timer ( _thor.loop_ `loop`, _func_ `callback` )
+
+A callback that can be armed, re-armed and disarmed by name, for timeouts,
+retries and the like; it holds the scheduled event for you.
+
+> t = thor.loop.Timer(loop, give_up)
+> t.start(5)   # give_up() runs in five seconds
+> t.start(5)   # ...from now, instead
+> t.stop()     # never mind
+
+#### _void_ Timer.start ( _float_ `delay`, _arg_* )
+
+Arm the timer to call `callback` with the given arguments after `delay`
+seconds, replacing a pending call if there is one. A `delay` of `None` or `0`
+arms nothing (as with connect timeouts, `0` means "no timeout").
+
+#### _void_ Timer.stop ()
+
+Disarm the timer. Does nothing if it isn't armed.
+
+#### _bool_ Timer.armed
+
+Whether a call is pending: true after *start* until it fires or *stop* is
+called.
+
 ### _bool_ thor.loop.running
 
 Read-only boolean that is True when the loop is running.

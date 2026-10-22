@@ -6,6 +6,7 @@ from thor.http.common import (
     header_dict,
     header_names,
     hop_by_hop_hdrs,
+    strip_hop_by_hop,
     idempotent_methods,
     safe_methods,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "header_dict",
     "header_names",
     "hop_by_hop_hdrs",
+    "strip_hop_by_hop",
     "idempotent_methods",
     "safe_methods",
     "OriginType",
