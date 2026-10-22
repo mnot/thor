@@ -25,9 +25,9 @@ from thor.http.common import (
     check_method,
     check_request_target,
     header_names,
+    strip_hop_by_hop,
     no_body_status,
     output_content_length,
-    strip_hop_by_hop,
 )
 from thor.http.error import (
     ConnectError,
