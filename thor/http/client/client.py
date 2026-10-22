@@ -187,11 +187,20 @@ class HttpClient:
             self._connect(origin, handle_connect, handle_connect_error)
 
     def _close_conns(self) -> None:
-        "Close all idle HTTP connections."
-        for conn_list in list(self._idle_conns.values()):
-            for conn in list(conn_list):
-                try:
-                    conn.close()
-                except socket.error:
-                    pass
+        """
+        The loop has stopped: drop every connection, idle or in use, and
+        forget the requests waiting for one. The loop has already given up its
+        file descriptors, so a graceful close would never finish; abort.
+        """
+        conns = [conn for origin_conns in self._conns.values() for conn in origin_conns]
+        self._conns.clear()
         self._idle_conns.clear()
+        self._waiting.clear()
+        for conn in conns:
+            conn.state = ConnectionState.CLOSED
+            conn.stop_idle()
+            conn.clear_timeout()
+            try:
+                conn.tcp_conn.abort()
+            except socket.error:
+                pass

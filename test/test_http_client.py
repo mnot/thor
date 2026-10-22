@@ -790,6 +790,58 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.assertEqual(clients[0]._connecting, {})
         self.assertEqual(clients[0]._waiting, {})
 
+    def _stop_closes_conns(self, in_use):
+        """
+        Stopping the loop closes the client's connections: the one an exchange
+        is using, and the one parked in the pool.
+        """
+        eof = threading.Event()
+        clients = []
+        tcp_conns = []
+
+        def client_side(client, test_host, test_port):
+            clients.append(client)
+            req_uri = b"http://%s:%i/" % (test_host, test_port)
+            exchange = client.exchange()
+            exchange.on("error", lambda err: self.fail(f"Unexpected error: {err}"))
+
+            def stop():
+                tcp_conns.extend(c.tcp_conn for c in client._conns[exchange.origin])
+                self.assertEqual(bool(client._idle_conns), not in_use)
+                self.loop.stop()
+
+            # Give the request time to be answered (or not) before stopping.
+            exchange.request_start(b"GET", req_uri, [])
+            exchange.request_done([])
+            self.loop.schedule(0.5, stop)
+
+        def server_side(conn):
+            drain(conn)
+            if not in_use:
+                conn.request.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n12345"
+                )
+            conn.request.settimeout(5)
+            try:
+                while conn.request.recv(1024):
+                    pass
+                eof.set()
+            except socket.error:
+                eof.set()  # reset
+
+        self.go([server_side], [client_side])
+        self.assertEqual(len(tcp_conns), 1)
+        self.assertIs(tcp_conns[0]._state, thor.tcp.TcpState.CLOSED)
+        self.assertEqual(clients[0]._conns, {})
+        self.assertEqual(clients[0]._idle_conns, {})
+        self.assertTrue(eof.wait(5))
+
+    def test_stop_closes_active_conn(self):
+        self._stop_closes_conns(in_use=True)
+
+    def test_stop_closes_idle_conn(self):
+        self._stop_closes_conns(in_use=False)
+
     def test_conn_refuse_err(self):
         def server_side(conn):
             pass
