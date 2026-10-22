@@ -501,10 +501,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."
-        ex = self.exchanges.last
-        if ex.res_complete:
-            return
-        ex.emit("request_body", chunk)
+        self.exchanges.last.deliver("request_body", chunk)
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the request body is complete."
@@ -512,8 +509,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_req_timer()
         ex = self.exchanges.last
         ex.req_complete = True
-        if not ex.res_complete:
-            ex.emit("request_done", trailers)
+        ex.deliver("request_done", trailers)
         self.exchanges.retire(ex)
         self._update_res_timer()
 
@@ -586,6 +582,8 @@ class HttpServerExchange(EventEmitter):
         self.started = False
         self.req_complete = False
         self.res_complete = False
+        # request events that arrived before the application was told of it
+        self._deferred: List[Tuple[str, Tuple[Any, ...]]] = []
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -598,6 +596,22 @@ class HttpServerExchange(EventEmitter):
         self.started = True
         self.http_conn._update_res_timer()  # pylint: disable=protected-access
         self.emit("request_start", self.method, self.uri, self.req_hdrs)
+        deferred, self._deferred = self._deferred, []
+        for event, args in deferred:
+            self.deliver(event, *args)
+
+    def deliver(self, event: str, *args: Any) -> None:
+        """
+        Pass a request body event to the application, holding it until
+        request_start has gone out first. Dropped if the response has
+        already finished.
+        """
+        if self.res_complete:
+            return
+        if self.started:
+            self.emit(event, *args)
+        else:
+            self._deferred.append((event, args))
 
     def response_nonfinal(
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType

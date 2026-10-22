@@ -6,7 +6,7 @@ import sys
 import time
 import unittest
 from typing import List
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import framework
 
@@ -1828,6 +1828,91 @@ Content-Length: 5
         conn.res_body_pause(False)
         self.assertEqual([t.delay for t in timers], [5])
         self.assertEqual(timers[0].callback, conn.close_conn)
+
+    def paused_post_conn(self, on_start=None):
+        "A connection with output paused, and the events one exchange gets."
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        events = []
+
+        def handle_exchange(exchange):
+            for name in ("request_start", "request_body", "request_done"):
+                exchange.on(name, lambda *args, name=name: events.append((name, *args)))
+            if on_start:
+                exchange.on("request_start", lambda *args: on_start(exchange))
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.res_body_pause(True)
+        return tcp_conn, conn, events
+
+    def test_request_body_waits_for_request_start_when_output_paused(self):
+        tcp_conn, conn, events = self.paused_post_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 2\r\n\r\nhi"
+        )
+        self.assertEqual(events, [])
+
+        conn.res_body_pause(False)
+
+        self.assertEqual(
+            events,
+            [
+                ("request_start", b"POST", b"/", ANY),
+                ("request_body", b"hi"),
+                ("request_done", []),
+            ],
+        )
+
+    def test_chunked_request_body_waits_for_request_start_when_output_paused(self):
+        tcp_conn, conn, events = self.paused_post_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n"
+        )
+        conn.handle_input(b"1\r\n!\r\n0\r\nX-T: 1\r\n\r\n")
+        self.assertEqual(events, [])
+
+        conn.res_body_pause(False)
+
+        self.assertEqual(
+            [e[0] for e in events],
+            ["request_start", "request_body", "request_body", "request_done"],
+        )
+        self.assertEqual([e[1] for e in events if e[0] == "request_body"], [b"hi", b"!"])
+        self.assertEqual(events[-1][1], [(b"X-T", b" 1")])
+
+    def test_request_body_after_request_start_is_not_held(self):
+        tcp_conn, conn, events = self.paused_post_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nhi"
+        )
+        conn.res_body_pause(False)
+        self.assertEqual([e[0] for e in events], ["request_start", "request_body"])
+
+        conn.handle_input(b"!!")
+
+        self.assertEqual(
+            [e[0] for e in events],
+            ["request_start", "request_body", "request_body", "request_done"],
+        )
+
+    def test_held_request_body_dropped_when_start_handler_answers(self):
+        def answer(exchange):
+            exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+            exchange.response_done([])
+
+        tcp_conn, conn, events = self.paused_post_conn(answer)
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 2\r\n\r\nhi"
+        )
+
+        conn.res_body_pause(False)
+
+        self.assertEqual([e[0] for e in events], ["request_start"])
+        self.assertEqual(list(conn.exchanges), [])
 
     def test_timeouts_disabled_by_negative_values(self):
         tcp_conn, server, conn, timers = self.make_timer_conn()

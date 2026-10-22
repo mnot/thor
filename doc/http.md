@@ -126,6 +126,8 @@ Stops the server from accepting new connections, and waits for all active connec
 
 Emitted once, when the exchange receives a request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
+It is always the first event an exchange emits. If the server's output is paused when the request arrives, the exchange is held until output resumes, and any request body that arrives meanwhile is buffered and emitted after *request_start*.
+
 
 #### event 'request\_body' ( _bytes_ `chunk` )
 
