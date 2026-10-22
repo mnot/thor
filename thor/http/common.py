@@ -168,6 +168,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
         self.input_header_length = 0
         self.input_transfer_length = 0
         self._input_buffer: List[bytes] = []
+        self._input_scan_pos = -1  # last LF seen in a partial field section
+        self._input_scan_lines = 0  # lines seen in it
         self._input_state = self.default_state
         self._input_delimit: Delimiters = Delimiters.NONE
         self._input_body_left = 0
@@ -255,6 +257,9 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._input_buffer.append(inbytes)
             inbytes = b"".join(self._input_buffer)
             self._input_buffer = []
+        else:
+            self._input_scan_pos = -1
+            self._input_scan_lines = 0
         try:
             self._handle_input_step(inbytes)
         except _ParseError:
@@ -492,27 +497,39 @@ class HttpMessageHandler(metaclass=ABCMeta):
         Given a bytes, split out and return (headers, rest),
         consuming the whitespace between them.
 
-        If there is not a complete header block, return None for headers.
+        If there is not a complete header block, return None for headers;
+        the next call (with the same bytes plus more) resumes scanning at
+        the last line ending seen, rather than from the start.
         """
 
-        pos = 0
+        start = self._input_scan_pos
+        last_lf = start
+        pos = max(start, 0)
         size = len(inbytes)
-        while pos <= size:
+        while True:
             pos = inbytes.find(b"\n", pos)
-            back = 0
             if pos == -1:
-                return None, inbytes
+                break
+            back = 0
             if pos > 0 and inbytes[pos - 1] == RETURN:
                 back += 1
-            else:
+            elif pos != start:  # the LF we resumed at was reported last time
                 self._fail(error.HeaderLineEndingError())
+            if pos != start:
+                self._input_scan_lines += 1
+            last_lf = pos
             pos += 1
             if pos < size:
                 if inbytes[pos] == RETURN:
                     pos += 1
                     back += 1
                 if pos < size and inbytes[pos] == NEWLINE:
+                    self._input_scan_pos = -1
+                    self._input_scan_lines = 0
                     return inbytes[: pos - back - 1], inbytes[pos + 1 :]
+        if self._input_scan_lines > self.max_input_fields + 1:
+            self._abort(error.TooManyFieldsError())
+        self._input_scan_pos = last_lf
         return None, inbytes
 
     def _parse_headers(self, inbytes: bytes) -> None:
