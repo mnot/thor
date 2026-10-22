@@ -141,7 +141,9 @@ Emitted once, when the request is successfully completed. `trailers` is the list
 
 #### event 'error' ( _[thor.http.error.HttpError](error.md)_ `err` )
 
-Emitted once if the connection closes (the client went away, a timeout expired, or the server dropped it after a protocol error) after *request_start* but before the response is finished. `err` is a *ConnectError*. Stop generating the response when it arrives; any further *response_start*, *response_body* or *response_done* calls are accepted but their output is discarded.
+Emitted once if the connection closes after *request_start* but before the response is finished: the client went away, a timeout expired, or the server dropped the connection. `err` is a *ConnectError*, unless the server closed it because of a protocol error in the request (a bad chunk in the request body, say), in which case it's that error.
+
+The response can no longer be delivered, so stop generating it. Calling *response_done* afterwards is optional; it, *response_start* and *response_body* discard their output. Calls that break the output sequence (starting a response twice, for example) still raise an *OutputStateError*.
 
 
 #### _void_ response\_start ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
@@ -163,7 +165,7 @@ Send a `chunk` of response body content.
 
 #### _void_ response\_done ( _[headers](#headers)_ `trailers` )
 
-Signal that the response body is finished. This must be called for every response. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+Signal that the response body is finished. This must be called for every response, unless the exchange has emitted [error](#event-error-). `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 
 
