@@ -1854,23 +1854,39 @@ class TestHttpClient(framework.ClientServerTestCase):
         client = HttpClient(loop=MagicMock())
         client.attach_conn = MagicMock()
         exchange = client.exchange()
-        exchange.method = b"OPTIONS"
-        exchange.req_hdrs = []
-        exchange.req_target = b"/"
-        exchange.authority = b"example.com"
-        exchange.origin = ("http", "example.com", 80)
-        exchange.conn = DummyClientConnection()
-        exchange._req_started = True
-        exchange._req_done_trailers = []
+        exchange.request_start(b"OPTIONS", b"http://example.com/", [])
+        exchange.request_done([])
+        exchange.handle_connect(DummyClientConnection(client))  # sends it all
+        self.assertEqual(exchange._request.pending, [])
 
         exchange._retry()
 
-        queued_events = [item[0] for item in exchange._output_q]
+        queued_events = [item[0] for item in exchange._request.pending]
         self.assertEqual(queued_events, ["start", "end"])
         self.assertIsNone(exchange.conn)
-        client.attach_conn.assert_called_once_with(
+        client.attach_conn.assert_called_with(
             exchange.origin, exchange.handle_connect, exchange.handle_connect_error
         )
+
+    def test_retry_before_request_done_replays_what_was_sent(self):
+        "An idempotent request dropped mid-body starts over on the new connection."
+        client = HttpClient(loop=MagicMock())
+        client.attach_conn = MagicMock()
+        exchange = client.exchange()
+        exchange.request_start(b"PUT", b"http://example.com/", [])
+        exchange.request_body(b"IMPORTANT ")
+        exchange.handle_connect(DummyClientConnection(client))
+        self.assertEqual(exchange._request.pending, [])
+
+        exchange.conn_closed(States.WAITING, Delimiters.NONE)
+        exchange._retry()
+
+        queued_events = [item[0] for item in exchange._request.pending]
+        self.assertEqual(queued_events, ["start", "body"])
+        exchange.request_body(b"DATA")
+        exchange.request_done([])
+        queued_events = [item[0] for item in exchange._request.pending]
+        self.assertEqual(queued_events, ["start", "body", "body", "end"])
 
     def test_req_retry_fail(self):
         def client_side(client, test_host, test_port):
@@ -2002,12 +2018,12 @@ class TestHttpClient(framework.ClientServerTestCase):
         exchange = client.exchange()
         exchange.request_start(b"POST", b"http://example.com/", [])
         exchange.request_body(b"IMPORTANT DATA")
-        self.assertEqual(exchange._req_body_chunks, [])
+        self.assertEqual(exchange._request.body, [])
 
         # A connect-failure retry leaves the queued body intact.
         exchange.request_done([])
         exchange._retry()
-        queued_events = [item[0] for item in exchange._output_q]
+        queued_events = [item[0] for item in exchange._request.pending]
         self.assertEqual(queued_events, ["start", "body", "end"])
 
     def test_req_retry_body_over_limit(self):
