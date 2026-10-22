@@ -494,6 +494,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             persistent = b"close" not in conn_tokens
         else:
             persistent = b"keep-alive" in conn_tokens and b"close" not in conn_tokens
+        if req_version == b"1.0" and transfer_codes:
+            # RFC 9112 6.1: Transfer-Encoding in HTTP/1.0 means the framing is
+            # faulty; answer, then close.
+            persistent = False
         exchange = HttpServerExchange(
             self, method, uri, hdr_tuples, req_version, persistent
         )

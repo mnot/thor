@@ -2187,6 +2187,37 @@ Content-Length: 5
         self.assertEqual(output.count(b"HTTP/1.1 200"), 1)
         self.assertNotIn(b"400", output)
 
+    def test_http10_transfer_encoding_closes(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        seen = []
+
+        def handle_exchange(exchange):
+            seen.append(exchange.uri)
+
+            @on(exchange, "request_done")
+            def done(trailers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST /one HTTP/1.0\r\nHost: example.com\r\n"
+            b"Connection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"5\r\n12345\r\n0\r\n\r\n"
+            b"GET /two HTTP/1.0\r\nHost: example.com\r\n\r\n"
+        )
+
+        self.assertEqual(seen, [b"/one"])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 200"), 1)
+        self.assertIn(b"Connection: close\r\n", output)
+        self.assertNotIn(b"keep-alive", output)
+
     def test_http10_keep_alive(self):
         self.check_connection_handling(
             b"GET /one HTTP/1.0\r\nHost: example.com\r\n"
