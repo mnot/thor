@@ -190,22 +190,29 @@ class TestLoop(unittest.TestCase):
         self.loop._run_async_queue()
         self.assertEqual(ran, [])
 
-    @unittest.skipUnless(hasattr(select, "epoll"), "epoll only")
-    def test_epoll_register_fd_recovers_from_stale_target(self):
+    def check_stale_target_recovery(self, loop):
         # Simulate fd reuse: a stale _fd_targets entry whose fd the kernel
-        # already dropped from the epoll set. register_fd must re-register
-        # rather than raise FileNotFoundError.
+        # already dropped from the poller. register_fd must re-register
+        # rather than raise.
         r_fd, w_fd = os.pipe()
         self.addCleanup(lambda: os.close(w_fd))
-        es = thor.loop.EventSource(self.loop)
-        # Plant a stale entry for an fd epoll has never seen.
-        self.loop._fd_targets[r_fd] = es
+        es = thor.loop.EventSource(loop)
+        # Plant a stale entry for an fd the poller has never seen.
+        loop._fd_targets[r_fd] = thor.loop.FdRegistration(r_fd, es, 0)
         try:
-            self.loop.register_fd(r_fd, ["fd_readable"], es)
-            self.assertIn(r_fd, self.loop._fd_targets)
+            loop.register_fd(r_fd, ["fd_readable"], es)
+            self.assertIn(r_fd, loop._fd_targets)
         finally:
-            self.loop.unregister_fd(r_fd)
+            loop.unregister_fd(r_fd)
             os.close(r_fd)
+
+    @unittest.skipUnless(hasattr(select, "epoll"), "epoll only")
+    def test_epoll_register_fd_recovers_from_stale_target(self):
+        self.check_stale_target_recovery(thor.loop.EpollLoop())
+
+    @unittest.skipUnless(hasattr(select, "poll"), "poll only")
+    def test_poll_register_fd_recovers_from_stale_target(self):
+        self.check_stale_target_recovery(thor.loop.PollLoop())
 
 
 class TestTimer(unittest.TestCase):
@@ -300,6 +307,123 @@ class TestEventSource(unittest.TestCase):
         self.loop._run_fd_events()
         self.assertFalse("fd_readable" in self.events_seen)
 
+    def test_events_after_reregistration_are_dropped(self):
+        """
+        A handler closes its fd and a new source registers the same number
+        (a closed socket's number is reused at once). The rest of the old
+        fd's events in that dispatch must not reach the new owner.
+        """
+        seen = []
+        newcomer = thor.loop.EventSource(self.loop)
+        newcomer.on("fd_readable", lambda: seen.append("readable"))
+        newcomer.on("fd_close", lambda: seen.append("close"))
+
+        def swap():
+            self.es.unregister_fd()
+            newcomer.register_fd(self.r_fd, "fd_readable")
+
+        self.es.register_fd(self.r_fd, "fd_readable")
+        self.es.on("fd_readable", swap)
+
+        self.loop._emit_fd_events(self.r_fd, ["fd_readable", "fd_close"])
+
+        self.assertEqual(seen, [])
+        self.assertIs(self.loop.registered_fd_handlers()[0], newcomer)
+
+    def reuse_fd_number(self, old_fd):
+        "Close old_fd and open a pipe; its read end normally gets the same number."
+        os.close(old_fd)
+        r_fd, w_fd = os.pipe()
+        self.addCleanup(os.close, w_fd)
+        self.addCleanup(os.close, r_fd)
+        if r_fd != old_fd:
+            self.skipTest("fd number not reused")
+        return r_fd
+
+    def test_polled_events_do_not_reach_the_fd_numbers_new_owner(self):
+        """
+        Through the backend: data then a hangup are polled for one fd; the
+        readable handler closes it and a new source takes the number. The
+        hangup must not reach the new source.
+        """
+        r_fd, w_fd = os.pipe()
+        os.write(w_fd, b"x")
+        os.close(w_fd)  # so a hangup is polled along with the data
+        seen = []
+        newcomer = thor.loop.EventSource(self.loop)
+        newcomer.on("fd_readable", lambda: seen.append("readable"))
+        newcomer.on("fd_close", lambda: seen.append("close"))
+        newcomer.on("fd_error", lambda: seen.append("error"))
+
+        def swap():
+            os.read(r_fd, 1)
+            self.es.unregister_fd()
+            newcomer.register_fd(self.reuse_fd_number(r_fd), "fd_readable")
+            newcomer.event_add("fd_close")
+
+        self.es.on("fd_readable", swap)
+        self.es.register_fd(r_fd, "fd_readable")
+        self.es.event_add("fd_close")
+
+        self.loop._run_fd_events()
+
+        self.assertEqual(seen, [])
+        self.assertIs(self.loop.registered_fd_handlers()[0], newcomer)
+
+    def test_polled_events_do_not_reach_a_number_reused_by_another_handler(self):
+        """
+        Two fds are readable in one batch. Whichever handler runs first
+        closes the other fd, and a new source takes that number; the batch's
+        event for it must not reach the new source.
+        """
+        a_r, a_w = os.pipe()
+        b_r, b_w = os.pipe()
+        for fd in (a_w, b_w):
+            os.write(fd, b"x")
+            self.addCleanup(os.close, fd)
+        sources = {a_r: thor.loop.EventSource(self.loop), b_r: self.es}
+        seen = []
+        newcomer = thor.loop.EventSource(self.loop)
+        newcomer.on("fd_readable", lambda: seen.append("readable"))
+        ran = []
+
+        def handler(mine, other):
+            ran.append(mine)
+            os.read(mine, 1)
+            sources[other].unregister_fd()
+            newcomer.register_fd(self.reuse_fd_number(other), "fd_readable")
+
+        for fd, other in ((a_r, b_r), (b_r, a_r)):
+            sources[fd].on("fd_readable", lambda fd=fd, other=other: handler(fd, other))
+            sources[fd].register_fd(fd, "fd_readable")
+        self.addCleanup(lambda: os.close(ran[0]) if ran else None)
+
+        self.loop._run_fd_events()
+
+        self.assertEqual(len(ran), 1, ran)
+        self.assertEqual(seen, [])
+
+    def test_a_source_re_registering_its_own_fd_keeps_its_events(self):
+        r_fd, w_fd = os.pipe()
+        self.addCleanup(os.close, r_fd)
+        os.write(w_fd, b"x")
+        os.close(w_fd)
+        seen = []
+
+        def again():
+            os.read(r_fd, 1)
+            self.es.register_fd(r_fd, "fd_readable")  # same source, same fd
+            seen.append("readable")
+
+        self.es.on("fd_readable", again)
+        self.es.on("fd_close", lambda: seen.append("close"))
+        self.es.register_fd(r_fd, "fd_readable")
+        self.es.event_add("fd_close")
+
+        self.loop._run_fd_events()
+
+        self.assertEqual(seen, ["readable", "close"])
+
     def test_EventSource_event_del(self):
         self.es.register_fd(self.r_fd, "fd_readable")
         self.es.on("fd_readable", self.readable_check)
@@ -333,6 +457,16 @@ class TestEventSource(unittest.TestCase):
 
     def close_check(self):
         self.events_seen.append("fd_close")
+
+
+@unittest.skipUnless(hasattr(select, "poll"), "poll only")
+class TestEventSourcePoll(TestEventSource):
+    "The same, on the poll() backend, whatever make() picks here."
+
+    def setUp(self):
+        TestEventSource.setUp(self)
+        self.loop = thor.loop.PollLoop()
+        self.es = thor.loop.EventSource(self.loop)
 
 
 if __name__ == "__main__":
