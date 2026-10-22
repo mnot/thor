@@ -806,6 +806,21 @@ Content-Length: 5
 
         self.assertEqual(errors, [])
 
+    def test_conn_closed_tells_the_rest_when_a_handler_raises(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        errors = self.watch_errors(second)
+
+        def fail(err):
+            raise RuntimeError("handler failed")
+
+        first.on("error", fail)
+
+        with self.assertRaises(RuntimeError):
+            conn.conn_closed()
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(list(conn.exchanges), [])
+
     def test_close_conn_tells_unanswered_exchange_once(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

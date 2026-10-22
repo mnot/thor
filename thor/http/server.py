@@ -342,9 +342,19 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._abandon_exchanges()
 
     def _abandon_exchanges(self) -> None:
-        "Tell the application about each response that can no longer be sent."
+        """
+        Tell the application about each response that can no longer be sent.
+        A handler that raises doesn't stop the others being told; the first
+        exception is raised once they all have been.
+        """
+        failure: Optional[Exception] = None
         for exchange in list(self.exchanges):
-            exchange.connection_lost()
+            try:
+                exchange.connection_lost()
+            except Exception as why:  # pylint: disable=broad-exception-caught
+                failure = failure or why
+        if failure:
+            raise failure
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
@@ -421,9 +431,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_res_timer()
         self._stop_linger_timer()
         self.tcp_conn = None
-        self._abandon_exchanges()
-        self.exchanges.clear()
-        self._pending_error = None
+        try:
+            self._abandon_exchanges()
+        finally:
+            self.exchanges.clear()
+            self._pending_error = None
 
     # Methods called by common.HttpRequestHandler
 
