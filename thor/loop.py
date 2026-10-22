@@ -248,34 +248,55 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         raise NotImplementedError
 
     def _register(self, fd: int, target: EventSource) -> FdRegistration:
-        "Record target as the current owner of fd."
+        "Record target as the current owner of fd; the same owner keeps its claim."
+        current = self._fd_targets.get(fd)
+        if current is not None and current.target is target:
+            return current
         self._fd_generation += 1
         registration = FdRegistration(fd, target, self._fd_generation)
         self._fd_targets[fd] = registration
         return registration
 
-    def _emit_fd_events(self, fd: int, events: Iterable[str]) -> None:
+    def _snapshot_generations(self, fds: Iterable[int]) -> Dict[int, int]:
         """
-        Emit events for an fd, in order. If a handler unregisters the fd and
-        another source then registers the same number (a closed socket's
-        number is reused at once), the rest are dropped: they were polled for
-        the old owner, and would otherwise reach the new one.
+        Which registration each fd in a polled batch belongs to, taken before
+        any of the batch is dispatched. A handler may close an fd and a new
+        source take its number (a closed socket's number is reused at once);
+        the batch's remaining events for that number were polled for the old
+        owner and must not reach the new one, whichever fd's handler did it.
         """
-        registration = self._fd_targets.get(fd)
-        if registration is None:
-            return
+        snapshot = {}
+        for fd in fds:
+            registration = self._fd_targets.get(fd)
+            if registration is not None:
+                snapshot[fd] = registration.generation
+        return snapshot
+
+    def _emit_fd_events(
+        self, fd: int, events: Iterable[str], generation: Optional[int] = None
+    ) -> None:
+        """
+        Emit events for an fd, in order, to the registration they were polled
+        for (the given generation, or the current one), stopping if the fd's
+        registration changes under us.
+        """
+        if generation is None:
+            registration = self._fd_targets.get(fd)
+            if registration is None:
+                return
+            generation = registration.generation
         for event in events:
             current = self._fd_targets.get(fd)
-            if current is None or current.generation != registration.generation:
+            if current is None or current.generation != generation:
                 return
-            registration.target.emit(event)
+            current.target.emit(event)
 
-    def _dispatch_fd(self, fd: int, events: Set[str]) -> None:
+    def _dispatch_fd(self, fd: int, events: Set[str], generation: int) -> None:
         "Emit an fd's events: readable first, then writable, then the rest."
         first = ("fd_readable", "fd_writable")
         ordered = [event for event in first if event in events]
         ordered.extend(event for event in events if event not in first)
-        self._emit_fd_events(fd, ordered)
+        self._emit_fd_events(fd, ordered, generation)
 
     def schedule(
         self, delta: float, callback: EventListener, *args: Any
@@ -435,8 +456,11 @@ class MaskLoop(LoopBase):
             if why.errno == errno.EINTR:
                 return
             raise
-        for fileno, eventmask in event_list:
-            self._dispatch_fd(fileno, self._filter2events(eventmask))
+        batch = [(fd, self._filter2events(mask)) for fd, mask in event_list]
+        generations = self._snapshot_generations(fd for fd, _ in batch)
+        for fd, events in batch:
+            if fd in generations:
+                self._dispatch_fd(fd, events, generations[fd])
 
 
 class PollLoop(MaskLoop):
@@ -555,17 +579,22 @@ class KqueueLoop(LoopBase):
             if why.args[0] == errno.EINTR:
                 return
             raise
+        batch: List[Tuple[int, List[str]]] = []
         for ev in events:
             fileno = int(ev.ident)
             if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined, unused-ignore]
-                self._emit_fd_events(fileno, ["fd_error"])
+                batch.append((fileno, ["fd_error"]))
                 continue
             eof = bool(ev.flags & select.KQ_EV_EOF)  # type: ignore[attr-defined, unused-ignore]
             ordered: List[str] = ["fd_error"] if eof and ev.fflags else []
             ordered.extend(self._filter2events(ev.filter))
             if eof:
                 ordered.append("fd_close")
-            self._emit_fd_events(fileno, ordered)
+            batch.append((fileno, ordered))
+        generations = self._snapshot_generations(fd for fd, _ in batch)
+        for fd, ordered in batch:
+            if fd in generations:
+                self._emit_fd_events(fd, ordered, generations[fd])
 
 
 def make(precision: Optional[float] = None) -> LoopBase:
