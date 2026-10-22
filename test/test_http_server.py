@@ -652,6 +652,180 @@ Content-Length: 5
         self.fake_server = server
         return tcp_conn, conn, exchanges
 
+    def test_pipelined_response_waits_for_earlier_exchange(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two")
+        self.assertEqual(tcp_conn.output, [])
+        self.assertEqual(list(conn.exchanges), [first, second])
+
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"one"), output.index(b"two"))
+        self.assertEqual(output.count(b"HTTP/1.1 200 OK"), 2)
+        self.assertEqual(list(conn.exchanges), [])
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_pipelined_response_releases_in_order(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        conn.handle_input(
+            b"".join(
+                b"GET /%i HTTP/1.1\r\nHost: example.com\r\n\r\n" % i for i in range(3)
+            )
+        )
+        first, second, third = conn.exchanges
+        self.respond(third, b"three")
+        self.respond(second, b"two")
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(
+            sorted(output.index(w) for w in (b"one", b"two", b"three")),
+            [output.index(w) for w in (b"one", b"two", b"three")],
+        )
+        self.assertEqual(list(conn.exchanges), [])
+
+    def test_pipelined_release_does_not_recurse_per_exchange(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        count = sys.getrecursionlimit() + 100
+        conn.max_pipeline_requests = count
+        conn.handle_input(
+            b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n" * count
+        )
+        exchanges = list(conn.exchanges)
+        self.assertEqual(len(exchanges), count)
+        for exchange in reversed(exchanges[1:]):
+            self.respond(exchange, b"")
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(exchanges[0], b"")
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 200 OK"), count)
+        self.assertEqual(list(conn.exchanges), [])
+
+    def test_response_done_twice_refused(self):
+        # HTTP/1.0 and no declared length: delimited by close, so the output
+        # state doesn't reset after the first
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        conn.handle_input(b"GET / HTTP/1.0\r\nHost: example.com\r\n\r\n")
+        first = [args[0] for event, args in server.events if event == "exchange"][0]
+        first.response_start(b"200", b"OK", [])
+        first.response_done([])
+        with self.assertRaises(thor.http.error.OutputStateError):
+            first.response_done([])
+
+    def test_pipelined_response_streams_once_its_turn_comes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        second.response_start(b"200", b"OK", [(b"Content-Length", b"6")])
+        second.response_body(b"two")
+        self.assertEqual(tcp_conn.output, [])
+
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertTrue(output.endswith(b"two"))
+        self.assertIn(b"Content-Length: 6", output)
+
+        second.response_body(b"too")
+        second.response_done([])
+        self.assertTrue(b"".join(tcp_conn.output).endswith(b"twotoo"))
+        self.assertEqual(list(conn.exchanges), [])
+
+    def test_pipelined_interim_response_waits_for_earlier_exchange(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        second.response_nonfinal(b"100", b"Continue", [])
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"200 OK"), output.index(b"100 Continue"))
+
+    def test_pipelined_close_applies_when_response_is_released(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two", close=True)
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"one", output)
+        self.assertIn(b"two", output)
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_pipelined_earlier_close_drops_later_response(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two")
+        self.respond(first, b"one", close=True)
+        self.assertNotIn(b"two", b"".join(tcp_conn.output))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_pipelined_response_buffer_is_bounded(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        conn.max_buffered_response = 200
+
+        second.response_start(b"200", b"OK", [])
+        second.response_body(b"x" * 10)
+        with self.assertRaises(BufferError):
+            second.response_body(b"x" * 200)
+        self.assertEqual(tcp_conn.output, [])
+
+    def test_pipelined_response_buffer_is_shared_by_exchanges(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        conn.max_buffered_response = 120
+        conn.handle_input(
+            b"".join(
+                b"GET /%i HTTP/1.1\r\nHost: example.com\r\n\r\n" % i for i in range(3)
+            )
+        )
+        _, second, third = conn.exchanges
+        for ex in (second, third):
+            ex.response_start(b"200", b"OK", [(b"Content-Length", b"100")])
+        with self.assertRaises(BufferError):
+            second.response_body(b"x" * 50)
+
+    def test_pipelined_response_release_failure_closes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two")
+
+        def refuse(data):
+            if b"two" in data:
+                raise BufferError("full")
+            tcp_conn.output.append(data)
+
+        tcp_conn.write = refuse
+        self.respond(first, b"one")
+        self.assertIn(b"one", b"".join(tcp_conn.output))
+        self.assertNotIn(b"two", b"".join(tcp_conn.output))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_response_after_response_done_refused(self):
+        tcp_conn, conn, first = self.pipelined_conn()
+        self.respond(first, b"one")
+        with self.assertRaises(thor.http.error.OutputStateError):
+            first.response_start(b"200", b"OK", [])
+        with self.assertRaises(thor.http.error.OutputStateError):
+            first.response_nonfinal(b"100", b"Continue", [])
+
+    def test_pipelined_request_body_dropped_once_response_buffered(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        conn.handle_input(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            b"POST /two HTTP/1.1\r\nHost: example.com\r\n"
+            b"Content-Length: 6\r\n\r\nabc"
+        )
+        first, second = conn.exchanges
+        chunks = []
+        on(second, "request_body")(chunks.append)
+        self.respond(second, b"two")
+        conn.handle_input(b"def")
+        self.assertEqual(chunks, [])
+
     def test_pipelined_error_follows_all_earlier_responses(self):
         tcp_conn, conn, (first, second) = self.pipelined_two_conn()
 
@@ -997,6 +1171,94 @@ Content-Length: 5
 
     def test_missing_host_http10_rejected(self):
         self.check_missing_host_rejected(b"GET / HTTP/1.0\r\n\r\n")
+
+    def check_host_rejected(self, request, detail):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+
+        conn.handle_input(request)
+
+        exchanges = [event for event, args in server.events if event == "exchange"]
+        self.assertEqual(exchanges, [])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+        self.assertIn(b"Invalid Host header (" + detail, output)
+
+    def test_duplicate_host_rejected(self):
+        for version in (b"1.0", b"1.1"):
+            with self.subTest(version=version):
+                self.check_host_rejected(
+                    b"GET / HTTP/%s\r\nHost: a.example\r\nHost: a.example\r\n\r\n"
+                    % version,
+                    b"more than one Host field line",
+                )
+
+    def test_duplicate_host_different_case_rejected(self):
+        self.check_host_rejected(
+            b"GET / HTTP/1.1\r\nHost: a.example\r\nhost: b.example\r\n\r\n",
+            b"more than one Host field line",
+        )
+
+    def test_empty_host_rejected(self):
+        for value in (b"", b" ", b"\t"):
+            with self.subTest(value=value):
+                self.check_host_rejected(
+                    b"GET / HTTP/1.1\r\nHost:%s\r\n\r\n" % value, b"empty Host"
+                )
+
+    def test_invalid_host_rejected(self):
+        for value in (
+            b"a.example b.example",
+            b"user@a.example",
+            b"a.example/path",
+            b"a.example?q",
+            b"a.example#f",
+            b"a.example:80:80",
+            b"a.example:http",
+            b"a.example, b.example",
+            b"[::1",
+            b"[xyz]:80",
+            b"[:::.]",
+            b"[fe80::1%25eth0]",
+            b"[]",
+            b"a.example:65536",
+            b"a.example:99999999",
+            b"a.example:" + b"9" * 5000,
+            b"a%2.example",
+            b"\xc3\xa9.example",
+            b":80",
+        ):
+            with self.subTest(value=value):
+                self.check_host_rejected(
+                    b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % value,
+                    b"Host " + repr(value[:64]).encode("ascii"),
+                )
+
+    def test_valid_host_accepted(self):
+        for value in (
+            b"a.example",
+            b"A.Example:8080",
+            b"a.example:",
+            b"192.0.2.1",
+            b"192.0.2.1:80",
+            b"[::1]",
+            b"a.example:65535",
+            b"[::ffff:192.0.2.1]:80",
+            b"[2001:db8::1]:8080",
+            b"[v1.fe80::a+en1]",
+            b"a%20b.example",
+            b"under_score.example",
+        ):
+            with self.subTest(value=value):
+                tcp_conn = FakeTcpConnection()
+                server = FakeServer()
+                conn = HttpServerConnection(tcp_conn, server)
+                conn.handle_input(b"GET / HTTP/1.1\r\nHost: %s\r\n\r\n" % value)
+                exchanges = [e for e, args in server.events if e == "exchange"]
+                self.assertEqual(exchanges, ["exchange"])
+                self.assertTrue(tcp_conn.tcp_connected)
 
     def test_missing_host_after_valid_request_pipelined(self):
         tcp_conn = FakeTcpConnection()
@@ -1361,18 +1623,13 @@ Content-Length: 5
         self.assertEqual(len(self.idle_timers(server, timers)), 1)
         self.assertTrue(tcp_conn.tcp_connected)
 
-    def test_idle_timer_armed_when_response_precedes_request_body(self):
+    def test_early_response_closes_before_request_body(self):
         tcp_conn, server, conn, timers, _ = self.make_idle_conn()
         conn.handle_input(
             b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n"
         )
-        conn.handle_input(b"01")
+        self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.idle_timers(server, timers), [])
-        conn.handle_input(b"23")
-        self.assertEqual(len(self.idle_timers(server, timers)), 1)
-        self.assertEqual(len([t for t in timers if t.delay == 7]), 1)
-        self.assertEqual([t for t in timers if not t.delete.called], timers[-1:])
-        self.assertTrue(tcp_conn.tcp_connected)
 
     def test_idle_timer_armed_when_response_follows_request_body(self):
         tcp_conn, server, conn, timers, exchanges = self.make_idle_conn(sync_paths=[])
@@ -1427,13 +1684,15 @@ Content-Length: 5
         self.assertEqual(self.idle_timers(server, timers), [])
 
     def test_idle_connection_closed_when_shutting_down_after_request_body(self):
-        tcp_conn, server, conn, timers, _ = self.make_idle_conn()
+        tcp_conn, server, conn, timers, exchanges = self.make_idle_conn(sync_paths=[])
         server.shutting_down = True
         conn.handle_input(
             b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n01"
         )
         self.assertTrue(tcp_conn.tcp_connected)  # the request isn't finished
         conn.handle_input(b"23")
+        self.assertTrue(tcp_conn.tcp_connected)  # it isn't answered
+        self.respond(exchanges[0], b"")
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertEqual(self.idle_timers(server, timers), [])
 
@@ -2081,6 +2340,120 @@ Content-Length: 5
         self.assertEqual(output.count(b"HTTP/1.1 200"), 1)
         self.assertNotIn(b"400", output)
 
+    def test_http10_transfer_encoding_closes(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        seen = []
+
+        def handle_exchange(exchange):
+            seen.append(exchange.uri)
+
+            @on(exchange, "request_done")
+            def done(trailers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(
+            b"POST /one HTTP/1.0\r\nHost: example.com\r\n"
+            b"Connection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"5\r\n12345\r\n0\r\n\r\n"
+            b"GET /two HTTP/1.0\r\nHost: example.com\r\n\r\n"
+        )
+
+        self.assertEqual(seen, [b"/one"])
+        self.assertFalse(tcp_conn.tcp_connected)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1 200"), 1)
+        self.assertIn(b"Connection: close\r\n", output)
+        self.assertNotIn(b"keep-alive", output)
+
+    def check_early_response(self, request, trailing):
+        "Answer a request with a body before its body is in, as request_start."
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        seen = []
+
+        def handle_exchange(exchange):
+            seen.append(exchange.uri)
+
+            @on(exchange, "request_start")
+            def start(method, uri, headers):
+                exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
+                exchange.response_done([])
+
+        server.emit = lambda event, *args: (
+            handle_exchange(args[0]) if event == "exchange" else None
+        )
+        conn.handle_input(request)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(seen, [b"/one"])
+        self.assertIn(b"Connection: close\r\n", output)
+        self.assertFalse(tcp_conn.tcp_connected)
+        conn.handle_input(trailing)
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(output.count(b"HTTP/1.1"), 1)
+        self.assertEqual(seen, [b"/one"])
+
+    def test_early_response_to_counted_body_closes(self):
+        self.check_early_response(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n\r\n",
+            b"Host: x\r\n\r\n",
+        )
+
+    def test_early_response_to_chunked_body_closes(self):
+        self.check_early_response(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n",
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+
+    def test_early_response_after_expect_continue_closes(self):
+        # the client skips the body and sends its next request instead
+        self.check_early_response(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 10\r\n"
+            b"Expect: 100-continue\r\n\r\n",
+            b"GET /two HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+
+    def test_response_after_complete_request_body_keeps_connection(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 3\r\n\r\n"
+        )
+        conn.handle_input(b"abc")
+        self.respond(exchanges[0], b"ok")
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.assertNotIn(b"Connection:", b"".join(tcp_conn.output))
+
+    def test_response_started_before_request_body_ends_closes(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        exchanges = []
+        server.emit = lambda event, *args: exchanges.append(args[0])
+        conn.handle_input(
+            b"POST /one HTTP/1.1\r\nHost: example.com\r\nContent-Length: 3\r\n\r\n"
+        )
+        exchanges[0].response_start(b"200", b"OK", [(b"Content-Length", b"2")])
+        conn.handle_input(b"abc")  # the body ends before the response does
+        self.respond_rest(exchanges[0])
+        self.assertIn(b"Connection: close\r\n", b"".join(tcp_conn.output))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    @staticmethod
+    def respond_rest(exchange):
+        exchange.response_body(b"ok")
+        exchange.response_done([])
+
     def test_http10_keep_alive(self):
         self.check_connection_handling(
             b"GET /one HTTP/1.0\r\nHost: example.com\r\n"
@@ -2320,9 +2693,13 @@ Content-Length: 0
         tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/1", b"/2"])
-        self.assertEqual(list(conn.exchanges), [exchanges[1]])
+        # /2 is answered but waits behind /1
+        self.assertEqual(list(conn.exchanges), [exchanges[1], exchanges[2]])
         self.answer(exchanges[1])
         self.assertEqual(list(conn.exchanges), [])
+        output = b"".join(tcp_conn.output)
+        positions = [output.index(b"X-Uri: /%i" % i) for i in range(3)]
+        self.assertEqual(positions, sorted(positions))
 
     def test_drain_exchange_queue_stops_when_connection_closed(self):
         def on_start(exchange, index):
