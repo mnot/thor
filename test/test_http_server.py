@@ -40,6 +40,10 @@ class FakeTcpConnection:
 
     def __init__(self):
         self.output = []
+        self.paused = False
+
+    def pause(self, paused):
+        self.paused = paused
 
     def write(self, data):
         self.output.append(data)
@@ -2011,6 +2015,48 @@ Content-Length: 5
         )
         self.assertEqual([e[1] for e in events if e[0] == "request_body"], [b"hi", b"!"])
         self.assertEqual(events[-1][1], [(b"X-T", b" 1")])
+
+    def test_input_paused_while_request_body_is_held(self):
+        tcp_conn, conn, events = self.paused_post_conn()
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nhi"
+        )
+        self.assertTrue(tcp_conn.paused)
+
+        conn.res_body_pause(False)
+
+        self.assertFalse(tcp_conn.paused)
+
+    def test_input_not_paused_for_bodiless_request_when_output_paused(self):
+        tcp_conn, conn, events = self.paused_post_conn()
+        conn.handle_input(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        self.assertFalse(tcp_conn.paused)
+
+    def test_input_stays_paused_if_application_paused_it(self):
+        tcp_conn, conn, events = self.paused_post_conn(
+            lambda exchange: conn.req_body_pause(True)
+        )
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nhi"
+        )
+        conn.res_body_pause(False)
+        self.assertTrue(tcp_conn.paused)
+
+        conn.req_body_pause(False)
+
+        self.assertFalse(tcp_conn.paused)
+
+    def test_request_timer_not_running_while_request_body_is_held(self):
+        tcp_conn, server, conn, timers = self.make_timer_conn()
+        conn.res_body_pause(True)
+        conn.handle_input(
+            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nhi"
+        )
+        self.assertFalse(conn._req_timer.armed)
+
+        conn.res_body_pause(False)
+
+        self.assertTrue(conn._req_timer.armed)
 
     def test_request_body_after_request_start_is_not_held(self):
         tcp_conn, conn, events = self.paused_post_conn()

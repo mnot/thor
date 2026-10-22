@@ -228,7 +228,8 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._req_timer = Timer(self.server.loop, self.close_conn)
         self._res_timer = Timer(self.server.loop, self.close_conn)
         self._req_in_progress = False  # request body incomplete
-        self._req_paused = False
+        self._req_paused = False  # the application asked for it
+        self._input_held = False  # body is waiting for the application to be told
         self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
         self._peer_closed = False  # the client won't send any more
@@ -244,10 +245,23 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Indicate that the server should pause (True) or unpause (False) the
         request.
         """
+        self._req_paused = paused
+        self._update_input_pause()
+
+    def update_input_hold(self) -> None:
+        """
+        Stop reading while any request body is being held back for an
+        application that hasn't been told of the request yet; resume once it
+        has, so a client can't make the server buffer without limit.
+        """
+        self._input_held = any(exchange.holding for exchange in self.exchanges)
+        self._update_input_pause()
+
+    def _update_input_pause(self) -> None:
+        paused = self._req_paused or self._input_held
         if self.tcp_conn:
             self.tcp_conn.pause(paused)
         # a paused request isn't the client's fault
-        self._req_paused = paused
         if paused:
             self._stop_req_timer()
         elif self._receiving:
@@ -265,7 +279,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def _start_req_timer(self) -> None:
         "(Re)start the inactivity timer for the request being received."
-        if self.tcp_conn and not self._req_paused:
+        if self.tcp_conn and not (self._req_paused or self._input_held):
             self._req_timer.start(self.server.request_timeout)
         else:
             self._req_timer.stop()
@@ -620,6 +634,13 @@ class HttpServerExchange(EventEmitter):
         deferred, self._deferred = self._deferred, []
         for event, args in deferred:
             self.deliver(event, *args)
+        if deferred:
+            self.http_conn.update_input_hold()
+
+    @property
+    def holding(self) -> bool:
+        "Is request body waiting for request_start?"
+        return any(event == "request_body" for event, _ in self._deferred)
 
     def deliver(self, event: str, *args: Any) -> None:
         """
@@ -633,6 +654,7 @@ class HttpServerExchange(EventEmitter):
             self.emit(event, *args)
         else:
             self._deferred.append((event, args))
+            self.http_conn.update_input_hold()
 
     def connection_lost(self) -> None:
         "The connection closed; if a response was owed, say so, once."
