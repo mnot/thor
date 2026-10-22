@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import framework
 
 from thor import loop
-from thor.tcp import TcpClient, TcpConnection
+from thor.tcp import TcpClient, TcpConnection, WriteBuffer
 
 
 class FakeSocket:
@@ -43,7 +43,7 @@ class FakeSocket:
     def send(self, data):
         if self.send_error:
             raise OSError(self.send_error, errno.errorcode[self.send_error])
-        self.sent.append(data)
+        self.sent.append(bytes(data))
         return self.sends.pop(0)
 
     def recv(self, bufsize):
@@ -280,7 +280,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         conn = TcpConnection(rsock, ("127.0.0.1", 80), self.loop)
         # Simulate buffered data
-        conn._write_buffer.append(b"pending")
+        conn.write(b"pending")
 
         # Call close
         conn.close()
@@ -307,13 +307,13 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         conn.close()
         conn.handle_writable()
         self.assertTrue(conn.tcp_connected)
-        self.assertEqual(conn._write_buffer, [b"cdefg"])
+        self.assertEqual(list(conn._write_buffer), [b"cdefg"])
         self.assertEqual(disconnects, [])
         self.assertFalse(sock.closed)
 
         conn.handle_writable()
         self.assertTrue(conn.tcp_connected)
-        self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(list(conn._write_buffer), [])
         self.assertEqual(sock.shutdowns, [socket.SHUT_WR])
         self.assertEqual(disconnects, [])
         self.assertFalse(sock.closed)
@@ -386,6 +386,45 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         self.assertEqual(closes, [True])
         self.assertTrue(sock.closed)
 
+    def test_write_buffer_coalesces_small_chunks_and_keeps_offsets(self):
+        buf = WriteBuffer()
+        for chunk in (b"ab", b"cd", b"efgh", b"i" * 10):
+            buf.add(chunk)
+        self.assertEqual(buf.size, 18)
+        self.assertEqual(len(buf), 4)
+
+        piece = buf.peek(8)  # ab + cd + efgh fit; the next one doesn't
+        self.assertEqual(bytes(piece), b"abcdefgh")
+        buf.consume(3)  # part way into "cd"
+        self.assertEqual(list(buf), [b"d", b"efgh", b"i" * 10])
+        self.assertEqual(buf.size, 15)
+
+        buf.consume(5)  # the rest of "cd" and all of "efgh"
+        self.assertEqual(list(buf), [b"i" * 10])
+        large = buf.peek(4)  # a single chunk comes back whole, uncopied
+        self.assertIsInstance(large, memoryview)
+        self.assertEqual(bytes(large), b"i" * 10)
+        buf.consume(10)
+        self.assertEqual(list(buf), [])
+        self.assertEqual(buf.size, 0)
+
+    def test_write_buffer_sends_without_rejoining(self):
+        "Each writable event offers at most write_coalesce bytes, from where the last send stopped."
+        loop_mock = MagicMock()
+        sock = FakeSocket(sends=[1] * 6)  # the kernel takes one byte at a time
+        conn = TcpConnection(sock, ("127.0.0.1", 80), loop_mock)
+        conn.write_coalesce = 3
+        conn.write(b"ab")
+        conn.write(b"cd")
+        conn.write(b"ef")
+
+        for _ in range(6):
+            conn.handle_writable()
+
+        self.assertTrue(all(len(piece) <= 3 for piece in sock.sent), sock.sent)
+        self.assertEqual(b"".join(piece[:1] for piece in sock.sent), b"abcdef")
+        self.assertEqual(list(conn._write_buffer), [])
+
     def test_write_buffer_byte_limit(self):
         loop_mock = MagicMock()
         sock = FakeSocket()
@@ -398,7 +437,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         with self.assertRaisesRegex(BufferError, "write buffer limit"):
             conn.write(b"6789")
 
-        self.assertEqual(conn._write_buffer, [b"12345"])
+        self.assertEqual(list(conn._write_buffer), [b"12345"])
         self.assertEqual(pauses, [True])
 
     def test_write_buffer_chunk_limit(self):
@@ -414,7 +453,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
         with self.assertRaisesRegex(BufferError, "chunk limit"):
             conn.write(b"3")
 
-        self.assertEqual(conn._write_buffer, [b"1", b"2"])
+        self.assertEqual(list(conn._write_buffer), [b"1", b"2"])
         self.assertEqual(pauses, [True])
 
     def test_write_buffer_unpauses_after_dropping_below_byte_limit(self):
@@ -429,7 +468,7 @@ class TestTcpClientConnect(framework.ClientServerTestCase):
 
         conn.handle_writable()
 
-        self.assertEqual(conn._write_buffer, [])
+        self.assertEqual(list(conn._write_buffer), [])
         self.assertEqual(pauses, [False])
 
     def test_immediate_connect_success(self):

@@ -15,10 +15,76 @@ import errno
 import os
 import socket
 import sys
-from typing import Callable, List, Optional, Set
+from collections import deque
+from itertools import islice
+from typing import Callable, Deque, Iterator, Optional, Set, Union
 
 from thor.loop import EventSource, LoopBase, ScheduledEvent
 from thor.types import Address, DnsResult
+
+
+class WriteBuffer:
+    """
+    Bytes waiting to be sent, in the chunks they were written as. Sending
+    takes from the front without copying what's left behind: a partly sent
+    chunk is remembered by its offset, so a slow reader costs one send per
+    writable event rather than a copy of everything still queued.
+    """
+
+    __slots__ = ("_chunks", "_offset", "size")
+
+    def __init__(self) -> None:
+        self._chunks: Deque[bytes] = deque()
+        self._offset = 0  # into the first chunk
+        self.size = 0  # bytes left to send
+
+    def __len__(self) -> int:
+        "Chunks left to send."
+        return len(self._chunks)
+
+    def __iter__(self) -> Iterator[bytes]:
+        "What's left to send, chunk by chunk."
+        for i, chunk in enumerate(self._chunks):
+            yield chunk[self._offset :] if i == 0 else chunk
+
+    def add(self, data: bytes) -> None:
+        self._chunks.append(data)
+        self.size += len(data)
+
+    def clear(self) -> None:
+        self._chunks.clear()
+        self._offset = 0
+        self.size = 0
+
+    def peek(self, limit: int) -> Union[bytes, memoryview]:
+        """
+        The next bytes to send, as one piece. Small chunks are joined up to
+        limit bytes so they go in one send; a large chunk isn't copied.
+        """
+        head = memoryview(self._chunks[0])[self._offset :]
+        if len(self._chunks) == 1 or len(head) >= limit:
+            return head
+        pieces = [head]
+        total = len(head)
+        for chunk in islice(self._chunks, 1, None):
+            if total + len(chunk) > limit:
+                break
+            pieces.append(memoryview(chunk))
+            total += len(chunk)
+        return b"".join(pieces)
+
+    def consume(self, sent: int) -> None:
+        "The first sent bytes of what peek returned have gone."
+        self.size -= sent
+        while sent:
+            left = len(self._chunks[0]) - self._offset
+            if sent >= left:
+                self._chunks.popleft()
+                self._offset = 0
+                sent -= left
+            else:
+                self._offset += sent
+                sent = 0
 
 
 class TcpConnection(EventSource):
@@ -91,6 +157,7 @@ class TcpConnection(EventSource):
     write_bufsize = 16  # number of chunks
     max_write_buffer_chunks = 4096
     max_write_buffer_size = 1024 * 1024 * 16  # bytes
+    write_coalesce = 1024 * 64  # bytes: small chunks joined into one send
     read_bufsize = 1024 * 16  # bytes
     close_timeout = 5  # seconds
 
@@ -119,7 +186,7 @@ class TcpConnection(EventSource):
         self._closing = False
         self._closed_output = False
         self._close_timeout_ev: Optional[ScheduledEvent] = None
-        self._write_buffer: List[bytes] = []
+        self._write_buffer = WriteBuffer()
 
         self.register_fd(sock.fileno())
         self.on("fd_readable", self.handle_readable)
@@ -184,9 +251,8 @@ class TcpConnection(EventSource):
     def handle_writable(self) -> None:
         "The connection is ready for writing; write any buffered data."
         if self._write_buffer:
-            data = b"".join(self._write_buffer)
             try:
-                sent = self.socket.send(data)
+                sent = self.socket.send(self._write_buffer.peek(self.write_coalesce))
             except (socket.error, OSError) as why:
                 if why.args[0] in self.block_errs:
                     return
@@ -194,16 +260,13 @@ class TcpConnection(EventSource):
                     self._handle_close(False)
                     return
                 raise
-            if sent < len(data):
-                self._write_buffer = [data[sent:]]
-            else:
-                self._write_buffer = []
+            self._write_buffer.consume(sent)
             if sent:
                 self.emit("sent")
         if (
             self._output_paused
             and len(self._write_buffer) < self.write_bufsize
-            and self._write_buffer_size() < self.max_write_buffer_size
+            and self._write_buffer.size < self.max_write_buffer_size
         ):
             self._output_paused = False
             self.emit("pause", False)
@@ -222,12 +285,12 @@ class TcpConnection(EventSource):
                 self._output_paused = True
                 self.emit("pause", True)
             raise BufferError("TCP write buffer chunk limit exceeded")
-        if self._write_buffer_size() + len(data) > self.max_write_buffer_size:
+        if self._write_buffer.size + len(data) > self.max_write_buffer_size:
             if not self._output_paused:
                 self._output_paused = True
                 self.emit("pause", True)
             raise BufferError("TCP write buffer limit exceeded")
-        self._write_buffer.append(data)
+        self._write_buffer.add(data)
         if len(self._write_buffer) > self.write_bufsize:
             self._output_paused = True
             self.emit("pause", True)
@@ -304,7 +367,7 @@ class TcpConnection(EventSource):
         self.tcp_connected = False
         self._closing = False
         self._closed_output = False
-        self._write_buffer = []
+        self._write_buffer.clear()
         if self._close_timeout_ev:
             self._close_timeout_ev.delete()
             self._close_timeout_ev = None
@@ -314,9 +377,6 @@ class TcpConnection(EventSource):
             self.socket.close()
         self.emit("disconnect")
         return True
-
-    def _write_buffer_size(self) -> int:
-        return sum(len(chunk) for chunk in self._write_buffer)
 
 
 def _errnos(*names: str) -> Set[int]:
