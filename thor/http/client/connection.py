@@ -133,20 +133,21 @@ class HttpClientConnection(HttpMessageHandler, EventEmitter):
         self._response_ended = False
         self.handle_input(inbytes)
 
-    def handle_input(self, inbytes: bytes) -> None:
+    def _handle_input_step(self, inbytes: bytes) -> Optional[bytes]:
         if self._response_ended:
             # Whatever follows a complete response is not a response, even if
             # the next exchange has already been attached.
             if inbytes.strip():
                 self._extra_data(inbytes)
-        elif self.reusable and not self.active_exchange:
+            return None
+        if self.reusable and not self.active_exchange:
             # No response is outstanding, so nothing should arrive.
             if inbytes.strip():
                 self._extra_data(inbytes)
-        else:
-            if inbytes:
-                self._restart_timeout()
-            HttpMessageHandler.handle_input(self, inbytes)
+            return None
+        if inbytes:
+            self._restart_timeout()
+        return HttpMessageHandler._handle_input_step(self, inbytes)
 
     def _restart_timeout(self) -> None:
         "Inactivity timeout: restart on data received or sent, if one is running."
