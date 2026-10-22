@@ -32,6 +32,73 @@ if TYPE_CHECKING:
     from .connection import HttpClientConnection
 
 
+OutputItem = Tuple[
+    Any, ...
+]  # ("start", top_line, hdrs, delimit), ("body", chunk), ("end", trailers)
+
+
+class _RequestRecord:
+    """
+    The request as the application has given it so far, kept in two forms:
+    the items not yet written to a connection (pending), and what it would
+    take to send the whole thing again (the start, the body chunks retained
+    within a size limit, and the trailers once done). The first serves a
+    request waiting for its connection; the second, a retry after one drops.
+    """
+
+    def __init__(self, retain_body: bool, body_limit: int) -> None:
+        self.pending: List[OutputItem] = []
+        self.sent_any = False  # has any of it been written to a connection?
+        self.start: Optional[OutputItem] = None
+        self.body: List[bytes] = []
+        self.body_len = 0
+        self.overflow = False  # the body outgrew the limit; chunks were dropped
+        self.trailers: Optional[RawHeaderListType] = None
+        self._retain_body = retain_body
+        self._body_limit = body_limit
+
+    @property
+    def started(self) -> bool:
+        return self.start is not None
+
+    @property
+    def done(self) -> bool:
+        return self.trailers is not None
+
+    @property
+    def replayable(self) -> bool:
+        "Can everything so far be sent again on a new connection?"
+        return self.started and self._retain_body and not self.overflow
+
+    def add(self, item: OutputItem, queue: bool) -> None:
+        "Record an item, queueing it too if there's no connection to write to."
+        if queue:
+            self.pending.append(item)
+        kind = item[0]
+        if kind == "start":
+            self.start = item
+        elif kind == "end":
+            self.trailers = item[1]
+        elif self._retain_body and not self.overflow:
+            self.body_len += len(item[1])
+            if self.body_len > self._body_limit:
+                self.overflow = True
+                self.body = []
+            else:
+                self.body.append(item[1])
+
+    def take_pending(self) -> List[OutputItem]:
+        items, self.pending = self.pending, []
+        return items
+
+    def rewind(self) -> None:
+        "Queue the whole request so far to be sent again."
+        assert self.start and self.replayable, "request can't be replayed"
+        self.pending = [self.start] + [("body", chunk) for chunk in self.body]
+        if self.trailers is not None:
+            self.pending.append(("end", self.trailers))
+
+
 class HttpClientExchange(EventEmitter):
     # Refuse a method that isn't a token or a request-target with whitespace
     # or control characters, which would change the request-line's shape.
@@ -51,15 +118,10 @@ class HttpClientExchange(EventEmitter):
         self.conn: Optional[HttpClientConnection] = None
         self.origin: Optional[OriginType] = None
         self._req_body = False
-        self._req_started = False
-        self._req_done_trailers: Optional[RawHeaderListType] = None
-        self._req_body_chunks: List[bytes] = []  # kept for replay on retry
-        self._req_body_len = 0
-        self._req_body_overflow = False
+        self._request = _RequestRecord(False, client.retry_body_limit)
         self._error_sent = False
         self._retries = 0
         self._retry_pending = False
-        self._output_q: List[Tuple[Any, ...]] = []
         self._response_complete = False
 
     def __repr__(self) -> str:
@@ -81,6 +143,9 @@ class HttpClientExchange(EventEmitter):
         self.method = method
         self.uri = uri
         self.req_hdrs = req_hdrs
+        self._request = _RequestRecord(
+            method in idempotent_methods, self.client.retry_body_limit
+        )
         try:
             scheme, host, port, authority, req_target = parse_uri(self.uri)
             self.origin = (scheme, host, port)
@@ -100,9 +165,8 @@ class HttpClientExchange(EventEmitter):
         """
         Queue the request headers for sending.
         """
-        if self._req_started or self._error_sent:
+        if self._request.started or self._error_sent:
             return
-        self._req_started = True
         if self.strict_request_line:
             assert self.method is not None and self.req_target is not None
             problem = check_method(self.method) or check_request_target(self.req_target)
@@ -112,7 +176,7 @@ class HttpClientExchange(EventEmitter):
         req_hdrs = strip_hop_by_hop(self.req_hdrs, also=[b"host"])  # Host is ours
         assert self.authority, "authority not found in _req_start"
         req_hdrs.append((b"Host", self.authority))
-        if self.client.idle_timeout == 0:
+        if not self.client.idle_timeout:  # we won't reuse it, so say so
             req_hdrs.append((b"Connection", b"close"))
         if b"content-length" in header_names(req_hdrs):
             delimit = Delimiters.COUNTED
@@ -123,65 +187,38 @@ class HttpClientExchange(EventEmitter):
             delimit = Delimiters.NOBODY
 
         top_line = b"%s %s HTTP/1.1" % (self.method, self.req_target)
-        if self.conn:
-            try:
-                self.conn.output_start(top_line, req_hdrs, delimit)
-            except OutputError as why:
-                self.client.dead_conn(self.conn)
-                self.input_error(why)
-        else:
-            self._output_q.append(("start", top_line, req_hdrs, delimit))
+        self._send(("start", top_line, req_hdrs, delimit))
 
     def request_body(self, chunk: bytes) -> None:
         "Send part of the request body. May be called zero to many times."
         self._req_body = True
         self._req_start()
-        if self.conn and self._error_sent:
-            return
-        if self.method in idempotent_methods and not self._req_body_overflow:
-            self._req_body_len += len(chunk)
-            if self._req_body_len > self.client.retry_body_limit:
-                self._req_body_overflow = True
-                self._req_body_chunks = []
-            else:
-                self._req_body_chunks.append(chunk)
-        if self.conn:
-            try:
-                self.conn.output_body(chunk)
-            except OutputError as why:
-                self.client.dead_conn(self.conn)
-                self.input_error(why)
-        else:
-            self._output_q.append(("body", chunk))
+        self._send(("body", chunk))
 
     def request_done(self, trailers: RawHeaderListType) -> None:
         """
         Signal the end of the request, whether or not there was a body. MUST
         be called exactly once for each request.
         """
-        self._req_done_trailers = trailers
         self._req_start()
-        if self.conn and self._error_sent:
-            return
-        if self.conn:
-            try:
-                self._output_end(trailers)
-            except OutputError as why:
-                self.client.dead_conn(self.conn)
-                self.input_error(why)
-        else:
-            self._output_q.append(("end", trailers))
+        self._send(("end", trailers))
 
-    def _output_end(self, trailers: RawHeaderListType) -> None:
-        "Finish the request; a close here means the body was shorter than declared."
-        assert self.conn, "conn not found in _output_end"
-        if self.conn.output_end(trailers):
-            self.client.dead_conn(self.conn)
-            self.input_error(OutputError("Request body shorter than Content-Length"))
+    def _send(self, item: OutputItem) -> None:
+        """
+        Send part of the request on the connection, or queue it until there
+        is one. The connection handles a write failure itself; this exchange
+        just reports it.
+        """
+        if self._error_sent:
+            return
+        self._request.add(item, queue=not self.conn)
+        if not self.conn:
+            return
+        self._write(item)
 
     def res_body_pause(self, paused: bool) -> None:
         "Temporarily stop / restart sending the response body."
-        if self.conn and self.conn.tcp_connected:
+        if self.conn and self.conn.active_exchange is self and self.conn.tcp_connected:
             self.conn.tcp_conn.pause(paused)
 
     @property
@@ -202,17 +239,23 @@ class HttpClientExchange(EventEmitter):
         "The connection has succeeded."
         self.conn = conn
         self.conn.attach(self)
-        queued, self._output_q = self._output_q, []
+        for item in self._request.take_pending():
+            self._write(item)
+
+    def _write(self, item: OutputItem) -> None:
+        "Write an already-recorded item to the connection."
+        if self._error_sent:
+            return
+        assert self.conn, "conn not found in _write"
+        self._request.sent_any = True
         try:
-            for item in queued:
-                if item[0] == "start":
-                    self.conn.output_start(*item[1:])
-                elif item[0] == "body":
-                    self.conn.output_body(*item[1:])
-                elif item[0] == "end":
-                    self._output_end(*item[1:])
+            if item[0] == "start":
+                self.conn.send_start(self, *item[1:])
+            elif item[0] == "body":
+                self.conn.send_body(self, *item[1:])
+            else:
+                self.conn.send_end(self, *item[1:])
         except OutputError as why:
-            self.client.dead_conn(self.conn)
             self.input_error(why)
 
     def handle_connect_error(self, err_type: str, err_id: int, err_str: str) -> None:
@@ -252,12 +295,8 @@ class HttpClientExchange(EventEmitter):
                         False,
                     )
             else:
-                assert self.method, "method not found in conn_closed"
                 self.input_error(
-                    ConnectError(
-                        f"Can't retry {self.method.decode('utf-8', 'replace')} method"
-                    ),
-                    False,
+                    ConnectError(f"Can't retry {self._method_name()} method"), False
                 )
         else:
             self.input_error(
@@ -276,26 +315,27 @@ class HttpClientExchange(EventEmitter):
         "Retry the request."
         self._retry_pending = False
         self._retries += 1
+        self.conn = None
         assert self.origin, "origin not found in _retry"
-        if self._req_body_overflow:
-            self.input_error(
-                ConnectError("Request body too large to retry"),
-                False,
-            )
-            return
-        # Non-idempotent requests are only retried before anything is sent,
-        # when the queue is still intact.
-        if self._req_done_trailers is not None and self.method in idempotent_methods:
-            self.conn = None
-            self._req_started = False
-            self._output_q = []
-            self._req_start()
-            for chunk in self._req_body_chunks:
-                self._output_q.append(("body", chunk))
-            self._output_q.append(("end", self._req_done_trailers))
+        if self._request.sent_any:
+            # The old connection had some (or all) of the request; send it all
+            # again on the new one. Whatever the application adds from now on
+            # follows. If nothing was ever sent, what's queued is still intact.
+            if not self._request.replayable:
+                reason = (
+                    "Request body too large to retry"
+                    if self._request.overflow
+                    else f"Can't retry {self._method_name()} method"
+                )
+                self.input_error(ConnectError(reason), False)
+                return
+            self._request.rewind()
         self.client.attach_conn(
             self.origin, self.handle_connect, self.handle_connect_error
         )
+
+    def _method_name(self) -> str:
+        return (self.method or b"-").decode("utf-8", "replace")
 
     def req_body_pause(self, paused: bool) -> None:
         "The client needs the application to pause/unpause the request body."

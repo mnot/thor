@@ -324,7 +324,7 @@ Content-Length: 5
             conn, method, b"/", list(req_hdrs), req_version, persistent
         )
         exchange.req_complete = True
-        conn.ex_queue = [exchange]
+        conn.exchanges.add(exchange)
 
         exchange.response_start(status, phrase, hdrs)
         exchange.response_body(body)
@@ -822,6 +822,25 @@ Content-Length: 5
         output = b"".join(tcp_conn.output)
         self.assertIn(b"HTTP/1.1 400 Bad Request", output)
 
+    def test_error_response_framing(self):
+        "Error responses are counted and close, whatever the request's version."
+        for request in [
+            b"GET / HTTP/1.0\r\n\r\n",  # no Host
+            b"GET / HTTP/1.1\r\n\r\n",
+        ]:
+            with self.subTest(request):
+                tcp_conn = FakeTcpConnection()
+                server = FakeServer()
+                conn = HttpServerConnection(tcp_conn, server)
+                conn.handle_input(request)
+                output = b"".join(tcp_conn.output)
+                self.assertIn(b"HTTP/1.1 400 Bad Request", output)
+                self.assertIn(b"Connection: close\r\n", output)
+                self.assertNotIn(b"Transfer-Encoding", output)
+                headers, body = output.split(b"\r\n\r\n", 1)
+                self.assertIn(b"Content-Length: %d\r\n" % len(body), headers)
+                self.assertFalse(tcp_conn.tcp_connected)
+
     def check_listener_runtime_error(self, event):
         """
         A RuntimeError raised by a request listener must propagate to the caller
@@ -976,7 +995,8 @@ Content-Length: 5
         second = HttpServerExchange(conn, b"GET", b"/two", [], b"1.1")
         first.req_complete = True
         second.req_complete = True
-        conn.ex_queue = [first, second]
+        conn.exchanges.add(first)
+        conn.exchanges.add(second)
 
         first.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
         first.response_done([])
@@ -1595,7 +1615,7 @@ Content-Length: 5
         live = [t for t in timers if not t.delete.called]
         idle = [t for t in live if t.delay == server.idle_timeout]
         msg = repr(history)
-        if conn.ex_queue:  # a request or response is in progress
+        if conn.exchanges:  # a request or response is in progress
             self.assertEqual(idle, [], msg)
             return
         # idle, or still receiving the next header block
@@ -1847,7 +1867,7 @@ Content-Length: 5
         server = FakeServer()
         conn = HttpServerConnection(tcp_conn, server)
         exchange = HttpServerExchange(conn, b"POST", b"/", [], b"1.1")
-        conn.ex_queue = [exchange]
+        conn.exchanges.add(exchange)
 
         exchange.response_start(b"413", b"Content Too Large", [])
         exchange.response_body(b"too big")
@@ -1879,7 +1899,7 @@ Content-Length: 5
         conn = HttpServerConnection(tcp_conn, server)
         exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
         exchange.req_complete = True
-        conn.ex_queue = [exchange]
+        conn.exchanges.add(exchange)
 
         exchange.response_start(
             b"200",
@@ -1892,13 +1912,23 @@ Content-Length: 5
         self.assertNotIn(b"X-Hop", output)
         self.assertIn(b"Content-Length: 0\r\n", output)
 
+    def test_close_conn_forgets_a_connection_that_is_already_gone(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        tcp_conn.tcp_connected = False
+
+        conn.close_conn()
+
+        self.assertIsNone(conn.tcp_conn)
+
     def test_response_done_default_keeps_connection(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()
         conn = HttpServerConnection(tcp_conn, server)
         exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
         exchange.req_complete = True
-        conn.ex_queue = [exchange]
+        conn.exchanges.add(exchange)
 
         exchange.response_start(b"200", b"OK", [(b"Content-Length", b"0")])
         exchange.response_done([])
@@ -2025,7 +2055,7 @@ Content-Length: 5
         conn = HttpServerConnection(tcp_conn, server)
         exchange = HttpServerExchange(conn, b"GET", b"/", [], b"1.1")
         exchange.req_complete = True
-        conn.ex_queue = [exchange]
+        conn.exchanges.add(exchange)
 
         exchange.response_start(b"200", b"OK", [(b"Content-Length", b"5")])
         exchange.response_body(b"abc")
@@ -2073,7 +2103,7 @@ Content-Length: 5
         conn = HttpServerConnection(tcp_conn, server)
         exchange = HttpServerExchange(conn, b"HEAD", b"/", [], b"1.1")
         exchange.req_complete = True
-        conn.ex_queue = [exchange]
+        conn.exchanges.add(exchange)
 
         exchange.response_start(b"200", b"OK", [(b"Content-Length", b"3")])
         exchange.response_body(b"abcdefgh")
@@ -2183,7 +2213,7 @@ Content-Length: 0
         for i in range(3):
             conn.handle_input(b"GET /%i HTTP/1.1\r\nHost: example.com\r\n\r\n" % i)
         self.assertEqual(started, [])
-        self.assertEqual(len(conn.ex_queue), 3)
+        self.assertEqual(len(conn.exchanges), 3)
         return tcp_conn, conn, exchanges, started
 
     @staticmethod
@@ -2199,7 +2229,7 @@ Content-Length: 0
         )
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/1", b"/2"])
-        self.assertEqual(conn.ex_queue, [])
+        self.assertEqual(list(conn.exchanges), [])
         output = b"".join(tcp_conn.output)
         self.assertEqual(output.count(b"HTTP/1.1 200 OK"), 3)
         positions = [output.index(b"X-Uri: /%i" % i) for i in range(3)]
@@ -2213,9 +2243,9 @@ Content-Length: 0
         tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/1", b"/2"])
-        self.assertEqual(conn.ex_queue, [exchanges[1]])
+        self.assertEqual(list(conn.exchanges), [exchanges[1]])
         self.answer(exchanges[1])
-        self.assertEqual(conn.ex_queue, [])
+        self.assertEqual(list(conn.exchanges), [])
 
     def test_drain_exchange_queue_stops_when_connection_closed(self):
         def on_start(exchange, index):
@@ -2243,7 +2273,7 @@ Content-Length: 0
         tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/2"])
-        self.assertEqual(conn.ex_queue, [])
+        self.assertEqual(list(conn.exchanges), [])
 
     def test_drain_exchange_queue_stops_when_output_pauses_again(self):
         def on_start(exchange, index):
@@ -2253,12 +2283,12 @@ Content-Length: 0
         tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0"])
-        self.assertEqual(conn.ex_queue, exchanges[1:])
+        self.assertEqual(list(conn.exchanges), exchanges[1:])
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/1"])
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/1", b"/2"])
-        self.assertEqual(conn.ex_queue, [])
+        self.assertEqual(list(conn.exchanges), [])
 
 
 #    def test_pipeline(self):

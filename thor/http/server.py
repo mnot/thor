@@ -15,7 +15,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Iterator, List, Optional, Set, Tuple
 
 from thor.events import EventEmitter, on
 from thor.http.common import (
@@ -41,6 +41,48 @@ from thor.http.error import (
 from thor.loop import LoopBase, Timer
 from thor.tcp import TcpConnection, TcpServer
 from thor.types import RawHeaderListType
+
+
+def response_framing(
+    method: bytes,
+    status_code: bytes,
+    req_version: bytes,
+    persistent: bool,
+    res_hdrs: RawHeaderListType,
+) -> Tuple[RawHeaderListType, Delimiters]:
+    """
+    Decide how a final response to the given request is delimited, and
+    return the headers to send (hop-by-hop ones dropped, framing and
+    Connection added) along with the delimiter.
+    """
+    res_hdrs = strip_hop_by_hop(res_hdrs)
+    body_len = output_content_length(res_hdrs)
+    # A final response with a 1xx status is not an interim response; use
+    # response_nonfinal for those.
+    bodiless = (
+        method == b"HEAD"
+        or status_code in no_body_status
+        or status_code.startswith(b"1")
+    )
+    if bodiless:
+        # No body framing. Content-Length is kept for HEAD and 304 (it
+        # describes the unsent representation) but must not be sent
+        # with 204 or 1xx (RFC 9110 section 8.6).
+        delimit = Delimiters.NOBODY
+        if status_code == b"204" or status_code.startswith(b"1"):
+            res_hdrs = [i for i in res_hdrs if i[0].lower() != b"content-length"]
+    elif body_len is not None:
+        delimit = Delimiters.COUNTED
+    elif req_version == b"1.1":
+        delimit = Delimiters.CHUNKED
+        res_hdrs.append((b"Transfer-Encoding", b"chunked"))
+    else:
+        delimit = Delimiters.CLOSE
+    if delimit is Delimiters.CLOSE or not persistent:
+        res_hdrs.append((b"Connection", b"close"))
+    elif req_version == b"1.0":
+        res_hdrs.append((b"Connection", b"keep-alive"))
+    return res_hdrs, delimit
 
 
 class HttpServer(EventEmitter):
@@ -88,6 +130,81 @@ class HttpServer(EventEmitter):
         self.emit("stop")
 
 
+class ExchangeQueue:
+    """
+    A connection's exchanges, in request order.
+
+    The last one is receiving its request, if that isn't complete yet; the
+    first that hasn't been answered is the one whose response goes out next.
+    An exchange leaves the queue once its request and response are both
+    complete.
+    """
+
+    def __init__(self) -> None:
+        self._exchanges: List["HttpServerExchange"] = []
+
+    def __len__(self) -> int:
+        return len(self._exchanges)
+
+    def __iter__(self) -> Iterator["HttpServerExchange"]:
+        return iter(self._exchanges)
+
+    def add(self, exchange: "HttpServerExchange") -> None:
+        self._exchanges.append(exchange)
+
+    def retire(self, exchange: "HttpServerExchange") -> None:
+        "Drop an exchange once its request and response are both complete."
+        if (
+            exchange.req_complete
+            and exchange.res_complete
+            and exchange in self._exchanges
+        ):
+            self._exchanges.remove(exchange)
+
+    def clear(self) -> None:
+        self._exchanges = []
+
+    @property
+    def last(self) -> "HttpServerExchange":
+        "The most recently queued exchange; the one a request body belongs to."
+        return self._exchanges[-1]
+
+    @property
+    def receiving(self) -> Optional["HttpServerExchange"]:
+        "The exchange whose request is still being received, if any."
+        if self._exchanges and not self._exchanges[-1].req_complete:
+            return self._exchanges[-1]
+        return None
+
+    @property
+    def next_to_answer(self) -> Optional["HttpServerExchange"]:
+        "The oldest exchange that hasn't been answered, if any."
+        for exchange in self._exchanges:
+            if not exchange.res_complete:
+                return exchange
+        return None
+
+    def answered_before(self, exchange: Optional["HttpServerExchange"]) -> bool:
+        """
+        Has every exchange ahead of this one been answered? With None, has
+        every exchange been answered?
+        """
+        if exchange is None:
+            ahead = self._exchanges
+        else:
+            ahead = self._exchanges[: self._exchanges.index(exchange)]
+        return all(ex.res_complete for ex in ahead)
+
+    def unstarted(self) -> Iterator["HttpServerExchange"]:
+        """
+        Exchanges the application hasn't been told about yet. Each is checked
+        when reached, since starting one can answer (and so dequeue) others.
+        """
+        for exchange in list(self._exchanges):
+            if exchange in self._exchanges and not exchange.started:
+                yield exchange
+
+
 class HttpServerConnection(HttpMessageHandler, EventEmitter):
     "A handler for an HTTP server connection."
 
@@ -99,7 +216,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         EventEmitter.__init__(self)
         self.tcp_conn: Optional[TcpConnection] = tcp_conn
         self.server = server
-        self.ex_queue: List[HttpServerExchange] = []  # queue of exchanges
+        self.exchanges = ExchangeQueue()
         self.output_paused = False
         self._pending_error: Optional[HttpError] = None  # deferred error
         # Each closes the connection: when it has sat idle too long, when a
@@ -115,7 +232,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     @property
     def is_idle(self) -> bool:
-        return len(self.ex_queue) == 0
+        return not self.exchanges
 
     def req_body_pause(self, paused: bool) -> None:
         """
@@ -149,9 +266,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._req_timer.stop()
 
     def handle_input(self, inbytes: bytes) -> None:
-        if self._in_input:  # the parser calls itself for pipelined data
-            HttpMessageHandler.handle_input(self, inbytes)
-            return
         self._in_input = True
         try:
             HttpMessageHandler.handle_input(self, inbytes)
@@ -176,10 +290,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         target = None
         timeout = self.server.response_timeout
         if timeout and timeout > 0 and self.tcp_conn:
-            for ex in self.ex_queue:
-                if not ex.res_complete:
-                    target = ex if ex.req_complete and ex.started else None
-                    break
+            ex = self.exchanges.next_to_answer
+            if ex and ex.req_complete and ex.started:
+                target = ex
         if target is self._res_timer_ex:
             return
         self._stop_res_timer()
@@ -213,14 +326,14 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
-        if self.tcp_conn and self.tcp_conn.tcp_connected:
-            self.tcp_conn.close()
-            self.tcp_conn = None
+        if self.tcp_conn:
+            if self.tcp_conn.tcp_connected:
+                self.tcp_conn.close()
+            self.tcp_conn = None  # even if it was already gone
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
-        if exchange.req_complete and exchange in self.ex_queue:
-            self.ex_queue.remove(exchange)
+        self.exchanges.retire(exchange)
         self._handle_pending_error()
         self._update_res_timer()
         self._update_idle_timer()
@@ -236,11 +349,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if not self.tcp_conn:
             self._pending_error = None
             return
-        in_flight = self.ex_queue[-1] if self.ex_queue else None
-        if in_flight and in_flight.req_complete:
-            in_flight = None  # the bad request hasn't been queued as an exchange
-        earlier = self.ex_queue[:-1] if in_flight else self.ex_queue
-        if not all(ex.res_complete for ex in earlier):
+        # An error in a request body belongs to the exchange receiving it; an
+        # error in a header block has no exchange, so everything queued is ahead.
+        in_flight = self.exchanges.receiving
+        if not self.exchanges.answered_before(in_flight):
             return
         self._pending_error = None
         if in_flight and (
@@ -266,7 +378,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
-        self.ex_queue = []
+        self.exchanges.clear()
         self._pending_error = None
         self.tcp_conn = None
 
@@ -325,7 +437,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
                 )
             )
             raise ValueError
-        if len(self.ex_queue) >= self.max_pipeline_requests:
+        if len(self.exchanges) >= self.max_pipeline_requests:
             self.input_error(TooManyMsgsError())
             raise ValueError
         if req_version == b"1.1":
@@ -340,7 +452,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             # This shadows the class attribute: every later reset to
             # default_state in common.py lands in ERROR, which drops input.
             self.default_state = States.ERROR
-        self.ex_queue.append(exchange)
+        self.exchanges.add(exchange)
         self.server.emit("exchange", exchange)
         if not self.output_paused:
             # we only start new requests if we have some output buffer
@@ -354,7 +466,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."
-        ex = self.ex_queue[-1]
+        ex = self.exchanges.last
         if ex.res_complete:
             return
         ex.emit("request_body", chunk)
@@ -363,12 +475,11 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         "Indicate that the request body is complete."
         self._req_in_progress = False
         self._stop_req_timer()
-        ex = self.ex_queue[-1]
+        ex = self.exchanges.last
         ex.req_complete = True
         if not ex.res_complete:
             ex.emit("request_done", trailers)
-        if ex.res_complete and ex in self.ex_queue:
-            self.ex_queue.remove(ex)
+        self.exchanges.retire(ex)
         self._update_res_timer()
 
     def input_error(self, err: HttpError) -> None:
@@ -387,12 +498,16 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def _send_error(self, err: HttpError) -> None:
         "Send an error response for an unrecoverable error, then close."
         status_code, status_phrase = err.server_status
-        hdrs = [(b"Content-Type", b"text/plain")]
         body = err.desc.encode("utf-8")
         if err.detail:
             body += b" (%s)" % err.detail.encode("utf-8")
-        ex = HttpServerExchange(self, b"", b"", [], b"1.1")
-        self.ex_queue.append(ex)  # so completing it doesn't arm the idle timer
+        hdrs = [
+            (b"Content-Type", b"text/plain"),
+            (b"Content-Length", b"%d" % len(body)),
+        ]
+        # Framed like any other response to a request that doesn't persist:
+        # counted, with Connection: close, whatever the request's version.
+        ex = HttpServerExchange(self, b"", b"", [], b"1.1", persistent=False)
         try:
             ex.response_start(status_code, status_phrase, hdrs)
             ex.response_body(body)
@@ -406,13 +521,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Walk through the exchange queue and kick off unstarted requests
         until we run out of output buffer.
         """
-        # Iterate over a copy, since handlers can answer (and so dequeue)
-        # exchanges, or close the connection, from inside request_start.
-        for exchange in list(self.ex_queue):
+        for exchange in self.exchanges.unstarted():
             if self.output_paused or not self.tcp_conn:
                 break
-            if exchange in self.ex_queue and not exchange.started:
-                exchange.request_start()
+            exchange.request_start()
 
 
 class HttpServerExchange(EventEmitter):
@@ -467,34 +579,9 @@ class HttpServerExchange(EventEmitter):
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
     ) -> None:
         "Start a response. Must only be called once per response."
-        res_hdrs = strip_hop_by_hop(res_hdrs)
-        body_len = output_content_length(res_hdrs)
-        # A final response with a 1xx status is not an interim response; use
-        # response_nonfinal for those.
-        bodiless = (
-            self.method == b"HEAD"
-            or status_code in no_body_status
-            or status_code.startswith(b"1")
+        res_hdrs, delimit = response_framing(
+            self.method, status_code, self.req_version, self.persistent, res_hdrs
         )
-        if bodiless:
-            # No body framing. Content-Length is kept for HEAD and 304 (it
-            # describes the unsent representation) but must not be sent
-            # with 204 or 1xx (RFC 9110 section 8.6).
-            delimit = Delimiters.NOBODY
-            if status_code == b"204" or status_code.startswith(b"1"):
-                res_hdrs = [i for i in res_hdrs if i[0].lower() != b"content-length"]
-        elif body_len is not None:
-            delimit = Delimiters.COUNTED
-        elif self.req_version == b"1.1":
-            delimit = Delimiters.CHUNKED
-            res_hdrs.append((b"Transfer-Encoding", b"chunked"))
-        else:
-            delimit = Delimiters.CLOSE
-        if delimit is Delimiters.CLOSE or not self.persistent:
-            res_hdrs.append((b"Connection", b"close"))
-        elif self.req_version == b"1.0":
-            res_hdrs.append((b"Connection", b"keep-alive"))
-
         self.http_conn.output_start(
             b"HTTP/1.1 %s %s" % (status_code, status_phrase),
             res_hdrs,
