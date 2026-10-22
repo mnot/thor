@@ -1876,6 +1876,16 @@ Content-Length: 5
         self.assertFalse(tcp_conn.tcp_connected)
         self.assertIsNone(conn.tcp_conn)
 
+    def test_close_conn_forgets_a_connection_that_is_already_gone(self):
+        tcp_conn = FakeTcpConnection()
+        server = FakeServer()
+        conn = HttpServerConnection(tcp_conn, server)
+        tcp_conn.tcp_connected = False
+
+        conn.close_conn()
+
+        self.assertIsNone(conn.tcp_conn)
+
     def test_response_done_default_keeps_connection(self):
         tcp_conn = FakeTcpConnection()
         server = FakeServer()

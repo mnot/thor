@@ -146,9 +146,6 @@ class ExchangeQueue:
     def __iter__(self) -> Iterator["HttpServerExchange"]:
         return iter(self._exchanges)
 
-    def __contains__(self, exchange: object) -> bool:
-        return exchange in self._exchanges
-
     def add(self, exchange: "HttpServerExchange") -> None:
         self._exchanges.append(exchange)
 
@@ -336,9 +333,10 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_idle_timer()
         self._stop_req_timer()
         self._stop_res_timer()
-        if self.tcp_conn and self.tcp_conn.tcp_connected:
-            self.tcp_conn.close()
-            self.tcp_conn = None
+        if self.tcp_conn:
+            if self.tcp_conn.tcp_connected:
+                self.tcp_conn.close()
+            self.tcp_conn = None  # even if it was already gone
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
