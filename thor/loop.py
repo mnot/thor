@@ -86,6 +86,21 @@ class EventSource(EventEmitter):
         return self._interesting_events
 
 
+class FdRegistration:
+    """
+    An EventSource's claim on an fd number. Each registration gets a new
+    generation, so events polled for a previous owner of the number can be
+    told apart from the current owner's.
+    """
+
+    __slots__ = ("fd", "target", "generation")
+
+    def __init__(self, fd: int, target: EventSource, generation: int) -> None:
+        self.fd = fd
+        self.target = target
+        self.generation = generation
+
+
 class LoopBase(EventEmitter, metaclass=ABCMeta):
     """
     Base class for async loops.
@@ -105,7 +120,8 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         self._async_queue: Deque[Tuple[EventListener, Tuple[Any, ...]]] = (
             collections.deque()
         )
-        self._fd_targets: Dict[int, EventSource] = {}
+        self._fd_targets: Dict[int, FdRegistration] = {}
+        self._fd_generation = 0
         self.__last_event_check: float = 0.0
         self._eventlookup = {v: k for (k, v) in self._event_types.items()}
         self.__event_cache: Dict[int, Set[str]] = {}
@@ -144,7 +160,7 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
 
     def registered_fd_handlers(self) -> List[EventSource]:
         "Returns a list of registered fd EventSources."
-        return list(self._fd_targets.values())
+        return [reg.target for reg in self._fd_targets.values()]
 
     @abstractmethod
     def _run_fd_events(self) -> None:
@@ -231,20 +247,35 @@ class LoopBase(EventEmitter, metaclass=ABCMeta):
         "Stop emitting event for fd"
         raise NotImplementedError
 
-    def _fd_event(self, event: str, fd: int) -> None:
-        "An event has occured on an fd."
-        if fd in self._fd_targets:
-            self._fd_targets[fd].emit(event)
+    def _register(self, fd: int, target: EventSource) -> FdRegistration:
+        "Record target as the current owner of fd."
+        self._fd_generation += 1
+        registration = FdRegistration(fd, target, self._fd_generation)
+        self._fd_targets[fd] = registration
+        return registration
+
+    def _emit_fd_events(self, fd: int, events: Iterable[str]) -> None:
+        """
+        Emit events for an fd, in order. If a handler unregisters the fd and
+        another source then registers the same number (a closed socket's
+        number is reused at once), the rest are dropped: they were polled for
+        the old owner, and would otherwise reach the new one.
+        """
+        registration = self._fd_targets.get(fd)
+        if registration is None:
+            return
+        for event in events:
+            current = self._fd_targets.get(fd)
+            if current is None or current.generation != registration.generation:
+                return
+            registration.target.emit(event)
 
     def _dispatch_fd(self, fd: int, events: Set[str]) -> None:
         "Emit an fd's events: readable first, then writable, then the rest."
-        if "fd_readable" in events:
-            self._fd_event("fd_readable", fd)
-        if "fd_writable" in events:
-            self._fd_event("fd_writable", fd)
-        for event in events:
-            if event not in ("fd_readable", "fd_writable"):
-                self._fd_event(event, fd)
+        first = ("fd_readable", "fd_writable")
+        ordered = [event for event in first if event in events]
+        ordered.extend(event for event in events if event not in first)
+        self._emit_fd_events(fd, ordered)
 
     def schedule(
         self, delta: float, callback: EventListener, *args: Any
@@ -366,7 +397,7 @@ class MaskLoop(LoopBase):
                 self._poller.register(fd, eventmask)
         else:
             self._poller.register(fd, eventmask)
-        self._fd_targets[fd] = target
+        self._register(fd, target)
 
     def unregister_fd(self, fd: int) -> None:
         self._fd_targets.pop(fd, None)
@@ -387,7 +418,7 @@ class MaskLoop(LoopBase):
     def _update_mask(self, fd: int) -> None:
         "Tell the poller which events the fd's target is interested in now."
         try:
-            target = self._fd_targets[fd]
+            target = self._fd_targets[fd].target
         except KeyError:
             return
         try:
@@ -472,17 +503,17 @@ class KqueueLoop(LoopBase):
         self._kq = select.kqueue()  # type: ignore[attr-defined, unused-ignore]
 
     def register_fd(self, fd: int, events: List[str], target: EventSource) -> None:
-        self._fd_targets[fd] = target
+        self._register(fd, target)
         for event in events:
             self.event_add(fd, event)
 
     def unregister_fd(self, fd: int) -> None:
         try:
-            obj = self._fd_targets[fd]
+            target = self._fd_targets[fd].target
         except KeyError:
             return
-        for event in list(obj.interesting_events()):
-            obj.event_del(event)
+        for event in list(target.interesting_events()):
+            target.event_del(event)
         del self._fd_targets[fd]
 
     def event_add(self, fd: int, event: str) -> None:
@@ -527,18 +558,14 @@ class KqueueLoop(LoopBase):
         for ev in events:
             fileno = int(ev.ident)
             if ev.flags & select.KQ_EV_ERROR:  # type: ignore[attr-defined, unused-ignore]
-                self._fd_event("fd_error", fileno)
+                self._emit_fd_events(fileno, ["fd_error"])
                 continue
-            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined, unused-ignore]
-                if ev.fflags:
-                    self._fd_event("fd_error", fileno)
-
-            event_types = self._filter2events(ev.filter)
-            for event_type in event_types:
-                self._fd_event(event_type, fileno)
-
-            if ev.flags & select.KQ_EV_EOF:  # type: ignore[attr-defined, unused-ignore]
-                self._fd_event("fd_close", fileno)
+            eof = bool(ev.flags & select.KQ_EV_EOF)  # type: ignore[attr-defined, unused-ignore]
+            ordered: List[str] = ["fd_error"] if eof and ev.fflags else []
+            ordered.extend(self._filter2events(ev.filter))
+            if eof:
+                ordered.append("fd_close")
+            self._emit_fd_events(fileno, ordered)
 
 
 def make(precision: Optional[float] = None) -> LoopBase:

@@ -199,7 +199,7 @@ class TestLoop(unittest.TestCase):
         self.addCleanup(lambda: os.close(w_fd))
         es = thor.loop.EventSource(self.loop)
         # Plant a stale entry for an fd epoll has never seen.
-        self.loop._fd_targets[r_fd] = es
+        self.loop._fd_targets[r_fd] = thor.loop.FdRegistration(r_fd, es, 0)
         try:
             self.loop.register_fd(r_fd, ["fd_readable"], es)
             self.assertIn(r_fd, self.loop._fd_targets)
@@ -273,6 +273,29 @@ class TestEventSource(unittest.TestCase):
         os.write(self.w_fd, b"foo")
         self.loop._run_fd_events()
         self.assertFalse("fd_readable" in self.events_seen)
+
+    def test_events_after_reregistration_are_dropped(self):
+        """
+        A handler closes its fd and a new source registers the same number
+        (a closed socket's number is reused at once). The rest of the old
+        fd's events in that dispatch must not reach the new owner.
+        """
+        seen = []
+        newcomer = thor.loop.EventSource(self.loop)
+        newcomer.on("fd_readable", lambda: seen.append("readable"))
+        newcomer.on("fd_close", lambda: seen.append("close"))
+
+        def swap():
+            self.es.unregister_fd()
+            newcomer.register_fd(self.r_fd, "fd_readable")
+
+        self.es.register_fd(self.r_fd, "fd_readable")
+        self.es.on("fd_readable", swap)
+
+        self.loop._emit_fd_events(self.r_fd, ["fd_readable", "fd_close"])
+
+        self.assertEqual(seen, [])
+        self.assertIs(self.loop.registered_fd_handlers()[0], newcomer)
 
     def test_EventSource_event_del(self):
         self.es.register_fd(self.r_fd, "fd_readable")
