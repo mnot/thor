@@ -309,5 +309,15 @@ class TestEventSource(unittest.TestCase):
         self.events_seen.append("fd_close")
 
 
+@unittest.skipUnless(hasattr(select, "poll"), "poll only")
+class TestEventSourcePoll(TestEventSource):
+    "The same, on the poll() backend, whatever make() picks here."
+
+    def setUp(self):
+        TestEventSource.setUp(self)
+        self.loop = thor.loop.PollLoop()
+        self.es = thor.loop.EventSource(self.loop)
+
+
 if __name__ == "__main__":
     unittest.main()
