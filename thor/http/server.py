@@ -15,7 +15,7 @@ will block the entire server.
 
 import os
 import sys
-from typing import Any, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Iterator, List, Optional, Set, Tuple
 
 from thor.events import EventEmitter, on
 from thor.http.common import (
@@ -25,14 +25,15 @@ from thor.http.common import (
     check_method,
     check_request_target,
     header_names,
-    strip_hop_by_hop,
     no_body_status,
     output_content_length,
+    strip_hop_by_hop,
 )
 from thor.http.error import (
     HostRequiredError,
     HttpError,
     HttpVersionError,
+    OutputStateError,
     RequestLineError,
     RequestTransferEncodingError,
     TooManyMsgsError,
@@ -186,6 +187,18 @@ class ExchangeQueue:
                 return exchange
         return None
 
+    def is_next(self, exchange: "HttpServerExchange") -> bool:
+        """
+        Is it this exchange's turn to write its response? An exchange that
+        isn't queued (the one for an error response) always has its turn.
+        """
+        return exchange not in self._exchanges or self.next_to_answer is exchange
+
+    @property
+    def buffered(self) -> int:
+        "Bytes of response held back for exchanges waiting their turn."
+        return sum(exchange.buffered for exchange in self._exchanges)
+
     def answered_before(self, exchange: Optional["HttpServerExchange"]) -> bool:
         """
         Has every exchange ahead of this one been answered? With None, has
@@ -212,6 +225,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     default_state = States.WAITING
     max_pipeline_requests = 100
+    max_buffered_response = 1024 * 1024  # bytes held for exchanges not yet next
 
     def __init__(self, tcp_conn: TcpConnection, server: HttpServer) -> None:
         HttpMessageHandler.__init__(self)
@@ -342,6 +356,9 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         exchange.res_complete = True
         self.exchanges.retire(exchange)
+        next_ex = self.exchanges.next_to_answer
+        if next_ex:
+            next_ex.release()
         self._handle_pending_error()
         self._update_res_timer()
         self._update_idle_timer()
@@ -363,9 +380,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if not self.exchanges.answered_before(in_flight):
             return
         self._pending_error = None
-        if in_flight and (
-            in_flight.res_complete or self._output_state != States.WAITING
-        ):
+        if in_flight and (in_flight.res_done or in_flight.response_started):
             # its response is under way or sent; a second can't follow it
             self.close_conn()
         else:
@@ -502,7 +517,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
     def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."
         ex = self.exchanges.last
-        if ex.res_complete:
+        if ex.res_done:
             return
         ex.emit("request_body", chunk)
 
@@ -512,7 +527,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_req_timer()
         ex = self.exchanges.last
         ex.req_complete = True
-        if not ex.res_complete:
+        if not ex.res_done:
             ex.emit("request_done", trailers)
         self.exchanges.retire(ex)
         self._update_res_timer()
@@ -562,9 +577,49 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             exchange.request_start()
 
 
+class ExchangeOutput(HttpMessageHandler):
+    """
+    Serialises one exchange's response, so its output state is kept apart
+    from the other exchanges' on the same connection.
+    """
+
+    default_state = States.QUIET
+
+    def __init__(self, sink: Callable[[bytes], None]) -> None:
+        HttpMessageHandler.__init__(self)
+        self._sink = sink
+
+    @property
+    def started(self) -> bool:
+        "Have the final response's headers gone out, with the response unfinished?"
+        return self._output_state != States.WAITING
+
+    def output(self, data: bytes) -> None:
+        self._sink(data)
+
+    def output_done(self) -> None:
+        pass
+
+    def input_start(self, *args: Any) -> Tuple[bool, bool]:
+        raise NotImplementedError
+
+    def input_body(self, chunk: bytes) -> None:
+        raise NotImplementedError
+
+    def input_end(self, trailers: RawHeaderListType) -> None:
+        raise NotImplementedError
+
+    def input_error(self, err: HttpError) -> None:
+        raise NotImplementedError
+
+
 class HttpServerExchange(EventEmitter):
     """
     A request/response interaction on an HTTP server.
+
+    Responses go out in request order. What an exchange writes while an
+    earlier one is still unanswered is held back (up to the connection's
+    max_buffered_response bytes in all) and sent when its turn comes.
     """
 
     def __init__(
@@ -585,7 +640,12 @@ class HttpServerExchange(EventEmitter):
         self.persistent = persistent
         self.started = False
         self.req_complete = False
-        self.res_complete = False
+        self.res_done = False  # the application has finished its response
+        self.res_complete = False  # ...and it has been handed to the connection
+        self._out = ExchangeOutput(self._write)
+        self._held: List[bytes] = []
+        self._held_len = 0
+        self._close = False
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -594,16 +654,63 @@ class HttpServerExchange(EventEmitter):
         status.append(f"{method} <{uri}>")
         return f'<{", ".join(status)} at {id(self):#x}>'
 
+    @property
+    def buffered(self) -> int:
+        "Bytes of this exchange's response waiting for its turn."
+        return self._held_len
+
+    @property
+    def response_started(self) -> bool:
+        "Is the final response under way?"
+        return self._out.started
+
     def request_start(self) -> None:
         self.started = True
         self.http_conn._update_res_timer()  # pylint: disable=protected-access
         self.emit("request_start", self.method, self.uri, self.req_hdrs)
 
+    def _write(self, data: bytes) -> None:
+        conn = self.http_conn
+        if conn.exchanges.is_next(self):
+            self._flush()
+            conn.output(data)
+            return
+        if conn.exchanges.buffered + len(data) > conn.max_buffered_response:
+            raise BufferError("HTTP response buffer limit exceeded")
+        self._held.append(data)
+        self._held_len += len(data)
+
+    def _flush(self) -> None:
+        if self._held:
+            data = b"".join(self._held)
+            self._held = []
+            self._held_len = 0
+            self.http_conn.output(data)
+
+    def release(self) -> None:
+        "It's now this exchange's turn: send what it held, and finish it if it's done."
+        try:
+            self._flush()
+        except (BufferError, OSError):
+            self.http_conn.close_conn()  # can't deliver it
+        if self.res_done:
+            self._complete()
+
+    def _complete(self) -> None:
+        if self._close and self.http_conn.tcp_conn:
+            self.http_conn.close_conn()
+        self.http_conn.exchange_done(self)
+
+    def _check_open(self) -> None:
+        if self.res_done:
+            raise OutputStateError("HTTP response already finished")
+
     def response_nonfinal(
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
     ) -> None:
         "Send a non-final (1xx) response. Can be called zero to many times."
-        self.http_conn.output_start(
+        self._check_open()
+        self._out.output_start(
             b"HTTP/1.1 %s %s" % (status_code, status_phrase),
             res_hdrs,
             Delimiters.NONE,
@@ -614,10 +721,11 @@ class HttpServerExchange(EventEmitter):
         self, status_code: bytes, status_phrase: bytes, res_hdrs: RawHeaderListType
     ) -> None:
         "Start a response. Must only be called once per response."
+        self._check_open()
         res_hdrs, delimit = response_framing(
             self.method, status_code, self.req_version, self.persistent, res_hdrs
         )
-        self.http_conn.output_start(
+        self._out.output_start(
             b"HTTP/1.1 %s %s" % (status_code, status_phrase),
             res_hdrs,
             delimit,
@@ -626,7 +734,7 @@ class HttpServerExchange(EventEmitter):
 
     def response_body(self, chunk: bytes) -> None:
         "Send part of the response body. May be called zero to many times."
-        self.http_conn.output_body(chunk)
+        self._out.output_body(chunk)
 
     def response_done(self, trailers: RawHeaderListType, close: bool = False) -> None:
         """
@@ -635,10 +743,11 @@ class HttpServerExchange(EventEmitter):
         underlying TCP connection is closed after the response is flushed,
         regardless of response framing.
         """
-        should_close = self.http_conn.output_end(trailers)
-        if (should_close or close or not self.persistent) and self.http_conn.tcp_conn:
-            self.http_conn.close_conn()
-        self.http_conn.exchange_done(self)
+        should_close = self._out.output_end(trailers)
+        self._close = should_close or close or not self.persistent
+        self.res_done = True
+        if self.http_conn.exchanges.is_next(self):
+            self._complete()
 
 
 def test_handler(ex: HttpServerExchange) -> None:  # pragma: no cover

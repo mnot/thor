@@ -652,6 +652,149 @@ Content-Length: 5
         self.fake_server = server
         return tcp_conn, conn, exchanges
 
+    def test_pipelined_response_waits_for_earlier_exchange(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two")
+        self.assertEqual(tcp_conn.output, [])
+        self.assertEqual(list(conn.exchanges), [first, second])
+
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"one"), output.index(b"two"))
+        self.assertEqual(output.count(b"HTTP/1.1 200 OK"), 2)
+        self.assertEqual(list(conn.exchanges), [])
+        self.assertTrue(tcp_conn.tcp_connected)
+
+    def test_pipelined_response_releases_in_order(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        conn.handle_input(
+            b"".join(
+                b"GET /%i HTTP/1.1\r\nHost: example.com\r\n\r\n" % i for i in range(3)
+            )
+        )
+        first, second, third = conn.exchanges
+        self.respond(third, b"three")
+        self.respond(second, b"two")
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertEqual(
+            sorted(output.index(w) for w in (b"one", b"two", b"three")),
+            [output.index(w) for w in (b"one", b"two", b"three")],
+        )
+        self.assertEqual(list(conn.exchanges), [])
+
+    def test_pipelined_response_streams_once_its_turn_comes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        second.response_start(b"200", b"OK", [(b"Content-Length", b"6")])
+        second.response_body(b"two")
+        self.assertEqual(tcp_conn.output, [])
+
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertTrue(output.endswith(b"two"))
+        self.assertIn(b"Content-Length: 6", output)
+
+        second.response_body(b"too")
+        second.response_done([])
+        self.assertTrue(b"".join(tcp_conn.output).endswith(b"twotoo"))
+        self.assertEqual(list(conn.exchanges), [])
+
+    def test_pipelined_interim_response_waits_for_earlier_exchange(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        second.response_nonfinal(b"100", b"Continue", [])
+        self.assertEqual(tcp_conn.output, [])
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertLess(output.index(b"200 OK"), output.index(b"100 Continue"))
+
+    def test_pipelined_close_applies_when_response_is_released(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two", close=True)
+        self.assertTrue(tcp_conn.tcp_connected)
+        self.respond(first, b"one")
+        output = b"".join(tcp_conn.output)
+        self.assertIn(b"one", output)
+        self.assertIn(b"two", output)
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_pipelined_earlier_close_drops_later_response(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two")
+        self.respond(first, b"one", close=True)
+        self.assertNotIn(b"two", b"".join(tcp_conn.output))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_pipelined_response_buffer_is_bounded(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+        conn.max_buffered_response = 200
+
+        second.response_start(b"200", b"OK", [])
+        second.response_body(b"x" * 10)
+        with self.assertRaises(BufferError):
+            second.response_body(b"x" * 200)
+        self.assertEqual(tcp_conn.output, [])
+
+    def test_pipelined_response_buffer_is_shared_by_exchanges(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        conn.max_buffered_response = 120
+        conn.handle_input(
+            b"".join(
+                b"GET /%i HTTP/1.1\r\nHost: example.com\r\n\r\n" % i for i in range(3)
+            )
+        )
+        _, second, third = conn.exchanges
+        for ex in (second, third):
+            ex.response_start(b"200", b"OK", [(b"Content-Length", b"100")])
+        with self.assertRaises(BufferError):
+            second.response_body(b"x" * 50)
+
+    def test_pipelined_response_release_failure_closes(self):
+        tcp_conn, conn, (first, second) = self.pipelined_two_conn()
+
+        self.respond(second, b"two")
+
+        def refuse(data):
+            if b"two" in data:
+                raise BufferError("full")
+            tcp_conn.output.append(data)
+
+        tcp_conn.write = refuse
+        self.respond(first, b"one")
+        self.assertIn(b"one", b"".join(tcp_conn.output))
+        self.assertNotIn(b"two", b"".join(tcp_conn.output))
+        self.assertFalse(tcp_conn.tcp_connected)
+
+    def test_response_after_response_done_refused(self):
+        tcp_conn, conn, first = self.pipelined_conn()
+        self.respond(first, b"one")
+        with self.assertRaises(thor.http.error.OutputStateError):
+            first.response_start(b"200", b"OK", [])
+        with self.assertRaises(thor.http.error.OutputStateError):
+            first.response_nonfinal(b"100", b"Continue", [])
+
+    def test_pipelined_request_body_dropped_once_response_buffered(self):
+        tcp_conn = FakeTcpConnection()
+        conn = HttpServerConnection(tcp_conn, FakeServer())
+        conn.handle_input(
+            b"GET /one HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            b"POST /two HTTP/1.1\r\nHost: example.com\r\n"
+            b"Content-Length: 6\r\n\r\nabc"
+        )
+        first, second = conn.exchanges
+        chunks = []
+        on(second, "request_body")(chunks.append)
+        self.respond(second, b"two")
+        conn.handle_input(b"def")
+        self.assertEqual(chunks, [])
+
     def test_pipelined_error_follows_all_earlier_responses(self):
         tcp_conn, conn, (first, second) = self.pipelined_two_conn()
 
@@ -2283,9 +2426,13 @@ Content-Length: 0
         tcp_conn, conn, exchanges, started = self.make_pipeline_conn(on_start)
         conn.res_body_pause(False)
         self.assertEqual(started, [b"/0", b"/1", b"/2"])
-        self.assertEqual(list(conn.exchanges), [exchanges[1]])
+        # /2 is answered but waits behind /1
+        self.assertEqual(list(conn.exchanges), [exchanges[1], exchanges[2]])
         self.answer(exchanges[1])
         self.assertEqual(list(conn.exchanges), [])
+        output = b"".join(tcp_conn.output)
+        positions = [output.index(b"X-Uri: /%i" % i) for i in range(3)]
+        self.assertEqual(positions, sorted(positions))
 
     def test_drain_exchange_queue_stops_when_connection_closed(self):
         def on_start(exchange, index):

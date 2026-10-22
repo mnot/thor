@@ -143,6 +143,8 @@ Start sending the exchange's response. `status` and `phrase` should contain the 
 
 Note that hop-by-hop headers will be stripped from `headers`; Thor manages its own connections headers (such as _Connection_, _Keep-Alive_, and so on.)
 
+Responses are sent in the order the requests arrived. If an earlier request on the connection hasn't been answered yet (the client is pipelining), what this exchange writes is held until it has, and sent then; the application doesn't need to order its own responses. At most `HttpServerConnection.max_buffered_response` bytes (default 1 MiB) are held for the connection's exchanges in all; a write that would exceed that raises *BufferError*.
+
 
 #### _void_ response\_nonfinal ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
 
