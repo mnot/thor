@@ -612,7 +612,7 @@ class TestHttpClient(framework.ClientServerTestCase):
         max_server_conn holds when every response closes the connection.
 
         Covers sequential reuse (double-decrement and queue draining) only;
-        counting of in-flight connects during a burst is #152.
+        see test_max_server_conn_burst for connects still in progress.
         """
         total = 20
         lock = threading.Lock()
@@ -678,6 +678,117 @@ class TestHttpClient(framework.ClientServerTestCase):
         self.go([server_side], [client_side])
         self.assertEqual(self.done_count, total)
         self.assertLessEqual(self.peak, 2)
+
+    def _burst(self, keep_alive):
+        """
+        All the requests are issued before any connection exists, so each sees
+        no live connections; the in-flight connects have to count.
+        """
+        total = 20
+        limit = 2
+        lock = threading.Lock()
+        state = {"active": 0, "peak": 0}
+        done = []
+        clients = []
+
+        def client_side(client, test_host, test_port):
+            clients.append(client)
+            client.max_server_conn = limit
+            req_uri = b"http://%s:%i/burst" % (test_host, test_port)
+            for _ in range(total):
+                exchange = client.exchange()
+                self.check_exchange(exchange, {"status": b"200", "body": b"12345"})
+
+                @on(exchange)
+                def response_done(trailers):
+                    done.append(1)
+                    if len(done) == total:
+                        self.loop.stop()
+
+                exchange.request_start(b"GET", req_uri, [])
+                exchange.request_done([])
+
+        def server_side(conn):
+            with lock:
+                state["active"] += 1
+                state["peak"] = max(state["peak"], state["active"])
+            connection = b"keep-alive" if keep_alive else b"close"
+            buf = b""
+            try:
+                while True:
+                    while b"\r\n\r\n" not in buf:
+                        chunk = conn.request.recv(1024)
+                        if not chunk:
+                            return
+                        buf += chunk
+                    buf = buf.split(b"\r\n\r\n", 1)[1]
+                    time.sleep(0.05)  # keep connections overlapping
+                    if not keep_alive:
+                        with lock:  # before the client can see the close
+                            state["active"] -= 1
+                    conn.request.sendall(
+                        b"HTTP/1.1 200 OK\r\n"
+                        b"Content-Length: 5\r\n"
+                        b"Connection: " + connection + b"\r\n"
+                        b"\r\n"
+                        b"12345"
+                    )
+                    if not keep_alive:
+                        conn.request.close()
+                        return
+            finally:
+                if keep_alive:
+                    with lock:
+                        state["active"] -= 1
+
+        self.go([server_side], [client_side], timeout=10)
+        self.assertEqual(len(done), total)
+        self.assertLessEqual(state["peak"], limit)
+        self.assertEqual(clients[0]._connecting, {})
+
+    def test_max_server_conn_burst_close(self):
+        self._burst(keep_alive=False)
+
+    def test_max_server_conn_burst_keep_alive(self):
+        self._burst(keep_alive=True)
+
+    def test_connect_error_starts_waiting_request(self):
+        """
+        A failed connect frees its slot, and a request queued behind it gets
+        its turn rather than waiting for a live connection that never comes.
+        """
+        total = 3
+        errors = []
+        clients = []
+
+        def client_side(client, test_host, test_port):
+            clients.append(client)
+            client.max_server_conn = 1
+            client.connect_attempts = 0
+            client.retry_limit = 0
+            unused = socket.socket()
+            unused.bind((test_host.decode(), 0))
+            req_uri = b"http://%s:%i/" % (test_host, unused.getsockname()[1])
+            unused.close()  # nothing is listening here now
+            for _ in range(total):
+                exchange = client.exchange()
+
+                @on(exchange)
+                def error(err_msg):
+                    errors.append(err_msg)
+                    if len(errors) == total:
+                        self.loop.stop()
+
+                exchange.request_start(b"GET", req_uri, [])
+                exchange.request_done([])
+
+        def server_side(conn):
+            pass
+
+        self.go([server_side], [client_side], timeout=5)
+        self.assertEqual(len(errors), total)
+        self.assertEqual(clients[0]._connecting, {})
+        self.assertEqual(clients[0]._waiting, {})
 
     def test_conn_refuse_err(self):
         def server_side(conn):
