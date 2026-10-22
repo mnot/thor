@@ -1329,11 +1329,12 @@ Content-Length: %(body_len)i
         self.assertFalse(self.parser.output_end([]))
         self.assertEqual(done, [True])
 
-    def test_too_many_messages_in_one_read(self):
+    def test_many_messages_in_one_read(self):
         parser = NonFinalParser()
-        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * (sys.getrecursionlimit() * 5))
-        self.assertIsInstance(parser.test_err, error.TooManyMsgsError)
-        self.assertEqual(parser.test_states.count("ERROR"), 1)
+        count = sys.getrecursionlimit() * 5
+        parser.handle_input(b"HTTP/1.1 100 Continue\r\n\r\n" * count)
+        self.assertIsNone(parser.test_err)
+        self.assertEqual(parser.test_states.count("START"), count)
 
 
 #    def test_nobody_delimit(self):

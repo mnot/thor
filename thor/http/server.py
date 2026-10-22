@@ -146,9 +146,6 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             self._req_timer = self.server.loop.schedule(timeout, self.close_conn)
 
     def handle_input(self, inbytes: bytes) -> None:
-        if self._in_input:  # the parser calls itself for pipelined data
-            HttpMessageHandler.handle_input(self, inbytes)
-            return
         self._in_input = True
         try:
             HttpMessageHandler.handle_input(self, inbytes)

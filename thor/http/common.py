@@ -261,25 +261,27 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._input_scan_pos = -1
             self._input_scan_lines = 0
         try:
-            self._handle_input_step(inbytes)
+            rest: Optional[bytes] = inbytes
+            while rest is not None:  # the state changed; keep going
+                rest = self._handle_input_step(rest)
         except _ParseError:
             pass  # already reported; the rest of the read is dropped
 
-    def _handle_input_step(self, inbytes: bytes) -> None:
-        "Handle input according to the current state."
+    def _handle_input_step(self, inbytes: bytes) -> Optional[bytes]:
+        """
+        Handle input according to the current state. Returns None if more
+        input is needed, or what's left (possibly nothing) once the state has
+        changed and the rest of the read should be looked at again.
+        """
         if self._input_state == States.WAITING:  # waiting for headers or trailers
             headers, rest = self._split_headers(inbytes)
             if headers is not None:  # found one
                 self._parse_headers(headers)
-                try:
-                    self.handle_input(rest)
-                except RecursionError:
-                    # too many messages in one read to handle recursively;
-                    # we can't recover from this, so we bail.
-                    self.input_error(error.TooManyMsgsError())
-            else:  # partial headers; store it and wait for more
-                if len(inbytes) > self.max_input_field_section_length:
-                    self._abort(error.FieldSectionTooLargeError())
+                return rest
+            # partial headers; store it and wait for more
+            if len(inbytes) > self.max_input_field_section_length:
+                self._abort(error.FieldSectionTooLargeError())
+            if inbytes:
                 self._input_buffer.append(inbytes)
         elif self._input_state == States.QUIET:  # shouldn't be getting any data now.
             if inbytes.strip():
@@ -291,24 +293,28 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 body_handler = getattr(self, f"_handle_{self._input_delimit.value}")
             except AttributeError:
                 raise RuntimeError(f"Unknown input delimiter {self._input_delimit}")
-            body_handler(inbytes)
+            return body_handler(inbytes)  # type: ignore[no-any-return]
         elif self._input_state == States.ERROR:  # something bad happened.
             pass  # I'm silently ignoring input that I don't understand.
         else:
             raise RuntimeError(f"Unknown state {self._input_state}")
+        return None
 
-    def _handle_nobody(self, inbytes: bytes) -> None:
+    # Body handlers return what's left once the message ends, so that the
+    # caller can look at it in the new state, or None if they need more.
+
+    def _handle_nobody(self, inbytes: bytes) -> Optional[bytes]:
         "Handle input that shouldn't have a body."
         self._input_state = self.default_state
         self.input_end([])
-        self.handle_input(inbytes)
+        return inbytes
 
     def _handle_close(self, inbytes: bytes) -> None:
-        "Handle input where the body is delimited by the connection closing."
+        "Handle input where the body is delimited by the connection closing; never ends here."
         self.input_transfer_length += len(inbytes)
         self.input_body(inbytes)
 
-    def _handle_chunked(self, inbytes: bytes) -> None:
+    def _handle_chunked(self, inbytes: bytes) -> Optional[bytes]:
         "Handle input where the body is delimited by chunked encoding."
         while inbytes:
             if self._input_chunk_term is not None:
@@ -319,8 +325,8 @@ class HttpMessageHandler(metaclass=ABCMeta):
                 # we're in the middle of reading a chunk
                 inbytes = self._handle_chunk_body(inbytes)
             elif self._input_body_left == 0:  # body is done
-                self._handle_chunk_done(inbytes)
-                break
+                return self._handle_chunk_done(inbytes)
+        return None
 
     def _handle_chunk_new(self, inbytes: bytes) -> bytes:
         "Handle the start of a new body chunk."
@@ -378,26 +384,25 @@ class HttpMessageHandler(metaclass=ABCMeta):
         self._fail(error.ChunkTerminatorError(detail))
         return True
 
-    def _handle_chunk_done(self, inbytes: bytes) -> None:
+    def _handle_chunk_done(self, inbytes: bytes) -> Optional[bytes]:
         "Handle a finished body chunk."
         if inbytes[:2] == b"\r\n":  # no trailer
             self._input_state = self.default_state
             self.input_end([])
-            if len(inbytes) > 2:
-                self.handle_input(inbytes[2:])  # 2 consumes the CRLF
-        else:
-            trailer_block, rest = self._split_headers(inbytes)  # trailers
-            if trailer_block is not None:
-                self._input_state = self.default_state
-                trailers = self._parse_fields(self._split_lines(trailer_block))[0]
-                self.input_end(trailers)
-                self.handle_input(rest)
-            else:  # don't have full trailers yet
-                if len(inbytes) > self.max_input_field_section_length:
-                    self._abort(error.FieldSectionTooLargeError())
-                self._input_buffer.append(inbytes)
+            return inbytes[2:]  # 2 consumes the CRLF
+        trailer_block, rest = self._split_headers(inbytes)  # trailers
+        if trailer_block is not None:
+            self._input_state = self.default_state
+            trailers = self._parse_fields(self._split_lines(trailer_block))[0]
+            self.input_end(trailers)
+            return rest
+        # don't have full trailers yet
+        if len(inbytes) > self.max_input_field_section_length:
+            self._abort(error.FieldSectionTooLargeError())
+        self._input_buffer.append(inbytes)
+        return None
 
-    def _handle_counted(self, inbytes: bytes) -> None:
+    def _handle_counted(self, inbytes: bytes) -> Optional[bytes]:
         "Handle input where the body is delimited by the Content-Length."
         body_left = self._input_body_left
         if body_left <= len(inbytes):  # got it all (and more?)
@@ -405,12 +410,12 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self.input_body(inbytes[:body_left])
             self._input_state = self.default_state
             self.input_end([])
-            if inbytes[body_left:]:
-                self.handle_input(inbytes[body_left:])
-        else:  # got some of it
-            self.input_body(inbytes)
-            self.input_transfer_length += len(inbytes)
-            self._input_body_left -= len(inbytes)
+            return inbytes[body_left:]
+        # got some of it
+        self.input_body(inbytes)
+        self.input_transfer_length += len(inbytes)
+        self._input_body_left -= len(inbytes)
+        return None
 
     def _parse_fields(
         self, header_lines: List[bytes], gather_conn_info: bool = False
