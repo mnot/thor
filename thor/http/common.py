@@ -244,8 +244,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
 
     def _abort(self, err: error.HttpError) -> NoReturn:
         "Report a fatal parse error and drop the rest of the input."
+        self._input_state = (
+            States.ERROR
+        )  # first: a raising listener mustn't leave us WAITING
         self.input_error(err)
-        self._input_state = States.ERROR
         raise _ParseError
 
     def handle_input(self, inbytes: bytes) -> None:
@@ -261,6 +263,10 @@ class HttpMessageHandler(metaclass=ABCMeta):
             self._input_scan_pos = -1
             self._input_scan_lines = 0
         try:
+            # Each message's leftover is sliced off, so a single read holding
+            # a great many messages costs O(messages * size) in copies. TCP
+            # reads are capped at 16 KB; only callers passing huge buffers
+            # (the old recursion limit used to bound them) would notice.
             rest: Optional[bytes] = inbytes
             while rest is not None:  # the state changed; keep going
                 rest = self._handle_input_step(rest)
