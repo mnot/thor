@@ -87,11 +87,13 @@ class TestFramingFields(unittest.TestCase):
 
     def test_te_value_control(self):
         parser = self.parse(b"Transfer-Encoding:\x0bchunked")
+        self.assertIsNone(parser.test_err)
         self.assertEqual(parser.transfer_codes, [b"\x0bchunked"])
         self.assertEqual(parser._input_delimit, Delimiters.CLOSE)
 
     def test_connection_value_control(self):
         parser = self.parse(b"Connection:\x0cclose", b"Content-Length: 3")
+        self.assertIsNone(parser.test_err)
         self.assertEqual(parser.conn_tokens, [b"\x0cclose"])
 
     def test_te_chunked_empty_member(self):
