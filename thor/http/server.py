@@ -30,6 +30,7 @@ from thor.http.common import (
     strip_hop_by_hop,
 )
 from thor.http.error import (
+    ConnectError,
     HostRequiredError,
     HttpError,
     HttpVersionError,
@@ -236,13 +237,15 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self.exchanges = ExchangeQueue()
         self.output_paused = False
         self._pending_error: Optional[HttpError] = None  # deferred error
+        self._close_error: Optional[HttpError] = None  # why we're closing
         # Each closes the connection: when it has sat idle too long, when a
         # request body stops arriving, or when a response doesn't come.
         self._idler = Timer(self.server.loop, self.close_conn)
         self._req_timer = Timer(self.server.loop, self.close_conn)
         self._res_timer = Timer(self.server.loop, self.close_conn)
         self._req_in_progress = False  # request body incomplete
-        self._req_paused = False
+        self._req_paused = False  # the application asked for it
+        self._input_held = False  # body is waiting for the application to be told
         self._res_timer_ex: Optional[HttpServerExchange] = None
         self._in_input = False
         self._peer_closed = False  # the client won't send any more
@@ -258,10 +261,23 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         Indicate that the server should pause (True) or unpause (False) the
         request.
         """
+        self._req_paused = paused
+        self._update_input_pause()
+
+    def update_input_hold(self) -> None:
+        """
+        Stop reading while any request body is being held back for an
+        application that hasn't been told of the request yet; resume once it
+        has, so a client can't make the server buffer without limit.
+        """
+        self._input_held = any(exchange.holding for exchange in self.exchanges)
+        self._update_input_pause()
+
+    def _update_input_pause(self) -> None:
+        paused = self._req_paused or self._input_held
         if self.tcp_conn:
             self.tcp_conn.pause(paused)
         # a paused request isn't the client's fault
-        self._req_paused = paused
         if paused:
             self._stop_req_timer()
         elif self._receiving:
@@ -279,7 +295,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def _start_req_timer(self) -> None:
         "(Re)start the inactivity timer for the request being received."
-        if self.tcp_conn and not self._req_paused:
+        if self.tcp_conn and not (self._req_paused or self._input_held):
             self._req_timer.start(self.server.request_timeout)
         else:
             self._req_timer.stop()
@@ -353,6 +369,22 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
             if self.tcp_conn.tcp_connected:
                 self.tcp_conn.close()
             self.tcp_conn = None  # even if it was already gone
+        self._abandon_exchanges()
+
+    def _abandon_exchanges(self) -> None:
+        """
+        Tell the application about each response that can no longer be sent.
+        A handler that raises doesn't stop the others being told; the first
+        exception is raised once they all have been.
+        """
+        failure: Optional[Exception] = None
+        for exchange in list(self.exchanges):
+            try:
+                exchange.connection_lost(self._close_error)
+            except Exception as why:  # pylint: disable=broad-exception-caught
+                failure = failure or why
+        if failure:
+            raise failure
 
     def exchange_done(self, exchange: "HttpServerExchange") -> None:
         self._answered(exchange)
@@ -387,6 +419,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         if not self.exchanges.answered_before(in_flight):
             return
         self._pending_error = None
+        self._close_error = err
         if in_flight and (in_flight.res_done or in_flight.response_started):
             # its response is under way or sent; a second can't follow it
             self.close_conn()
@@ -435,9 +468,12 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         self._stop_req_timer()
         self._stop_res_timer()
         self._stop_linger_timer()
-        self.exchanges.clear()
-        self._pending_error = None
         self.tcp_conn = None
+        try:
+            self._abandon_exchanges()
+        finally:
+            self.exchanges.clear()
+            self._pending_error = None
 
     # Methods called by common.HttpRequestHandler
 
@@ -533,10 +569,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
 
     def input_body(self, chunk: bytes) -> None:
         "Process a request body chunk from the wire."
-        ex = self.exchanges.last
-        if ex.res_done:
-            return
-        ex.emit("request_body", chunk)
+        self.exchanges.last.deliver("request_body", chunk)
 
     def input_end(self, trailers: RawHeaderListType) -> None:
         "Indicate that the request body is complete."
@@ -545,8 +578,7 @@ class HttpServerConnection(HttpMessageHandler, EventEmitter):
         ex = self.exchanges.last
         ex.req_complete = True
         ex.req_body_pending = False
-        if not ex.res_done:
-            ex.emit("request_done", trailers)
+        ex.deliver("request_done", trailers)
         self.exchanges.retire(ex)
         self._update_res_timer()
 
@@ -669,6 +701,9 @@ class HttpServerExchange(EventEmitter):
         self._held: List[bytes] = []
         self._held_len = 0
         self._close = False
+        self._lost = False  # the application has been told the connection went
+        # request events that arrived before the application was told of it
+        self._deferred: List[Tuple[str, Tuple[Any, ...]]] = []
 
     def __repr__(self) -> str:
         status = [self.__class__.__module__ + "." + self.__class__.__name__]
@@ -691,8 +726,48 @@ class HttpServerExchange(EventEmitter):
         self.started = True
         self.http_conn._update_res_timer()  # pylint: disable=protected-access
         self.emit("request_start", self.method, self.uri, self.req_hdrs)
+        deferred, self._deferred = self._deferred, []
+        for event, args in deferred:
+            self.deliver(event, *args)
+        if deferred:
+            self.http_conn.update_input_hold()
+
+    @property
+    def holding(self) -> bool:
+        "Is request body waiting for request_start?"
+        return any(event == "request_body" for event, _ in self._deferred)
+
+    def deliver(self, event: str, *args: Any) -> None:
+        """
+        Pass a request body event to the application, holding it until
+        request_start has gone out first. Dropped if the response has
+        already finished.
+        """
+        if self.res_done:
+            return
+        if self.started:
+            self.emit(event, *args)
+        else:
+            self._deferred.append((event, args))
+            self.http_conn.update_input_hold()
+
+    def connection_lost(self, cause: Optional[HttpError] = None) -> None:
+        """
+        The connection closed; if a response was owed, say so, once. The cause
+        is the error that made the server close it, if there was one.
+        """
+        if self._lost or self.res_done or not self.started:
+            return
+        self._lost = True
+        self.emit(
+            "error",
+            cause
+            or ConnectError("Connection closed before the response was sent."),
+        )
 
     def _write(self, data: bytes) -> None:
+        if self._lost:
+            return  # nobody left to send it to
         conn = self.http_conn
         if conn.exchanges.is_next(self):
             self._flush()

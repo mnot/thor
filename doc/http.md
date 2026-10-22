@@ -126,6 +126,8 @@ Stops the server from accepting new connections, and waits for all active connec
 
 Emitted once, when the exchange receives a request to `uri` using `method` and a list of tuples `headers` (see [working with HTTP headers](#headers)).
 
+It is always the first event an exchange emits. If the server's output is paused when the request arrives, the exchange is held until output resumes, and any request body that arrives meanwhile is buffered and emitted after *request_start*. The server stops reading from the connection while body is buffered, so only what was already in flight is held.
+
 
 #### event 'request\_body' ( _bytes_ `chunk` )
 
@@ -135,6 +137,13 @@ Emitted zero to many times, when a `chunk` of the request body is received.
 #### event 'request\_done' (  _[headers](#headers)_ `trailers`? )
 
 Emitted once, when the request is successfully completed. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+
+
+#### event 'error' ( _[thor.http.error.HttpError](error.md)_ `err` )
+
+Emitted once if the connection closes after *request_start* but before the response is finished: the client went away, a timeout expired, or the server dropped the connection. `err` is a *ConnectError*, unless the server closed it because of a protocol error in the request (a bad chunk in the request body, say), in which case it's that error.
+
+The response can no longer be delivered, so stop generating it. Calling *response_done* afterwards is optional; it, *response_start* and *response_body* discard their output. Calls that break the output sequence (starting a response twice, for example) still raise an *OutputStateError*.
 
 
 #### _void_ response\_start ( _bytes_ `status`,  _bytes_ `phrase`,  _[headers](#headers)_ `headers` )
@@ -158,7 +167,7 @@ Send a `chunk` of response body content.
 
 #### _void_ response\_done ( _[headers](#headers)_ `trailers`, _bool_ `close`? )
 
-Signal that the response body is finished. This must be called for every response. `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
+Signal that the response body is finished. This must be called for every response, unless the exchange has emitted [error](#event-error-). `trailers` is the list of HTTP trailers; see [working with HTTP headers](#headers).
 
 If `close` is `True`, the connection is closed once the response has been sent, whatever the response's framing. It defaults to `False`.
 
